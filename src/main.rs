@@ -49,7 +49,7 @@ enum ImageDecodingError {
 
 impl actix_web::error::ResponseError for ImageDecodingError {}
 
-#[get("/thumbnail")]
+#[post("/thumbnail")]
 async fn thumbnail(image_upload: MultipartForm<ImageUpload>) -> impl Responder {
     let ImageUpload { image } = image_upload.into_inner();
 
@@ -136,6 +136,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(app_data.clone())
             .route("/hello", web::get().to(|| async { "Hello World!" }))
             .service(get_full)
+            .service(thumbnail)
             .service(exists)
             .service(upload);
 
