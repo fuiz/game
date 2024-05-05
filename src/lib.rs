@@ -53,6 +53,7 @@ impl Game {
     async fn load_state(&mut self) {
         if matches!(self.game, LoadingState::Loading) {
             self.game = LoadingState::Done(self.state.storage().get("game").await.ok());
+            self.alarm_message = self.state.storage().get("alarm").await.ok();
         }
     }
 }
@@ -105,6 +106,10 @@ impl DurableObject for Game {
                 });
 
                 self.state.storage().put("game", &game).await?;
+                self.state
+                    .storage()
+                    .put("alarm", &self.alarm_message)
+                    .await?;
             }
             _ => (),
         }
@@ -294,6 +299,10 @@ impl DurableObject for Game {
 
         if let LoadingState::Done(game) = &self.game {
             self.state.storage().put("game", &game).await?;
+            self.state
+                .storage()
+                .put("alarm", &self.alarm_message)
+                .await?;
         }
 
         Ok(())
@@ -462,11 +471,6 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 .with_max_age(86400)
                 .with_allowed_headers(["*"])
                 .with_origins(vec!["*"])
-                .with_methods(vec![
-                    Method::Get,
-                    Method::Head,
-                    Method::Post,
-                    Method::Options,
-                ]),
+                .with_methods(vec![Method::Get, Method::Post, Method::Options]),
         )
 }
