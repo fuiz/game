@@ -470,7 +470,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             &Cors::default()
                 .with_max_age(86400)
                 .with_allowed_headers(["*"])
-                .with_origins(vec!["*"])
+                .with_origins(vec!["https://fuiz.us"])
                 .with_methods(vec![Method::Get, Method::Post, Method::Options]),
         )
 }
