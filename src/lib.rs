@@ -10,6 +10,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let router = Router::new();
 
     router
+        .get("/hello", |_, _| Response::ok("Hello World!"))
         .post_async("/thumbnail", |mut req, _ctx| async move {
             let Some(image) = req.form_data().await?.get("image") else {
                 return Response::error("no image in request", 400);
