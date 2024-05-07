@@ -59,7 +59,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 FormEntry::Field(_) => return Response::error("image has to be a file", 400),
             };
 
-            let (bytes, _) = match content_type {
+            let (bytes, content_type) = match content_type {
                 gif if gif == "image/gif" => {
                     let Ok(mut decoded_image) = gif::Decoder::new(std::io::Cursor::new(data))
                     else {
@@ -125,7 +125,11 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 return Response::error("couldn't convert hash to hex", 500);
             };
 
-            kv.put_bytes(&key, &bytes)?.execute().await?;
+            kv.put_bytes(&key, &bytes)?
+                .metadata(content_type)?
+                .expiration_ttl(60 * 24)
+                .execute()
+                .await?;
 
             Response::from_json(&json!(key))
         })
@@ -136,9 +140,18 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
             let kv = ctx.kv("IMAGES")?;
 
-            let bytes = kv.get(&media_id).bytes().await?.unwrap_or_default();
+            let (bytes, content_type) = kv.get(&media_id).bytes_with_metadata().await?;
 
-            Response::from_bytes(bytes)
+            Ok(
+                Response::from_bytes(bytes.unwrap_or_default())?.with_headers({
+                    let mut headers = Headers::new();
+                    headers.append(
+                        "content-type",
+                        &content_type.unwrap_or("image/png".to_owned()),
+                    )?;
+                    headers
+                }),
+            )
         })
         .run(req, env)
         .await?
