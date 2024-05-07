@@ -173,6 +173,8 @@ impl DurableObject for Game {
         ws: WebSocket,
         message: WebSocketIncomingMessage,
     ) -> Result<()> {
+        self.load_state().await;
+
         {
             let alarm_message = &mut self.alarm_message;
             let state = &self.state;
@@ -470,7 +472,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             &Cors::default()
                 .with_max_age(86400)
                 .with_allowed_headers(["*"])
-                .with_origins(vec!["https://fuiz.us"])
+                .with_origins(vec!["*"])
                 .with_methods(vec![Method::Get, Method::Post, Method::Options]),
         )
 }
