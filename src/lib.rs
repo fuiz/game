@@ -352,7 +352,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         .post_async("/add", |mut req, ctx| async move {
             let game_request = req.json::<GameRequest>().await?;
 
-            if let Err(e) = game_request.validate(&()) {
+            if let Err(e) = game_request.validate() {
                 return Response::error(e.to_string(), 400);
             }
 
