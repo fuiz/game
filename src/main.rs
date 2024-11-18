@@ -53,7 +53,7 @@ impl actix_web::error::ResponseError for ImageDecodingError {}
 async fn thumbnail(image_upload: MultipartForm<ImageUpload>) -> impl Responder {
     let ImageUpload { image } = image_upload.into_inner();
 
-    let decoded_image = image::io::Reader::new(std::io::Cursor::new(image.data))
+    let decoded_image = image::ImageReader::new(std::io::Cursor::new(image.data))
         .with_guessed_format()?
         .decode()?
         .resize(400, 400, image::imageops::FilterType::Nearest);
@@ -61,7 +61,7 @@ async fn thumbnail(image_upload: MultipartForm<ImageUpload>) -> impl Responder {
     let mut thumbnail_bytes: Vec<u8> = Vec::new();
     decoded_image.write_to(
         &mut std::io::Cursor::new(&mut thumbnail_bytes),
-        image::ImageOutputFormat::Png,
+        image::ImageFormat::Png,
     )?;
 
     Ok::<HttpResponse, ImageDecodingError>(
@@ -97,14 +97,14 @@ async fn upload(
             (bytes, gif)
         }
         _ => {
-            let decoded_image = image::io::Reader::new(std::io::Cursor::new(image.data))
+            let decoded_image = image::ImageReader::new(std::io::Cursor::new(image.data))
                 .with_guessed_format()?
                 .decode()?;
 
             let mut bytes: Vec<u8> = Vec::new();
             decoded_image.write_to(
                 &mut std::io::Cursor::new(&mut bytes),
-                image::ImageOutputFormat::Png,
+                image::ImageFormat::Png,
             )?;
 
             (bytes, mime::IMAGE_PNG)
