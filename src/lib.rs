@@ -21,7 +21,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 FormEntry::Field(_) => return Response::error("image has to be a file", 400),
             };
 
-            let Some(decoded_image) = image::io::Reader::new(std::io::Cursor::new(data))
+            let Some(decoded_image) = image::ImageReader::new(std::io::Cursor::new(data))
                 .with_guessed_format()?
                 .decode()
                 .ok()
@@ -92,7 +92,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                     (bytes, "image/gif")
                 }
                 _ => {
-                    let Ok(decoded_image) = image::io::Reader::new(std::io::Cursor::new(data))
+                    let Ok(decoded_image) = image::ImageReader::new(std::io::Cursor::new(data))
                         .with_guessed_format()?
                         .decode()
                     else {
@@ -140,7 +140,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
             let kv = ctx.kv("IMAGES")?;
 
-            let (bytes, content_type) = kv.get(&media_id).bytes_with_metadata().await?;
+            let (bytes, content_type) = kv.get(media_id).bytes_with_metadata().await?;
 
             Ok(
                 Response::from_bytes(bytes.unwrap_or_default())?.with_headers({
