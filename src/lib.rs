@@ -96,22 +96,19 @@ impl DurableObject for Game {
             })
         };
 
-        match (alarm_message_to_be_announced, game) {
-            (Some(message), Some(game)) => {
-                game.receive_alarm(message, schedule_message, |id| {
-                    self.state
-                        .get_websockets_with_tag(&id.to_string())
-                        .first()
-                        .map(|ws| WebSocketTunnel(ws.to_owned()))
-                });
-
-                self.state.storage().put("game", &game).await?;
+        if let (Some(message), Some(game)) = (alarm_message_to_be_announced, game) {
+            game.receive_alarm(message, schedule_message, |id| {
                 self.state
-                    .storage()
-                    .put("alarm", &self.alarm_message)
-                    .await?;
-            }
-            _ => (),
+                    .get_websockets_with_tag(&id.to_string())
+                    .first()
+                    .map(|ws| WebSocketTunnel(ws.to_owned()))
+            });
+
+            self.state.storage().put("game", &game).await?;
+            self.state
+                .storage()
+                .put("alarm", &self.alarm_message)
+                .await?;
         }
 
         Response::ok("")
