@@ -63,7 +63,7 @@ impl DurableObject for Game {
     fn new(state: State, _env: Env) -> Self {
         Self {
             game: LoadingState::Loading,
-            state: state,
+            state,
             alarm_message: None,
             _env,
         }
@@ -421,7 +421,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
             let game_manger = ctx.kv("GAME_MANAGER")?;
 
-            let Some(game) = game_manger.get(&id).json::<GameManagerInstance>().await? else {
+            let Some(game) = game_manger.get(id).json::<GameManagerInstance>().await? else {
                 return Response::error("Not Found", 404);
             };
 
@@ -438,7 +438,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
             let game_manger = ctx.kv("GAME_MANAGER")?;
 
-            let Some(game) = game_manger.get(&id).json::<GameManagerInstance>().await? else {
+            let Some(game) = game_manger.get(id).json::<GameManagerInstance>().await? else {
                 return Response::error("Not Found", 404);
             };
 
@@ -455,7 +455,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
             let game_manger = ctx.kv("GAME_MANAGER")?;
 
-            let Some(game) = game_manger.get(&id).json::<GameManagerInstance>().await? else {
+            let Some(game) = game_manger.get(id).json::<GameManagerInstance>().await? else {
                 return Response::ok("false");
             };
 
