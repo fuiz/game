@@ -1,12 +1,13 @@
 use std::str::FromStr;
 
 use garde::Validate;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use wasm_bindgen_futures::wasm_bindgen::JsValue;
 use worker::*;
 
-use fuiz::{fuiz::config::Fuiz, game, game_id::GameId, session::Tunnel, watcher, AlarmMessage};
+use fuiz::{fuiz::config::Fuiz, game, game_id::GameId, session::Tunnel, watcher};
 
 struct WebSocketTunnel(WebSocket);
 
@@ -49,14 +50,71 @@ struct GameRequest {
     options: game::Options,
 }
 
+#[derive(Serialize, Deserialize)]
+enum AlarmMessage {
+    DeleteGame,
+    Game(fuiz::AlarmMessage),
+}
+
 impl Game {
     async fn load_state(&mut self) {
         if matches!(self.game, LoadingState::Loading) {
-            self.game = LoadingState::Done(self.state.storage().get("game").await.ok());
+            self.game = LoadingState::Done(load_game(&self.state.storage()).await);
             self.alarm_message = self.state.storage().get("alarm").await.ok();
         }
     }
 }
+
+async fn load_game(storage: &worker::durable::Storage) -> Option<fuiz::game::Game> {
+    let count = storage.get("count").await.ok()?;
+
+    let mut game_bytes = "".to_string();
+
+    for i in 0..count {
+        let array_buffer: Result<String> = storage.get(&format!("chunk_{}", i)).await;
+        match array_buffer {
+            Err(e) => {
+                console_error!("Error loading chunk: {:?}", e);
+                return None;
+            }
+            Ok(string_chunk) => {
+                game_bytes.push_str(&string_chunk);
+            }
+        }
+    }
+
+    let game = serde_json::from_str(&game_bytes);
+
+    match game {
+        Ok(game) => Some(game),
+        Err(e) => {
+            console_error!("Error deserializing game: {:?}", e);
+            None
+        }
+    }
+}
+
+async fn store_game(storage: &mut worker::durable::Storage, game: &fuiz::game::Game) -> Result<()> {
+    let game_str = serde_json::to_string(game).unwrap();
+
+    let chunks_of_64kb = game_str
+        .chars()
+        .chunks(64 * 1024)
+        .into_iter()
+        .map(|chunk| chunk.collect::<String>())
+        .collect_vec();
+
+    storage.put("count", &chunks_of_64kb.len()).await?;
+
+    for (i, chunk) in chunks_of_64kb.into_iter().enumerate() {
+        if let Err(e) = storage.put(&format!("chunk_{}", i), &chunk).await {
+            console_error!("Error storing chunk: {:?}", e);
+        }
+    }
+    Ok(())
+}
+
+const GAME_EXPIRY: chrono::Duration = chrono::Duration::hours(1);
 
 #[durable_object]
 impl DurableObject for Game {
@@ -79,11 +137,13 @@ impl DurableObject for Game {
         let alarm_message_to_be_announced = self.alarm_message.take();
 
         let alarm_message = &mut self.alarm_message;
+
         let state = &self.state;
-        let schedule_message = move |message: AlarmMessage, duration: web_time::Duration| {
+
+        let schedule_message = move |message: fuiz::AlarmMessage, duration: web_time::Duration| {
             let time_in_future = chrono::Utc::now() + duration;
 
-            *alarm_message = Some(message);
+            *alarm_message = Some(AlarmMessage::Game(message));
 
             let storage = state.storage();
 
@@ -96,20 +156,38 @@ impl DurableObject for Game {
             })
         };
 
-        if let (Some(message), Some(game)) = (alarm_message_to_be_announced, game) {
-            game.receive_alarm(message, schedule_message, |id| {
-                self.state
-                    .get_websockets_with_tag(&id.to_string())
-                    .first()
-                    .map(|ws| WebSocketTunnel(ws.to_owned()))
-            });
+        match (alarm_message_to_be_announced, game) {
+            (Some(AlarmMessage::DeleteGame), _) => {
+                self.state.storage().delete_all().await?;
+                return Response::ok("");
+            }
+            (Some(AlarmMessage::Game(message)), Some(game)) => {
+                game.receive_alarm(message, schedule_message, |id| {
+                    self.state
+                        .get_websockets_with_tag(&id.to_string())
+                        .first()
+                        .map(|ws| WebSocketTunnel(ws.to_owned()))
+                });
 
-            self.state.storage().put("game", &game).await?;
-            self.state
-                .storage()
-                .put("alarm", &self.alarm_message)
-                .await?;
-        }
+                store_game(&mut self.state.storage(), game).await?;
+
+                if self.state.storage().get_alarm().await.unwrap().is_none() {
+                    self.alarm_message = Some(AlarmMessage::DeleteGame);
+                    self.state
+                        .storage()
+                        .set_alarm(ScheduledTime::new(js_sys::Date::new(&JsValue::from_f64(
+                            (chrono::Utc::now() + GAME_EXPIRY).timestamp_millis() as f64,
+                        ))))
+                        .await?;
+                }
+
+                self.state
+                    .storage()
+                    .put("alarm", &self.alarm_message)
+                    .await?;
+            }
+            _ => {}
+        };
 
         Response::ok("")
     }
@@ -175,21 +253,22 @@ impl DurableObject for Game {
         {
             let alarm_message = &mut self.alarm_message;
             let state = &self.state;
-            let schedule_message = move |message: AlarmMessage, duration: web_time::Duration| {
-                let time_in_future = chrono::Utc::now() + duration;
+            let schedule_message =
+                move |message: fuiz::AlarmMessage, duration: web_time::Duration| {
+                    let time_in_future = chrono::Utc::now() + duration;
 
-                *alarm_message = Some(message);
+                    *alarm_message = Some(AlarmMessage::Game(message));
 
-                let storage = state.storage();
+                    let storage = state.storage();
 
-                state.wait_until(async move {
-                    let _ = storage
-                        .set_alarm(ScheduledTime::new(js_sys::Date::new(&JsValue::from_f64(
-                            time_in_future.timestamp_millis() as f64,
-                        ))))
-                        .await;
-                })
-            };
+                    state.wait_until(async move {
+                        let _ = storage
+                            .set_alarm(ScheduledTime::new(js_sys::Date::new(&JsValue::from_f64(
+                                time_in_future.timestamp_millis() as f64,
+                            ))))
+                            .await;
+                    })
+                };
 
             match message {
                 WebSocketIncomingMessage::Binary(_) => {}
@@ -296,8 +375,18 @@ impl DurableObject for Game {
             }
         }
 
+        if self.state.storage().get_alarm().await.unwrap().is_none() {
+            self.alarm_message = Some(AlarmMessage::DeleteGame);
+            self.state
+                .storage()
+                .set_alarm(ScheduledTime::new(js_sys::Date::new(&JsValue::from_f64(
+                    (chrono::Utc::now() + GAME_EXPIRY).timestamp_millis() as f64,
+                ))))
+                .await?;
+        }
+
         if let LoadingState::Done(game) = &self.game {
-            self.state.storage().put("game", &game).await?;
+            store_game(&mut self.state.storage(), game.as_ref().unwrap()).await?;
             self.state
                 .storage()
                 .put("alarm", &self.alarm_message)
