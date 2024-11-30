@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
 use garde::Validate;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use wasm_bindgen_futures::wasm_bindgen::JsValue;
@@ -65,25 +64,32 @@ impl Game {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+struct GameBytes {
+    #[serde(with = "serde_bytes")]
+    bytes: Vec<u8>,
+}
+
 async fn load_game(storage: &worker::durable::Storage) -> Option<fuiz::game::Game> {
     let count = storage.get("count").await.ok()?;
 
-    let mut game_bytes = "".to_string();
+    let mut game_bytes = Vec::new();
 
     for i in 0..count {
-        let array_buffer: Result<String> = storage.get(&format!("chunk_{}", i)).await;
+        let array_buffer: Result<GameBytes> = storage.get(&format!("chunk_{}", i)).await;
         match array_buffer {
             Err(e) => {
                 console_error!("Error loading chunk: {:?}", e);
                 return None;
             }
             Ok(string_chunk) => {
-                game_bytes.push_str(&string_chunk);
+                game_bytes.extend_from_slice(&string_chunk.bytes);
             }
         }
     }
 
-    let game = serde_json::from_str(&game_bytes);
+    let game = ciborium::from_reader(game_bytes.as_slice());
 
     match game {
         Ok(game) => Some(game),
@@ -95,14 +101,19 @@ async fn load_game(storage: &worker::durable::Storage) -> Option<fuiz::game::Gam
 }
 
 async fn store_game(storage: &mut worker::durable::Storage, game: &fuiz::game::Game) -> Result<()> {
-    let game_str = serde_json::to_string(game).unwrap();
+    let mut game_bytes = Vec::new();
 
-    let chunks_of_64kb = game_str
-        .chars()
+    ciborium::into_writer(game, &mut game_bytes).map_err(|e| {
+        console_error!("Error serializing game: {:?}", e);
+        worker::Error::RustError(e.to_string())
+    })?;
+
+    let chunks_of_64kb = game_bytes
         .chunks(64 * 1024)
-        .into_iter()
-        .map(|chunk| chunk.collect::<String>())
-        .collect_vec();
+        .map(|chunk| GameBytes {
+            bytes: chunk.to_vec(),
+        })
+        .collect::<Vec<_>>();
 
     storage.put("count", &chunks_of_64kb.len()).await?;
 
