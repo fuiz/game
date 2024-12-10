@@ -27,6 +27,7 @@ strip = true
 crate-type = ["cdylib"]
 
 [dependencies]
+http-body-util = "0.1"
 worker = { version = "0.4", features = ['http'] }
 worker-macros = { version = "0.4", features = ['http'] }
 console_error_panic_hook = { version = "0.1" }

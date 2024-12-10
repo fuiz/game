@@ -1,12 +1,20 @@
 use std::str::FromStr;
 
 use garde::Validate;
+use http_body_util::BodyExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use wasm_bindgen_futures::wasm_bindgen::JsValue;
 use worker::*;
 
-use fuiz::{fuiz::config::Fuiz, game, game_id::GameId, session::Tunnel, watcher};
+use fuiz::{fuiz::config::Fuiz, game, session::Tunnel, watcher};
+use worker_sys::web_sys::Blob;
+
+#[derive(Serialize, Deserialize)]
+pub struct GameManagerInstance {
+    pub id: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
 
 struct WebSocketTunnel(WebSocket);
 
@@ -433,9 +441,16 @@ impl DurableObject for Game {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct GameManagerInstance {
-    id: String,
+async fn fetch_instance(game_manager: Fetcher, game_id: &str) -> Option<GameManagerInstance> {
+    let response = game_manager
+        .fetch(&format!("https://example.com/{}", game_id), None)
+        .await
+        .ok()?;
+
+    let game_manager_instance =
+        serde_json::from_slice(&response.into_body().collect().await.ok()?.to_bytes()).ok()?;
+
+    Some(game_manager_instance)
 }
 
 #[event(fetch)]
@@ -453,95 +468,99 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 return Response::error(e.to_string(), 400);
             }
 
-            let game_manager = ctx.kv("GAME_MANAGER")?;
+            let game_namespace = ctx.durable_object("GAME")?;
 
-            loop {
-                let game_id = GameId::new();
+            let internal_id = game_namespace.unique_id()?;
 
-                let game = game_manager
-                    .get(&game_id.to_string())
-                    .json::<GameManagerInstance>()
-                    .await?;
+            let game_manager_instance = GameManagerInstance {
+                id: internal_id.to_string(),
+                created_at: chrono::Utc::now(),
+            };
 
-                if game.is_some() {
-                    continue;
-                }
+            let game_manager = ctx.service("GAME_MANAGER")?;
 
-                let namespace = ctx.durable_object("GAME")?;
+            let arr = js_sys::Array::new();
+            arr.push(&JsValue::from_str(&serde_json::to_string(
+                &game_manager_instance,
+            )?));
 
-                let internal_id = namespace.unique_id()?;
+            let request = http::Request::builder()
+                .method("POST")
+                .uri("http://example.com")
+                .header("content-type", "application/json")
+                .body(Body::new(Blob::new_with_str_sequence(&arr)?.stream()))?;
 
-                game_manager
-                    .put(
-                        &game_id.to_string(),
-                        GameManagerInstance {
-                            id: internal_id.to_string(),
+            console_debug!("Request: {:?}", request);
+
+            let response = game_manager.fetch_request(request).await?;
+
+            console_debug!("Response: {:?}", response);
+
+            let bytes = response.into_body().collect().await?.to_bytes().to_vec();
+
+            console_debug!("Response bytes: {:?}", bytes);
+
+            let game_id = serde_json::from_slice::<String>(&bytes)
+                .map_err(|e| Error::RustError(e.to_string()))?;
+
+            console_debug!("Game ID: {:?}", game_id);
+
+            let stub = internal_id.get_stub()?;
+
+            let watcher_id = stub
+                .fetch_with_request(Request::new_with_init(
+                    "http://fake_url.com/add",
+                    &RequestInit {
+                        body: Some(JsValue::from_str(
+                            &serde_json::to_string(&game_request).expect("serializer failed"),
+                        )),
+                        headers: {
+                            let mut headers = Headers::new();
+                            headers.append("content-type", "application/json")?;
+                            headers
                         },
-                    )?
-                    .expiration_ttl(60 * 60 * 24)
-                    .execute()
-                    .await?;
+                        cf: CfProperties::default(),
+                        method: Method::Post,
+                        redirect: RequestRedirect::Follow,
+                    },
+                )?)
+                .await?
+                .text()
+                .await?;
 
-                let stub = internal_id.get_stub()?;
-
-                let watcher_id = stub
-                    .fetch_with_request(Request::new_with_init(
-                        "http://fake_url.com/add",
-                        &RequestInit {
-                            body: Some(JsValue::from_str(
-                                &serde_json::to_string(&game_request).expect("serializer failed"),
-                            )),
-                            headers: {
-                                let mut headers = Headers::new();
-                                headers.append("content-type", "application/json")?;
-                                headers
-                            },
-                            cf: CfProperties::default(),
-                            method: Method::Post,
-                            redirect: RequestRedirect::Follow,
-                        },
-                    )?)
-                    .await?
-                    .text()
-                    .await?;
-
-                break Response::from_json(&json!({
-                    "watcher_id": watcher_id,
-                    "game_id": game_id
-                }));
-            }
+            Response::from_json(&json!({
+                "watcher_id": watcher_id,
+                "game_id": game_id
+            }))
         })
         .get_async("/watch/:gameid/:watcherid", |req, ctx| async move {
             let Some(id) = ctx.param("gameid") else {
                 return Response::error("Bad Request", 400);
             };
 
-            let game_manger = ctx.kv("GAME_MANAGER")?;
-
-            let Some(game) = game_manger.get(id).json::<GameManagerInstance>().await? else {
+            let Some(game_instance) = fetch_instance(ctx.service("GAME_MANAGER")?, id).await else {
                 return Response::error("Not Found", 404);
             };
 
-            let namespace = ctx.durable_object("GAME")?;
+            let game_stub = ctx
+                .durable_object("GAME")?
+                .id_from_string(&game_instance.id)?
+                .get_stub()?;
 
-            let stub = namespace.id_from_string(&game.id)?.get_stub()?;
-
-            stub.fetch_with_request(req).await
+            game_stub.fetch_with_request(req).await
         })
         .get_async("/watch/:gameid/", |req, ctx| async move {
             let Some(id) = ctx.param("gameid") else {
                 return Response::error("Bad Request", 400);
             };
 
-            let game_manger = ctx.kv("GAME_MANAGER")?;
-
-            let Some(game) = game_manger.get(id).json::<GameManagerInstance>().await? else {
+            let Some(game_instance) = fetch_instance(ctx.service("GAME_MANAGER")?, id).await else {
                 return Response::error("Not Found", 404);
             };
 
             let namespace = ctx.durable_object("GAME")?;
 
-            let stub = namespace.id_from_string(&game.id)?.get_stub()?;
+            let stub = namespace.id_from_string(&game_instance.id)?.get_stub()?;
 
             stub.fetch_with_request(req).await
         })
@@ -550,15 +569,13 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 return Response::error("Bad Request", 400);
             };
 
-            let game_manger = ctx.kv("GAME_MANAGER")?;
-
-            let Some(game) = game_manger.get(id).json::<GameManagerInstance>().await? else {
+            let Some(game_instance) = fetch_instance(ctx.service("GAME_MANAGER")?, id).await else {
                 return Response::ok("false");
             };
 
             let namespace = ctx.durable_object("GAME")?;
 
-            let stub = namespace.id_from_string(&game.id)?.get_stub()?;
+            let stub = namespace.id_from_string(&game_instance.id)?.get_stub()?;
 
             stub.fetch_with_request(req).await
         })

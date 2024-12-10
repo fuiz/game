@@ -2,20 +2,15 @@ name = "fuiz-cloudflare"
 main = "build/worker/shim.mjs"
 compatibility_date = "2024-11-17"
 
-kv_namespaces = [
-    { binding = "GAME_MANAGER", id = "c32c1946fa194bbf93058883b4eec8b2" },
-]
-
+services = [{ binding = "GAME_MANAGER", service = "fuiz-game-manager" }]
 
 [build]
 command = "cargo install -q worker-build && worker-build --release"
 
 [durable_objects]
-bindings = [
-    { name = "GAME", class_name = "Game" }, # the `class_name` uses the Rust struct identifier name
-]
+bindings = [{ name = "GAME", class_name = "Game" }]
 
 
 [[migrations]]
-tag = "v1"             # Should be unique for each entry
-new_classes = ["Game"] # Array of new classes
+tag = "v1"
+new_classes = ["Game"]
