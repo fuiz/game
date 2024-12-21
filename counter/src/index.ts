@@ -63,7 +63,7 @@ export default class extends WorkerEntrypoint<Env> {
 		}
 	}
 
-	async get(name: string): Promise<number> {
+	async getCount(name: string): Promise<number> {
 		let id = this.env.COUNTER.idFromName('default');
 
 		let stub = this.env.COUNTER.get(id);
