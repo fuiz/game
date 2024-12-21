@@ -2,7 +2,10 @@ name = "fuiz-cloudflare"
 main = "build/worker/shim.mjs"
 compatibility_date = "2024-11-17"
 
-services = [{ binding = "GAME_MANAGER", service = "fuiz-game-manager" }]
+services = [
+    { binding = "GAME_MANAGER", service = "fuiz-game-manager" },
+    { binding = "COUNTER", service = "counter" },
+]
 
 [build]
 command = "cargo install -q worker-build && worker-build --release"

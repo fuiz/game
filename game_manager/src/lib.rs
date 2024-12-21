@@ -7,7 +7,7 @@ const GAME_EXPIRY: chrono::Duration = chrono::Duration::hours(24);
 #[durable_object]
 struct GameManager {
     state: State,
-    _env: Env,
+    env: Env,
 }
 
 impl GameManager {
@@ -29,8 +29,8 @@ impl GameManager {
 
 #[durable_object]
 impl DurableObject for GameManager {
-    fn new(state: State, _env: Env) -> Self {
-        Self { state, _env }
+    fn new(state: State, env: Env) -> Self {
+        Self { state, env }
     }
 
     async fn fetch(&mut self, mut req: Request) -> Result<Response> {
@@ -65,6 +65,19 @@ impl DurableObject for GameManager {
                             .storage()
                             .put(&random_game_id.to_string(), &game_instance)
                             .await?;
+
+                        if let Err(e) = self
+                            .env
+                            .service("COUNTER")?
+                            .fetch("https://example.com/game_count", {
+                                let mut request_init = RequestInit::default();
+                                request_init.method = Method::Post;
+                                Some(request_init)
+                            })
+                            .await
+                        {
+                            console_error!("Failed to increment game count: {:?}", e);
+                        }
 
                         break Response::from_json(&random_game_id);
                     } else {

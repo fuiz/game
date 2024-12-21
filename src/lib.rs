@@ -46,7 +46,7 @@ pub struct Game {
     game: LoadingState,
     state: State,
     alarm_message: Option<AlarmMessage>,
-    _env: Env,
+    env: Env,
 }
 
 #[derive(serde::Deserialize, garde::Validate, Serialize)]
@@ -137,12 +137,12 @@ const GAME_EXPIRY: chrono::Duration = chrono::Duration::hours(1);
 
 #[durable_object]
 impl DurableObject for Game {
-    fn new(state: State, _env: Env) -> Self {
+    fn new(state: State, env: Env) -> Self {
         Self {
             game: LoadingState::Loading,
             state,
             alarm_message: None,
-            _env,
+            env,
         }
     }
 
@@ -359,6 +359,19 @@ impl DurableObject for Game {
                                     {
                                         session.close();
                                     }
+
+                                    if let Err(e) = self
+                                        .env
+                                        .service("COUNTER")?
+                                        .fetch("https://example.com/player_count", {
+                                            let mut request_init = RequestInit::default();
+                                            request_init.method = Method::Post;
+                                            Some(request_init)
+                                        })
+                                        .await
+                                    {
+                                        console_error!("Error incrementing player count: {:?}", e);
+                                    }
                                 }
                                 game::IncomingMessage::Ghost(_) => {
                                     let session = WebSocketTunnel(ws);
@@ -490,20 +503,12 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 .header("content-type", "application/json")
                 .body(Body::new(Blob::new_with_str_sequence(&arr)?.stream()))?;
 
-            console_debug!("Request: {:?}", request);
-
             let response = game_manager.fetch_request(request).await?;
-
-            console_debug!("Response: {:?}", response);
 
             let bytes = response.into_body().collect().await?.to_bytes().to_vec();
 
-            console_debug!("Response bytes: {:?}", bytes);
-
             let game_id = serde_json::from_slice::<String>(&bytes)
                 .map_err(|e| Error::RustError(e.to_string()))?;
-
-            console_debug!("Game ID: {:?}", game_id);
 
             let stub = internal_id.get_stub()?;
 
