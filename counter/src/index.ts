@@ -1,4 +1,4 @@
-import { DurableObject } from 'cloudflare:workers';
+import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
 
 type CountersObject = {
 	[key: string]: number;
@@ -28,11 +28,11 @@ export class Counter extends DurableObject {
 	}
 }
 
-export default {
-	async fetch(request, env, ctx): Promise<Response> {
-		let id = env.COUNTER.idFromName('default');
+export default class extends WorkerEntrypoint<Env> {
+	async fetch(request: Request): Promise<Response> {
+		let id = this.env.COUNTER.idFromName('default');
 
-		let stub = env.COUNTER.get(id);
+		let stub = this.env.COUNTER.get(id);
 
 		let name = request.url.split('/').pop();
 
@@ -61,5 +61,13 @@ export default {
 		} else {
 			return new Response('Method not allowed', { status: 405 });
 		}
-	},
-} satisfies ExportedHandler<Env>;
+	}
+
+	async get(name: string): Promise<number> {
+		let id = this.env.COUNTER.idFromName('default');
+
+		let stub = this.env.COUNTER.get(id);
+
+		return await stub.get(name);
+	}
+}
