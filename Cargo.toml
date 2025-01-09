@@ -17,7 +17,7 @@ http = "1.2"
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1.0", features = ["serde_derive", "derive", "alloc"] }
 serde_json = "1.0"
-garde = { version = "0.21", features = ["derive"] }
+garde = { version = "0.20", features = ["derive"] }
 web-time = { version = "1.1", features = ["serde"] }
 fuiz = { git = "https://gitlab.com/opencode-mit/fuiz/game.git" }
 serde_bytes = "0.11"
