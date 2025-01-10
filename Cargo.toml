@@ -4,32 +4,14 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Khaleel Al-Adhami <khaleel.aladhami@gmail.com>"]
 
-[package.metadata.release]
-release = false
-
-# https://github.com/rustwasm/wasm-pack/issues/1247
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = false
-
-[build]
-strip = true
-
-[profile.dev]
-strip = true
-
-[profile.release]
-lto = true
-opt-level = 'z'
-strip = true
-
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-worker = { version = "0.4", features = ['http'] }
-worker-macros = { version = "0.4", features = ['http'] }
+worker = { version = "0.5", features = ['http'] }
+worker-macros = { version = "0.5", features = ['http'] }
 console_error_panic_hook = { version = "0.1" }
-http = "1.1"
+http = "1.2"
 image = "0.25"
 gif = "0.13"
 serde = { version = "1.0", features = ["derive"] }
