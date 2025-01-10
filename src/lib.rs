@@ -127,7 +127,10 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
 
             kv.put_bytes(&key, &bytes)?
                 .metadata(content_type)?
-                .expiration_ttl(60 * 24)
+                .expiration_ttl({
+                    const SECONDS_IN_A_DAY: u64 = 60 * 60 * 24;
+                    SECONDS_IN_A_DAY
+                })
                 .execute()
                 .await?;
 
@@ -159,7 +162,7 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
             &Cors::default()
                 .with_max_age(86400)
                 .with_allowed_headers(["*"])
-                .with_origins(vec!["https://fuiz.us"])
+                .with_origins(vec!["http://localhost:5173"])
                 .with_methods(vec![Method::Get, Method::Post, Method::Options]),
         )
 }
