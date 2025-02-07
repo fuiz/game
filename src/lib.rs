@@ -364,9 +364,10 @@ impl DurableObject for Game {
                                         .env
                                         .service("COUNTER")?
                                         .fetch("https://example.com/player_count", {
-                                            let mut request_init = RequestInit::default();
-                                            request_init.method = Method::Post;
-                                            Some(request_init)
+                                            Some(RequestInit {
+                                                method: Method::Post,
+                                                ..RequestInit::default()
+                                            })
                                         })
                                         .await
                                     {
