@@ -511,7 +511,7 @@ dependencies = [
 [[package]]
 name = "fuiz"
 version = "0.1.0"
-source = "git+https://gitlab.com/opencode-mit/fuiz/game.git#bf83ee43dd888d38e0e81e97e8a3070d5a19a2db"
+source = "git+https://gitlab.com/opencode-mit/fuiz/game.git#ea222f61b96bcb7888d948cd66f3e1a882d7b95f"
 dependencies = [
  "derive-where",
  "derive_more",
