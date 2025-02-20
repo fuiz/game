@@ -461,7 +461,7 @@ fn close_connections_with_tag(state: &State, tag: &watcher::Id) {
         .get_websockets_with_tag(&tag.to_string())
         .into_iter()
         .for_each(|ws| {
-            let _ = ws.close(None, Some("Duplicate connection"));
+            let _ = ws.close(Some(50058), Some("Duplicate connection"));
         });
 }
 
