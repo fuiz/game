@@ -257,6 +257,7 @@ impl DurableObject for Game {
         self.state
             .accept_websocket_with_tags(&server, &[&claimed_id.to_string()]);
 
+        close_connections_with_tag(&self.state, &claimed_id);
         server.serialize_attachment(claimed_id)?;
 
         Response::from_websocket(client)
@@ -304,6 +305,7 @@ impl DurableObject for Game {
                                 game::IncomingMessage::Ghost(
                                     game::IncomingGhostMessage::ClaimId(id),
                                 ) if game.watchers.has_watcher(id) => {
+                                    close_connections_with_tag(&self.state, &id);
                                     ws.serialize_attachment(id)?;
 
                                     game.update_session(id, |id| {
@@ -453,6 +455,15 @@ impl DurableObject for Game {
 
         Ok(())
     }
+}
+
+fn close_connections_with_tag(state: &State, tag: &watcher::Id) {
+    state
+        .get_websockets_with_tag(&tag.to_string())
+        .into_iter()
+        .for_each(|ws| {
+            let _ = ws.close(None, Some("Duplicate connection"));
+        });
 }
 
 async fn fetch_instance(game_manager: Fetcher, game_id: &str) -> Option<GameManagerInstance> {
