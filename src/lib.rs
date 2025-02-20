@@ -254,10 +254,9 @@ impl DurableObject for Game {
             .and_then(|s| watcher::Id::from_str(s).to_owned().ok())
             .unwrap_or(watcher::Id::new());
 
+        close_connections_with_tag(&self.state, &claimed_id);
         self.state
             .accept_websocket_with_tags(&server, &[&claimed_id.to_string()]);
-
-        close_connections_with_tag(&self.state, &claimed_id);
         server.serialize_attachment(claimed_id)?;
 
         Response::from_websocket(client)
