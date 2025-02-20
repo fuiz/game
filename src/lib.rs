@@ -483,7 +483,7 @@ fn close_connections_with_tag(state: &State, tag: &watcher::Id) {
 }
 
 fn close_web_socket(web_socket: WebSocket) {
-    let _ = web_socket.close(Some(50058), None::<String>);
+    let _ = web_socket.close(Some(4141), None::<String>);
 }
 
 async fn fetch_instance(game_manager: Fetcher, game_id: &str) -> Option<GameManagerInstance> {
