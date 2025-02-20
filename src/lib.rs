@@ -343,6 +343,11 @@ impl DurableObject for Game {
                                 game::IncomingMessage::Ghost(
                                     game::IncomingGhostMessage::DemandId,
                                 ) => {
+                                    close_connections_with_tag_except_one(
+                                        &self.state,
+                                        &watcher_id,
+                                        &ws,
+                                    );
                                     let session = WebSocketTunnel(ws);
 
                                     session.send_message(
@@ -376,6 +381,12 @@ impl DurableObject for Game {
                                     }
                                 }
                                 game::IncomingMessage::Ghost(_) => {
+                                    close_connections_with_tag_except_one(
+                                        &self.state,
+                                        &watcher_id,
+                                        &ws,
+                                    );
+
                                     let session = WebSocketTunnel(ws);
 
                                     session.send_message(
@@ -456,13 +467,23 @@ impl DurableObject for Game {
     }
 }
 
+fn close_connections_with_tag_except_one(state: &State, tag: &watcher::Id, ws: &WebSocket) {
+    state
+        .get_websockets_with_tag(&tag.to_string())
+        .into_iter()
+        .filter(|web_socket| web_socket != ws)
+        .for_each(close_web_socket);
+}
+
 fn close_connections_with_tag(state: &State, tag: &watcher::Id) {
     state
         .get_websockets_with_tag(&tag.to_string())
         .into_iter()
-        .for_each(|ws| {
-            let _ = ws.close(Some(50058), Some("Duplicate connection"));
-        });
+        .for_each(close_web_socket);
+}
+
+fn close_web_socket(web_socket: WebSocket) {
+    let _ = web_socket.close(Some(50058), None::<String>);
 }
 
 async fn fetch_instance(game_manager: Fetcher, game_id: &str) -> Option<GameManagerInstance> {
