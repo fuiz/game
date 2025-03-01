@@ -77,8 +77,6 @@ impl TeamManager {
 
             let players_count = players.len();
 
-            let teams_count = players.len().div_ceil(optimal_size).max(1);
-
             let mut existing_teams = players
                 .into_iter()
                 .map(|id| {
@@ -115,78 +113,76 @@ impl TeamManager {
                 existing_teams.push(Vec::new());
             }
 
-            if existing_teams.len() > teams_count {
-                if existing_teams.len() == players_count {
-                    let total_teams = existing_teams.len().div_ceil(optimal_size);
+            if existing_teams.len() == players_count {
+                let total_teams = existing_teams.len().div_ceil(optimal_size);
 
-                    let how_many_big_teams = existing_teams.len() % total_teams;
-                    let how_many_small_teams = total_teams - how_many_big_teams;
+                let how_many_big_teams = existing_teams.len() % total_teams;
+                let how_many_small_teams = total_teams - how_many_big_teams;
 
-                    let size_of_small_teams = existing_teams.len() / total_teams;
-                    let size_of_big_teams = size_of_small_teams + 1;
+                let size_of_small_teams = existing_teams.len() / total_teams;
+                let size_of_big_teams = size_of_small_teams + 1;
 
-                    let (small_teams, big_teams) =
-                        existing_teams.split_at(how_many_small_teams * size_of_small_teams);
+                let (small_teams, big_teams) =
+                    existing_teams.split_at(how_many_small_teams * size_of_small_teams);
 
-                    existing_teams = small_teams
-                        .into_iter()
-                        .chunks(size_of_small_teams)
-                        .into_iter()
-                        .map(|chunk| chunk.into_iter().flatten().copied().collect_vec())
-                        .chain(
-                            big_teams
-                                .into_iter()
-                                .chunks(size_of_big_teams)
-                                .into_iter()
-                                .map(|chunk| chunk.into_iter().flatten().copied().collect_vec()),
-                        )
-                        .collect_vec();
-                } else {
-                    #[derive(PartialEq, Eq, PartialOrd, Ord)]
-                    struct PreferenceGroup(usize, Vec<Id>);
+                existing_teams = small_teams
+                    .into_iter()
+                    .chunks(size_of_small_teams)
+                    .into_iter()
+                    .map(|chunk| chunk.into_iter().flatten().copied().collect_vec())
+                    .chain(
+                        big_teams
+                            .into_iter()
+                            .chunks(size_of_big_teams)
+                            .into_iter()
+                            .map(|chunk| chunk.into_iter().flatten().copied().collect_vec()),
+                    )
+                    .collect_vec();
+            } else {
+                #[derive(PartialEq, Eq, PartialOrd, Ord)]
+                struct PreferenceGroup(usize, Vec<Id>);
 
-                    impl From<Vec<Id>> for PreferenceGroup {
-                        fn from(value: Vec<Id>) -> Self {
-                            Self(value.len(), value)
-                        }
+                impl From<Vec<Id>> for PreferenceGroup {
+                    fn from(value: Vec<Id>) -> Self {
+                        Self(value.len(), value)
                     }
+                }
 
-                    let mut tree: BTreeSet<PreferenceGroup> = BTreeSet::new();
+                let mut tree: BTreeSet<PreferenceGroup> = BTreeSet::new();
 
-                    for prefs in existing_teams {
-                        if let Some(bucket) = tree
-                            .range(..(PreferenceGroup(optimal_size - prefs.len() + 1, Vec::new())))
-                            .next_back()
-                            .map(|b| b.1.clone())
-                        {
-                            tree.remove(&bucket.clone().into());
-                            tree.insert(prefs.into_iter().chain(bucket).collect_vec().into());
-                        } else {
-                            tree.insert(prefs.into());
-                        }
+                for prefs in existing_teams {
+                    if let Some(bucket) = tree
+                        .range(..(PreferenceGroup(optimal_size - prefs.len() + 1, Vec::new())))
+                        .next_back()
+                        .map(|b| b.1.clone())
+                    {
+                        tree.remove(&bucket.clone().into());
+                        tree.insert(prefs.into_iter().chain(bucket).collect_vec().into());
+                    } else {
+                        tree.insert(prefs.into());
                     }
+                }
 
-                    if tree.len() >= 2 {
-                        if let Some(first) = tree.first() {
-                            if first.0 == 1 {
-                                if let (Some(smallest), Some(second_smallest)) =
-                                    (tree.pop_first(), tree.pop_first())
-                                {
-                                    tree.insert(
-                                        smallest
-                                            .1
-                                            .into_iter()
-                                            .chain(second_smallest.1)
-                                            .collect_vec()
-                                            .into(),
-                                    );
-                                }
+                if tree.len() >= 2 {
+                    if let Some(first) = tree.first() {
+                        if first.0 == 1 {
+                            if let (Some(smallest), Some(second_smallest)) =
+                                (tree.pop_first(), tree.pop_first())
+                            {
+                                tree.insert(
+                                    smallest
+                                        .1
+                                        .into_iter()
+                                        .chain(second_smallest.1)
+                                        .collect_vec()
+                                        .into(),
+                                );
                             }
                         }
                     }
-
-                    existing_teams = tree.into_iter().map(|p| p.1).collect_vec();
                 }
+
+                existing_teams = tree.into_iter().map(|p| p.1).collect_vec();
             }
 
             let final_teams = existing_teams
