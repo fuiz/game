@@ -355,6 +355,7 @@ impl State {
                                                         watchers.is_alive(*id, &tunnel_finder)
                                                     })
                                                     .count()
+                                                    .max(1)
                                             })
                                         }
                                         None => 1,
@@ -526,7 +527,7 @@ impl State {
             ValueKind::Player => match self.config.answers.len() {
                 0 => Vec::new(),
                 answer_count => {
-                    let adjusted_team_index = team_index % answer_count;
+                    let adjusted_team_index = (team_index % team_size) % answer_count;
 
                     self.config
                         .answers
@@ -585,6 +586,7 @@ impl State {
                                         .filter(|id| watchers.is_alive(*id, &tunnel_finder))
                                         .collect_vec()
                                         .len()
+                                        .max(1)
                                 })
                             }
                             None => 1,
@@ -593,7 +595,7 @@ impl State {
                     {
                         match &team_manager {
                             Some(team_manager) => team_manager
-                                .team_index(watcher_id, |id| watchers.has_watcher(id))
+                                .team_index(watcher_id, |id| watchers.is_alive(id, &tunnel_finder))
                                 .unwrap_or(0),
                             None => 0,
                         }
