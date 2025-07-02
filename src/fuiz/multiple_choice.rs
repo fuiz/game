@@ -52,22 +52,18 @@ fn validate_duration<const MIN_SECONDS: u64, const MAX_SECONDS: u64>(
     }
 }
 
-const MIN_TITLE_LENGTH: usize = crate::config::multiple_choice::MIN_TITLE_LENGTH;
-const MIN_INTRODUCE_QUESTION: u64 = crate::config::multiple_choice::MIN_INTRODUCE_QUESTION as u64;
-const MIN_TIME_LIMIT: u64 = crate::config::multiple_choice::MIN_TIME_LIMIT as u64;
-
-const MAX_TIME_LIMIT: u64 = crate::config::multiple_choice::MAX_TIME_LIMIT as u64;
-const MAX_TITLE_LENGTH: usize = crate::config::multiple_choice::MAX_TITLE_LENGTH;
-const MAX_INTRODUCE_QUESTION: u64 = crate::config::multiple_choice::MAX_INTRODUCE_QUESTION as u64;
-
-const MAX_ANSWER_COUNT: usize = crate::config::multiple_choice::MAX_ANSWER_COUNT as usize;
-
 fn validate_introduce_question(val: &Duration) -> ValidationResult {
-    validate_duration::<MIN_INTRODUCE_QUESTION, MAX_INTRODUCE_QUESTION>("introduce_question", val)
+    validate_duration::<
+        { crate::config::multiple_choice::MIN_INTRODUCE_QUESTION },
+        { crate::config::multiple_choice::MAX_INTRODUCE_QUESTION },
+    >("introduce_question", val)
 }
 
 fn validate_time_limit(val: &Duration) -> ValidationResult {
-    validate_duration::<MIN_TIME_LIMIT, MAX_TIME_LIMIT>("time_limit", val)
+    validate_duration::<
+        { crate::config::multiple_choice::MIN_TIME_LIMIT },
+        { crate::config::multiple_choice::MAX_TIME_LIMIT },
+    >("time_limit", val)
 }
 
 #[serde_with::serde_as]
@@ -75,7 +71,7 @@ fn validate_time_limit(val: &Duration) -> ValidationResult {
 #[derive(Debug, Clone, Serialize, serde::Deserialize, Validate)]
 pub struct SlideConfig {
     /// The question title, represents what's being asked
-    #[garde(length(min = MIN_TITLE_LENGTH, max = MAX_TITLE_LENGTH))]
+    #[garde(length(min = crate::config::multiple_choice::MIN_TITLE_LENGTH, max = crate::config::multiple_choice::MAX_TITLE_LENGTH))]
     title: String,
     /// Accompanying media
     #[garde(dive)]
@@ -92,7 +88,7 @@ pub struct SlideConfig {
     #[garde(skip)]
     points_awarded: u64,
     /// Accompanying answers
-    #[garde(length(max = MAX_ANSWER_COUNT))]
+    #[garde(length(max = crate::config::multiple_choice::MAX_ANSWER_COUNT))]
     answers: Vec<AnswerChoice>,
 }
 
@@ -510,8 +506,7 @@ impl State {
         match watcher_kind {
             ValueKind::Host | ValueKind::Unassigned => {
                 if is_team {
-                    std::iter::repeat(PossiblyHidden::Hidden)
-                        .take(self.config.answers.len())
+                    std::iter::repeat_n(PossiblyHidden::Hidden, self.config.answers.len())
                         .collect_vec()
                 } else {
                     self.config

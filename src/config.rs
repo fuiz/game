@@ -12,33 +12,33 @@ pub mod fuiz {
 pub mod multiple_choice {
     pub const MIN_TITLE_LENGTH: usize = 0;
     pub const MAX_TITLE_LENGTH: usize = 200;
-    pub const MIN_INTRODUCE_QUESTION: u32 = 0;
-    pub const MAX_INTRODUCE_QUESTION: u32 = 30;
-    pub const MIN_TIME_LIMIT: u32 = 5;
-    pub const MAX_TIME_LIMIT: u32 = 240;
-    pub const MAX_ANSWER_COUNT: u32 = 8;
+    pub const MIN_INTRODUCE_QUESTION: u64 = 0;
+    pub const MAX_INTRODUCE_QUESTION: u64 = 30;
+    pub const MIN_TIME_LIMIT: u64 = 5;
+    pub const MAX_TIME_LIMIT: u64 = 240;
+    pub const MAX_ANSWER_COUNT: usize = 8;
 }
 
 /// Type answer question configuration
 pub mod type_answer {
     pub const MIN_TITLE_LENGTH: usize = 0;
     pub const MAX_TITLE_LENGTH: usize = 200;
-    pub const MIN_TIME_LIMIT: u32 = 5;
-    pub const MAX_TIME_LIMIT: u32 = 240;
-    pub const MIN_INTRODUCE_QUESTION: u32 = 0;
-    pub const MAX_INTRODUCE_QUESTION: u32 = 30;
-    pub const MAX_ANSWER_COUNT: u32 = 16;
+    pub const MIN_TIME_LIMIT: u64 = 5;
+    pub const MAX_TIME_LIMIT: u64 = 240;
+    pub const MIN_INTRODUCE_QUESTION: u64 = 0;
+    pub const MAX_INTRODUCE_QUESTION: u64 = 30;
+    pub const MAX_ANSWER_COUNT: usize = 16;
 }
 
 /// Order question configuration
 pub mod order {
     pub const MIN_TITLE_LENGTH: usize = 0;
     pub const MAX_TITLE_LENGTH: usize = 200;
-    pub const MIN_TIME_LIMIT: u32 = 5;
-    pub const MAX_TIME_LIMIT: u32 = 240;
-    pub const MIN_INTRODUCE_QUESTION: u32 = 0;
-    pub const MAX_INTRODUCE_QUESTION: u32 = 30;
-    pub const MAX_ANSWER_COUNT: u32 = 8;
+    pub const MIN_TIME_LIMIT: u64 = 5;
+    pub const MAX_TIME_LIMIT: u64 = 240;
+    pub const MIN_INTRODUCE_QUESTION: u64 = 0;
+    pub const MAX_INTRODUCE_QUESTION: u64 = 30;
+    pub const MAX_ANSWER_COUNT: usize = 8;
     pub const MAX_LABEL_LENGTH: usize = 100;
 }
 
@@ -51,9 +51,4 @@ pub mod corkboard {
 /// Answer text configuration
 pub mod answer_text {
     pub const MAX_LENGTH: usize = 200;
-}
-
-/// Bingo configuration
-pub mod bingo {
-    pub const MAX_ANSWER_COUNT: u32 = 200;
 }

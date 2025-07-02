@@ -51,33 +51,26 @@ fn validate_duration<const MIN_SECONDS: u64, const MAX_SECONDS: u64>(
     }
 }
 
-const MIN_TITLE_LENGTH: usize = crate::config::order::MIN_TITLE_LENGTH;
-const MIN_TIME_LIMIT: u64 = crate::config::order::MIN_TIME_LIMIT as u64;
-const MIN_INTRODUCE_QUESTION: u64 = crate::config::order::MIN_INTRODUCE_QUESTION as u64;
-
-const MAX_TIME_LIMIT: u64 = crate::config::order::MAX_TIME_LIMIT as u64;
-const MAX_INTRODUCE_QUESTION: u64 = crate::config::order::MAX_INTRODUCE_QUESTION as u64;
-const MAX_TITLE_LENGTH: usize = crate::config::order::MAX_TITLE_LENGTH;
-const MAX_LABEL_LENGTH: usize = crate::config::order::MAX_LABEL_LENGTH;
-
-const MAX_ANSWER_COUNT: usize = crate::config::order::MAX_ANSWER_COUNT as usize;
-
-const MAX_ANSWER_TEXT_LENGTH: usize = crate::config::answer_text::MAX_LENGTH;
-
 fn validate_time_limit(val: &Duration) -> ValidationResult {
-    validate_duration::<MIN_TIME_LIMIT, MAX_TIME_LIMIT>("time_limit", val)
+    validate_duration::<
+        { crate::config::order::MIN_TIME_LIMIT },
+        { crate::config::order::MAX_TIME_LIMIT },
+    >("time_limit", val)
 }
 
 fn validate_introduce_question(val: &Duration) -> ValidationResult {
-    validate_duration::<MIN_INTRODUCE_QUESTION, MAX_INTRODUCE_QUESTION>("introduce_question", val)
+    validate_duration::<
+        { crate::config::order::MIN_INTRODUCE_QUESTION },
+        { crate::config::order::MAX_INTRODUCE_QUESTION },
+    >("introduce_question", val)
 }
 
 #[skip_serializing_none]
 #[derive(Debug, Clone, Default, Serialize, serde::Deserialize, Validate)]
 pub struct AxisLabels {
-    #[garde(length(chars, max = MAX_LABEL_LENGTH))]
+    #[garde(length(chars, max = crate::config::order::MAX_LABEL_LENGTH))]
     from: Option<String>,
-    #[garde(length(chars, max = MAX_LABEL_LENGTH))]
+    #[garde(length(chars, max = crate::config::order::MAX_LABEL_LENGTH))]
     to: Option<String>,
 }
 
@@ -86,7 +79,7 @@ pub struct AxisLabels {
 #[derive(Debug, Clone, Serialize, serde::Deserialize, Validate)]
 pub struct SlideConfig {
     /// The question title, represents what's being asked
-    #[garde(length(chars, min = MIN_TITLE_LENGTH, max = MAX_TITLE_LENGTH))]
+    #[garde(length(chars, min = crate::config::order::MIN_TITLE_LENGTH, max = crate::config::order::MAX_TITLE_LENGTH))]
     title: String,
     /// Accompanying media
     #[garde(dive)]
@@ -103,8 +96,8 @@ pub struct SlideConfig {
     #[garde(skip)]
     points_awarded: u64,
     /// Accompanying answers in the correct order
-    #[garde(length(max = MAX_ANSWER_COUNT),
-        inner(length(chars, max = MAX_ANSWER_TEXT_LENGTH))
+    #[garde(length(max = crate::config::order::MAX_ANSWER_COUNT),
+        inner(length(chars, max = crate::config::answer_text::MAX_LENGTH))
     )]
     answers: Vec<String>,
     /// From and to labels for the order
