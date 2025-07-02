@@ -359,7 +359,7 @@ mod tests {
                 .add_watcher(
                     *player,
                     watcher::Value::Player(watcher::PlayerValue::Individual {
-                        name: format!("Player {}", player)
+                        name: format!("Player {player}")
                     }),
                 )
                 .is_ok());
@@ -397,9 +397,7 @@ mod tests {
             assert_eq!(
                 team_members.len(),
                 expected_size,
-                "Player at index {} should have {} team members",
-                i,
-                expected_size
+                "Player at index {i} should have {expected_size} team members"
             );
         }
     }
@@ -407,28 +405,28 @@ mod tests {
     #[test]
     fn test_teams_perfect_distribution_team_size_2() {
         for i in 1..=10 {
-            test_team_distribution(2 * i, 2, vec![2].repeat(i));
+            test_team_distribution(2 * i, 2, [2].repeat(i));
         }
     }
 
     #[test]
     fn test_teams_perfect_distribution_team_size_3() {
         for i in 1..=10 {
-            test_team_distribution(3 * i, 3, vec![3].repeat(i));
+            test_team_distribution(3 * i, 3, [3].repeat(i));
         }
     }
 
     #[test]
     fn test_teams_perfect_distribution_team_size_4() {
         for i in 1..=10 {
-            test_team_distribution(4 * i, 4, vec![4].repeat(i));
+            test_team_distribution(4 * i, 4, [4].repeat(i));
         }
     }
 
     #[test]
     fn test_teams_additional_person_team_size_2() {
         for i in 1..=10 {
-            let mut team_sizes = vec![2].repeat(i);
+            let mut team_sizes = [2].repeat(i);
             team_sizes.insert(0, 1);
             test_team_distribution(2 * i + 1, 2, team_sizes);
         }
@@ -437,7 +435,7 @@ mod tests {
     #[test]
     fn test_teams_additional_person_team_size_3() {
         for i in 1..=10 {
-            let mut team_sizes = vec![3].repeat(i - 1);
+            let mut team_sizes = [3].repeat(i - 1);
             team_sizes.insert(0, 2);
             team_sizes.insert(0, 2);
             test_team_distribution(3 * i + 1, 3, team_sizes);
@@ -454,7 +452,7 @@ mod tests {
         test_team_distribution(11, 4, vec![3, 4, 4]);
 
         for i in 3..=10 {
-            let mut team_sizes = vec![4].repeat(i - 2);
+            let mut team_sizes = [4].repeat(i - 2);
             team_sizes.insert(0, 3);
             team_sizes.insert(0, 3);
             team_sizes.insert(0, 3);
