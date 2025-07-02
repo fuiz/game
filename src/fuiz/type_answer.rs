@@ -51,26 +51,18 @@ fn validate_duration<const MIN_SECONDS: u64, const MAX_SECONDS: u64>(
     }
 }
 
-const CONFIG: crate::config::fuiz::type_answer::TypeAnswerConfig = crate::CONFIG.fuiz.type_answer;
-
-const MIN_TITLE_LENGTH: usize = CONFIG.min_title_length.unsigned_abs() as usize;
-const MIN_TIME_LIMIT: u64 = CONFIG.min_time_limit.unsigned_abs();
-const MIN_INTRODUCE_QUESTION: u64 = CONFIG.min_introduce_question.unsigned_abs();
-
-const MAX_TIME_LIMIT: u64 = CONFIG.max_time_limit.unsigned_abs();
-const MAX_TITLE_LENGTH: usize = CONFIG.max_title_length.unsigned_abs() as usize;
-const MAX_INTRODUCE_QUESTION: u64 = CONFIG.max_introduce_question.unsigned_abs();
-
-const MAX_ANSWER_COUNT: usize = CONFIG.max_answer_count.unsigned_abs() as usize;
-const MAX_ANSWER_TEXT_LENGTH: usize =
-    crate::CONFIG.fuiz.answer_text.max_length.unsigned_abs() as usize;
-
 fn validate_time_limit(val: &Duration) -> ValidationResult {
-    validate_duration::<MIN_TIME_LIMIT, MAX_TIME_LIMIT>("time_limit", val)
+    validate_duration::<
+        { crate::constants::type_answer::MIN_TIME_LIMIT },
+        { crate::constants::type_answer::MAX_TIME_LIMIT },
+    >("time_limit", val)
 }
 
 fn validate_introduce_question(val: &Duration) -> ValidationResult {
-    validate_duration::<MIN_INTRODUCE_QUESTION, MAX_INTRODUCE_QUESTION>("introduce_question", val)
+    validate_duration::<
+        { crate::constants::type_answer::MIN_INTRODUCE_QUESTION },
+        { crate::constants::type_answer::MAX_INTRODUCE_QUESTION },
+    >("introduce_question", val)
 }
 
 #[serde_with::serde_as]
@@ -78,7 +70,7 @@ fn validate_introduce_question(val: &Duration) -> ValidationResult {
 #[derive(Debug, Clone, Serialize, serde::Deserialize, Validate)]
 pub struct SlideConfig {
     /// The question title, represents what's being asked
-    #[garde(length(chars, min = MIN_TITLE_LENGTH, max = MAX_TITLE_LENGTH))]
+    #[garde(length(chars, min = crate::constants::type_answer::MIN_TITLE_LENGTH, max = crate::constants::type_answer::MAX_TITLE_LENGTH))]
     title: String,
     /// Accompanying media
     #[garde(dive)]
@@ -96,7 +88,9 @@ pub struct SlideConfig {
     #[garde(skip)]
     points_awarded: u64,
     /// Accompanying answers
-    #[garde(length(max = MAX_ANSWER_COUNT), inner(length(chars, max = MAX_ANSWER_TEXT_LENGTH)))]
+    #[garde(length(max = crate::constants::type_answer::MAX_ANSWER_COUNT),
+        inner(length(chars, max = crate::constants::answer_text::MAX_LENGTH))
+    )]
     answers: Vec<String>,
     /// Case-sensitive check for answers
     #[garde(skip)]

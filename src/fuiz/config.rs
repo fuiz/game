@@ -13,26 +13,19 @@ use crate::{
 
 use super::{super::game::IncomingMessage, media::Media, multiple_choice, order, type_answer};
 
-const CONFIG: crate::config::fuiz::FuizConfig = crate::CONFIG.fuiz;
-
-const MAX_SLIDES_COUNT: usize = CONFIG.max_slides_count.unsigned_abs() as usize;
-const MAX_TITLE_LENGTH: usize = CONFIG.max_title_length.unsigned_abs() as usize;
-
-const MAX_TEXT_LENGTH: usize = crate::CONFIG.fuiz.answer_text.max_length.unsigned_abs() as usize;
-
 #[derive(Debug, Serialize, Deserialize, Clone, Validate)]
 pub enum TextOrMedia {
     Media(#[garde(skip)] Media),
-    Text(#[garde(length(max = MAX_TEXT_LENGTH))] String),
+    Text(#[garde(length(max = crate::constants::answer_text::MAX_LENGTH))] String),
 }
 
 /// A fuiz configuration, title is unused
 #[derive(Debug, Serialize, Deserialize, Clone, Validate)]
 pub struct Fuiz {
-    #[garde(length(max = MAX_TITLE_LENGTH))]
+    #[garde(length(max = crate::constants::fuiz::MAX_TITLE_LENGTH))]
     title: String,
 
-    #[garde(length(max = MAX_SLIDES_COUNT), dive)]
+    #[garde(length(max = crate::constants::fuiz::MAX_SLIDES_COUNT), dive)]
     pub slides: Vec<SlideConfig>,
 }
 

@@ -126,13 +126,13 @@ impl TeamManager {
                     existing_teams.split_at(how_many_small_teams * size_of_small_teams);
 
                 existing_teams = small_teams
-                    .into_iter()
+                    .iter()
                     .chunks(size_of_small_teams)
                     .into_iter()
                     .map(|chunk| chunk.into_iter().flatten().copied().collect_vec())
                     .chain(
                         big_teams
-                            .into_iter()
+                            .iter()
                             .chunks(size_of_big_teams)
                             .into_iter()
                             .map(|chunk| chunk.into_iter().flatten().copied().collect_vec()),
