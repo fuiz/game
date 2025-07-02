@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use derive_where::derive_where;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};

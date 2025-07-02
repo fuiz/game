@@ -1,0 +1,57 @@
+# GitLab CI configuration for Rust project
+image: rust:latest
+
+# Cache cargo dependencies
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/cargo
+
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - cargo/
+    - target/
+
+# Define stages
+stages:
+  - format
+  - check
+  - lint
+  - test
+
+# Before script to install necessary components
+before_script:
+  - rustc --version && cargo --version
+  - rustup component add rustfmt clippy
+
+# Format check
+format:
+  stage: format
+  script:
+    - cargo fmt --all -- --check
+  allow_failure: false
+
+# Cargo check
+check:
+  stage: check
+  script:
+    - cargo check --all-targets --all-features
+  allow_failure: false
+
+# Clippy linting
+clippy:
+  stage: lint
+  script:
+    - cargo clippy --all-targets --all-features -- -D warnings
+  allow_failure: false
+
+# Run tests
+test:
+  stage: test
+  script:
+    - cargo test --all-features --verbose
+  coverage: '/^\d+\.\d+% coverage/'
+  artifacts:
+    reports:
+      junit: test-results.xml
+    expire_in: 1 week
+  allow_failure: false
