@@ -359,7 +359,7 @@ mod tests {
                 .add_watcher(
                     *player,
                     watcher::Value::Player(watcher::PlayerValue::Individual {
-                        name: format!("Player {}", player)
+                        name: format!("Player {player}")
                     }),
                 )
                 .is_ok());
@@ -397,9 +397,7 @@ mod tests {
             assert_eq!(
                 team_members.len(),
                 expected_size,
-                "Player at index {} should have {} team members",
-                i,
-                expected_size
+                "Player at index {i} should have {expected_size} team members"
             );
         }
     }
