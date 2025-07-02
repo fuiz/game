@@ -110,8 +110,6 @@ impl From<WatchersSerde> for Watchers {
     }
 }
 
-const MAX_PLAYERS: usize = crate::CONFIG.fuiz.max_player_count.unsigned_abs() as usize;
-
 #[derive(Error, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     #[error("maximum number of players reached")]
@@ -166,7 +164,7 @@ impl Watchers {
     pub fn add_watcher(&mut self, watcher_id: Id, watcher_value: Value) -> Result<(), Error> {
         let kind = watcher_value.kind();
 
-        if self.mapping.len() >= MAX_PLAYERS {
+        if self.mapping.len() >= crate::config::fuiz::MAX_PLAYER_COUNT {
             return Err(Error::MaximumPlayers);
         }
 

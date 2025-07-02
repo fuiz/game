@@ -51,21 +51,18 @@ fn validate_duration<const MIN_SECONDS: u64, const MAX_SECONDS: u64>(
     }
 }
 
-const CONFIG: crate::config::fuiz::order::OrderConfig = crate::CONFIG.fuiz.order;
+const MIN_TITLE_LENGTH: usize = crate::config::order::MIN_TITLE_LENGTH;
+const MIN_TIME_LIMIT: u64 = crate::config::order::MIN_TIME_LIMIT as u64;
+const MIN_INTRODUCE_QUESTION: u64 = crate::config::order::MIN_INTRODUCE_QUESTION as u64;
 
-const MIN_TITLE_LENGTH: usize = CONFIG.min_title_length.unsigned_abs() as usize;
-const MIN_TIME_LIMIT: u64 = CONFIG.min_time_limit.unsigned_abs();
-const MIN_INTRODUCE_QUESTION: u64 = CONFIG.min_introduce_question.unsigned_abs();
+const MAX_TIME_LIMIT: u64 = crate::config::order::MAX_TIME_LIMIT as u64;
+const MAX_INTRODUCE_QUESTION: u64 = crate::config::order::MAX_INTRODUCE_QUESTION as u64;
+const MAX_TITLE_LENGTH: usize = crate::config::order::MAX_TITLE_LENGTH;
+const MAX_LABEL_LENGTH: usize = crate::config::order::MAX_LABEL_LENGTH;
 
-const MAX_TIME_LIMIT: u64 = CONFIG.max_time_limit.unsigned_abs();
-const MAX_INTRODUCE_QUESTION: u64 = CONFIG.max_introduce_question.unsigned_abs();
-const MAX_TITLE_LENGTH: usize = CONFIG.max_title_length.unsigned_abs() as usize;
-const MAX_LABEL_LENGTH: usize = CONFIG.max_label_length.unsigned_abs() as usize;
+const MAX_ANSWER_COUNT: usize = crate::config::order::MAX_ANSWER_COUNT as usize;
 
-const MAX_ANSWER_COUNT: usize = CONFIG.max_answer_count.unsigned_abs() as usize;
-
-const MAX_ANSWER_TEXT_LENGTH: usize =
-    crate::CONFIG.fuiz.answer_text.max_length.unsigned_abs() as usize;
+const MAX_ANSWER_TEXT_LENGTH: usize = crate::config::answer_text::MAX_LENGTH;
 
 fn validate_time_limit(val: &Duration) -> ValidationResult {
     validate_duration::<MIN_TIME_LIMIT, MAX_TIME_LIMIT>("time_limit", val)

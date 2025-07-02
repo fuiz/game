@@ -52,18 +52,15 @@ fn validate_duration<const MIN_SECONDS: u64, const MAX_SECONDS: u64>(
     }
 }
 
-const CONFIG: crate::config::fuiz::multiple_choice::MultipleChoiceConfig =
-    crate::CONFIG.fuiz.multiple_choice;
+const MIN_TITLE_LENGTH: usize = crate::config::multiple_choice::MIN_TITLE_LENGTH;
+const MIN_INTRODUCE_QUESTION: u64 = crate::config::multiple_choice::MIN_INTRODUCE_QUESTION as u64;
+const MIN_TIME_LIMIT: u64 = crate::config::multiple_choice::MIN_TIME_LIMIT as u64;
 
-const MIN_TITLE_LENGTH: usize = CONFIG.min_title_length.unsigned_abs() as usize;
-const MIN_INTRODUCE_QUESTION: u64 = CONFIG.min_introduce_question.unsigned_abs();
-const MIN_TIME_LIMIT: u64 = CONFIG.min_time_limit.unsigned_abs();
+const MAX_TIME_LIMIT: u64 = crate::config::multiple_choice::MAX_TIME_LIMIT as u64;
+const MAX_TITLE_LENGTH: usize = crate::config::multiple_choice::MAX_TITLE_LENGTH;
+const MAX_INTRODUCE_QUESTION: u64 = crate::config::multiple_choice::MAX_INTRODUCE_QUESTION as u64;
 
-const MAX_TIME_LIMIT: u64 = CONFIG.max_time_limit.unsigned_abs();
-const MAX_TITLE_LENGTH: usize = CONFIG.max_title_length.unsigned_abs() as usize;
-const MAX_INTRODUCE_QUESTION: u64 = CONFIG.max_introduce_question.unsigned_abs();
-
-const MAX_ANSWER_COUNT: usize = CONFIG.max_answer_count.unsigned_abs() as usize;
+const MAX_ANSWER_COUNT: usize = crate::config::multiple_choice::MAX_ANSWER_COUNT as usize;
 
 fn validate_introduce_question(val: &Duration) -> ValidationResult {
     validate_duration::<MIN_INTRODUCE_QUESTION, MAX_INTRODUCE_QUESTION>("introduce_question", val)

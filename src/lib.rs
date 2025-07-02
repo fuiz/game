@@ -2,12 +2,7 @@ use derive_where::derive_where;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-static_toml::static_toml! {
-    #[static_toml(
-        suffix = Config,
-    )]
-    const CONFIG = include_toml!("config.toml");
-}
+pub mod config;
 
 pub mod fuiz;
 pub mod game;
