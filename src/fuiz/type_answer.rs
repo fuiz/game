@@ -1,3 +1,10 @@
+//! Type answer (free text) question implementation
+//!
+//! This module implements the type answer question type for Fuiz games.
+//! Type answer questions present a question and allow players to submit
+//! free text responses. The system supports multiple acceptable answers
+//! and uses fuzzy matching to determine correctness.
+
 use std::{
     collections::{HashMap, HashSet},
     time::{self, Duration},
@@ -21,23 +28,36 @@ use super::{
     media::Media,
 };
 
-/// Phase of the slide
+/// Represents the current phase of a type answer slide
+///
+/// Type answer questions progress through phases similar to multiple choice:
+/// first showing the question, then accepting text input from players,
+/// and finally showing results with accepted answers.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum SlideState {
-    /// Unstarted, exists to distinguish between started and unstarted slide, usually treated the same as [`SlideState::Question`]
+    /// Initial state before the slide has started (treated same as Question)
     #[default]
     Unstarted,
-    /// Showing a question without answers
+    /// Displaying the question without input field
     Question,
-    /// Accepting player answers
+    /// Accepting text input from players
     Answers,
-    /// Showing correct answers and their statistics
+    /// Displaying results with correct answers and statistics
     AnswersResults,
 }
 
 type ValidationResult = garde::Result;
 
+/// Validates that a duration falls within specified bounds
+/// 
+/// # Arguments
+/// * `field` - Name of the field being validated for error messages
+/// * `val` - Duration to validate
+/// 
+/// # Returns
+/// * `Ok(())` if the duration is within bounds
+/// * `Err(garde::Error)` if the duration is outside bounds
 fn validate_duration<const MIN_SECONDS: u64, const MAX_SECONDS: u64>(
     field: &'static str,
     val: &Duration,
@@ -51,6 +71,7 @@ fn validate_duration<const MIN_SECONDS: u64, const MAX_SECONDS: u64>(
     }
 }
 
+/// Validates that a time limit is within acceptable bounds for type answer questions
 fn validate_time_limit(val: &Duration) -> ValidationResult {
     validate_duration::<
         { crate::constants::type_answer::MIN_TIME_LIMIT },
@@ -58,6 +79,7 @@ fn validate_time_limit(val: &Duration) -> ValidationResult {
     >("time_limit", val)
 }
 
+/// Validates that the question introduction duration is within acceptable bounds
 fn validate_introduce_question(val: &Duration) -> ValidationResult {
     validate_duration::<
         { crate::constants::type_answer::MIN_INTRODUCE_QUESTION },
@@ -67,6 +89,10 @@ fn validate_introduce_question(val: &Duration) -> ValidationResult {
 
 #[serde_with::serde_as]
 #[skip_serializing_none]
+/// Configuration for a type answer slide
+/// 
+/// Contains all the settings and content for a single type answer question,
+/// including the question text, media, timing, and acceptable answers.
 #[derive(Debug, Clone, Serialize, serde::Deserialize, Validate)]
 pub struct SlideConfig {
     /// The question title, represents what's being asked
@@ -87,35 +113,46 @@ pub struct SlideConfig {
     /// Maximum number of points awarded the question, decreases linearly to half the amount by the end of the slide
     #[garde(skip)]
     points_awarded: u64,
-    /// Accompanying answers
+    /// List of acceptable text answers for this question
     #[garde(length(max = crate::constants::type_answer::MAX_ANSWER_COUNT),
         inner(length(chars, max = crate::constants::answer_text::MAX_LENGTH))
     )]
     answers: Vec<String>,
-    /// Case-sensitive check for answers
+    /// Whether answer matching should be case-sensitive
     #[garde(skip)]
     #[serde(default)]
     case_sensitive: bool,
 }
 
-/// Presenting a multiple choice question that presents a question then the answers with optional accompanying media
+/// Runtime state for a type answer slide
+/// 
+/// Tracks the current state of the slide including player answers,
+/// timing information, and the current phase of the question.
 #[serde_with::serde_as]
 #[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct State {
-    /// The question title, represents what's being asked
+    /// The configuration this state was created from
     config: SlideConfig,
 
-    // State
-    /// Storage of user answers combined with the time of answering
+    // Runtime State
+    /// Player text answers with submission timestamps
     user_answers: HashMap<Id, (String, SystemTime)>,
-    /// Instant where answers were first displayed
+    /// Time when text input was first enabled for players
     answer_start: Option<SystemTime>,
-    /// Stage of the slide
+    /// Current phase of the slide presentation
     state: SlideState,
 }
 
 impl SlideConfig {
+    /// Creates a new runtime state from this configuration
+    /// 
+    /// This method initializes a fresh state for gameplay, setting up
+    /// empty answer tracking and the initial unstarted phase.
+    /// 
+    /// # Returns
+    /// 
+    /// A new `State` ready for gameplay
     pub fn to_state(&self) -> State {
         State {
             config: self.clone(),
@@ -160,9 +197,16 @@ pub enum UpdateMessage {
     },
 }
 
+/// Messages used for scheduled state transitions in type answer slides
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AlarmMessage {
-    ProceedFromSlideIntoSlide { index: usize, to: SlideState },
+    /// Triggers a transition from one slide state to another
+    ProceedFromSlideIntoSlide { 
+        /// Index of the slide being transitioned
+        index: usize, 
+        /// Target state to transition to
+        to: SlideState 
+    },
 }
 
 /// Messages sent to the listeners who lack preexisting state to synchronize their state.
@@ -174,27 +218,47 @@ pub enum AlarmMessage {
 pub enum SyncMessage {
     /// Announcement of the question without its answers
     QuestionAnnouncement {
+        /// Index of the current slide
         index: usize,
+        /// Total number of slides in the game
         count: usize,
+        /// The question text being asked
         question: String,
+        /// Optional media content accompanying the question
         media: Option<Media>,
         /// Remaining time for the question to be displayed without its answers
         #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
         duration: Duration,
+        /// Whether to accept text answers from players
         accept_answers: bool,
     },
     /// Results of the game including correct answers and statistics of how many they got chosen
     AnswersResults {
+        /// Index of the current slide
         index: usize,
+        /// Total number of slides in the game
         count: usize,
+        /// The question text that was asked
         question: String,
+        /// Optional media content that accompanied the question
         media: Option<Media>,
+        /// Correct answers for this question
         answers: Vec<String>,
+        /// Statistics of player submissions: (answer_text, count)
         results: Vec<(String, usize)>,
+        /// Whether the answer matching was case-sensitive
         case_sensitive: bool,
     },
 }
 
+/// Normalizes an answer string for comparison
+/// 
+/// # Arguments
+/// * `answer` - The answer string to clean
+/// * `case_sensitive` - Whether to preserve case sensitivity
+/// 
+/// # Returns
+/// * Cleaned answer string (trimmed and optionally lowercased)
 fn clean_answer(answer: &str, case_sensitive: bool) -> String {
     if case_sensitive {
         answer.trim().to_string()
@@ -204,6 +268,14 @@ fn clean_answer(answer: &str, case_sensitive: bool) -> String {
 }
 
 impl State {
+    /// Starts the type answer slide by sending initial question announcements
+    /// 
+    /// # Arguments
+    /// * `watchers` - Connection manager for players and hosts
+    /// * `schedule_message` - Function to schedule delayed messages
+    /// * `tunnel_finder` - Function to find communication tunnels for specific watchers
+    /// * `index` - Current slide index
+    /// * `count` - Total number of slides
     pub fn play<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
@@ -219,6 +291,17 @@ impl State {
         self.send_question_announcements(watchers, schedule_message, tunnel_finder, index, count);
     }
 
+    /// Calculates the score for a player based on how quickly they answered
+    /// 
+    /// Score decreases linearly from full points to half points over the duration.
+    /// 
+    /// # Arguments
+    /// * `full_duration` - Total time allowed for the question
+    /// * `taken_duration` - Time taken by the player to answer
+    /// * `full_points_awarded` - Maximum points possible for this question
+    /// 
+    /// # Returns
+    /// * Points awarded (between half and full points)
     fn calculate_score(
         full_duration: Duration,
         taken_duration: Duration,
@@ -229,14 +312,30 @@ impl State {
             as u64
     }
 
+    /// Starts the timer for the current phase of the slide
     fn start_timer(&mut self) {
         self.answer_start = Some(SystemTime::now());
     }
 
+    /// Returns the start time of the current phase
+    /// 
+    /// # Returns
+    /// * SystemTime when the current phase started, or current time if not set
     fn timer(&self) -> SystemTime {
         self.answer_start.unwrap_or(SystemTime::now())
     }
 
+    /// Sends the initial question announcement to all watchers
+    /// 
+    /// This method handles the transition from Unstarted to Question state,
+    /// announcing the question text and media before accepting answers.
+    /// 
+    /// # Arguments
+    /// * `watchers` - Connection manager for players and hosts
+    /// * `schedule_message` - Function to schedule delayed messages
+    /// * `tunnel_finder` - Function to find communication tunnels
+    /// * `index` - Current slide index
+    /// * `count` - Total number of slides
     fn send_question_announcements<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
@@ -287,6 +386,17 @@ impl State {
         }
     }
 
+    /// Transitions to accepting answers from players
+    /// 
+    /// This method handles the transition from Question to Answers state,
+    /// enabling the answer input field and starting the answer timer.
+    /// 
+    /// # Arguments
+    /// * `watchers` - Connection manager for players and hosts
+    /// * `schedule_message` - Function to schedule delayed messages
+    /// * `tunnel_finder` - Function to find communication tunnels
+    /// * `index` - Current slide index
+    /// * `count` - Total number of slides
     fn send_accepting_answers<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
@@ -326,6 +436,14 @@ impl State {
         }
     }
 
+    /// Attempts to transition from one slide state to another
+    /// 
+    /// # Arguments
+    /// * `before` - Expected current state
+    /// * `after` - Target state
+    /// 
+    /// # Returns
+    /// * `true` if transition was successful, `false` if current state didn't match expected state
     fn change_state(&mut self, before: SlideState, after: SlideState) -> bool {
         if self.state == before {
             self.state = after;
@@ -336,10 +454,19 @@ impl State {
         }
     }
 
+    /// Returns the current state of the slide
     fn state(&self) -> SlideState {
         self.state
     }
 
+    /// Sends the results showing correct answers and player statistics
+    /// 
+    /// This method handles the transition from Answers to AnswersResults state,
+    /// revealing the correct answers and showing statistics about player responses.
+    /// 
+    /// # Arguments
+    /// * `watchers` - Connection manager for players and hosts
+    /// * `tunnel_finder` - Function to find communication tunnels
     fn send_answers_results<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &mut self,
         watchers: &Watchers,
@@ -370,6 +497,17 @@ impl State {
         }
     }
 
+    /// Calculates and adds scores to the leaderboard based on player answers
+    /// 
+    /// This method evaluates all player answers against the correct answers,
+    /// calculates scores based on correctness and timing, and updates the leaderboard.
+    /// In team mode, it takes the best answer time for each team.
+    /// 
+    /// # Arguments
+    /// * `leaderboard` - Mutable reference to the game leaderboard
+    /// * `watchers` - Connection manager for players and hosts
+    /// * `team_manager` - Optional team manager for team-based games
+    /// * `tunnel_finder` - Function to find communication tunnels
     fn add_scores<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &self,
         leaderboard: &mut Leaderboard,
@@ -438,6 +576,19 @@ impl State {
         );
     }
 
+    /// Generates a synchronization message for a newly connected watcher
+    /// 
+    /// # Arguments
+    /// * `_watcher_id` - ID of the connecting watcher
+    /// * `_watcher_kind` - Type of watcher (player/host)
+    /// * `_team_manager` - Optional team manager for team-based games
+    /// * `_watchers` - Connection manager
+    /// * `_tunnel_finder` - Function to find communication tunnels
+    /// * `index` - Current slide index
+    /// * `count` - Total number of slides
+    /// 
+    /// # Returns
+    /// * Appropriate sync message based on current slide state
     pub fn state_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &self,
         _watcher_id: Id,
@@ -491,6 +642,21 @@ impl State {
         }
     }
 
+    /// Handles incoming messages from players and hosts
+    /// 
+    /// # Arguments
+    /// * `watcher_id` - ID of the sender
+    /// * `message` - The incoming message
+    /// * `leaderboard` - Mutable reference to the game leaderboard
+    /// * `watchers` - Connection manager
+    /// * `team_manager` - Optional team manager for team-based games
+    /// * `schedule_message` - Function to schedule delayed messages
+    /// * `tunnel_finder` - Function to find communication tunnels
+    /// * `index` - Current slide index
+    /// * `count` - Total number of slides
+    /// 
+    /// # Returns
+    /// * `true` if the slide is complete and should advance, `false` otherwise
     pub fn receive_message<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
@@ -560,6 +726,20 @@ impl State {
         false
     }
 
+    /// Handles scheduled alarm messages for state transitions
+    /// 
+    /// # Arguments
+    /// * `_leaderboard` - Mutable reference to the game leaderboard
+    /// * `watchers` - Connection manager
+    /// * `_team_manager` - Optional team manager for team-based games
+    /// * `schedule_message` - Function to schedule delayed messages
+    /// * `tunnel_finder` - Function to find communication tunnels
+    /// * `message` - The alarm message to handle
+    /// * `index` - Current slide index
+    /// * `count` - Total number of slides
+    /// 
+    /// # Returns
+    /// * `true` if the slide is complete and should advance, `false` otherwise
     pub fn receive_alarm<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
