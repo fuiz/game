@@ -1,3 +1,10 @@
+//! Core game logic and state management
+//!
+//! This module contains the main game struct and logic for managing
+//! a Fuiz game session, including player management, question flow,
+//! scoring, team formation, and real-time communication with all
+//! connected participants.
+
 use std::{collections::HashSet, fmt::Debug};
 
 use garde::Validate;
@@ -22,41 +29,62 @@ use super::{
     AlarmMessage, TruncatedVec,
 };
 
-/// Game Phase
+/// Represents the current phase or state of the game
+///
+/// The game progresses through different states, from waiting for players
+/// to join, through individual questions, to showing results and completion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum State {
-    /// A waiting screen where current players are displayed
+    /// Waiting screen showing current players before the game starts
     WaitingScreen,
-    /// (TEAM ONLY): A waiting screen where current teams are displayed
+    /// Team formation screen (only shown in team games)
     TeamDisplay,
+    /// Currently displaying a specific slide/question
     Slide(Box<CurrentSlide>),
+    /// Showing the leaderboard after a question (with index)
     Leaderboard(usize),
+    /// Game has completed
     Done,
 }
 
+/// Configuration options for team-based games
+///
+/// This struct defines how teams are formed and managed within a game session.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Validate)]
 pub struct TeamOptions {
-    /// maximum initial team size
+    /// Maximum initial size for teams
     #[garde(range(min = 1, max = 5))]
     size: usize,
-    /// whether to assign people to random teams or let them choose their preferences
+    /// Whether to assign players to random teams or let them choose preferences
     #[garde(skip)]
     assign_random: bool,
 }
 
+/// Defines the style of automatically generated player names
+///
+/// When random names are enabled, this enum determines what type of
+/// names are generated for players who don't choose their own names.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Validate)]
 pub enum NameStyle {
+    /// Roman-style names (praenomen + nomen, optionally + cognomen)
     Roman(#[garde(range(min = 2, max = 3))] usize),
+    /// Pet-style names (adjective + animal combinations)
     Petname(#[garde(range(min = 2, max = 3))] usize),
 }
 
 impl Default for NameStyle {
+    /// Default name style is Petname with 2 words
     fn default() -> Self {
         Self::Petname(2)
     }
 }
 
 impl NameStyle {
+    /// Generates a random name according to this style
+    ///
+    /// # Returns
+    ///
+    /// A randomly generated name string, or `None` if generation fails
     pub fn get_name(&self) -> Option<String> {
         match self {
             Self::Roman(count) => Some(romanname(NameConfig {
@@ -68,40 +96,53 @@ impl NameStyle {
     }
 }
 
+/// Global configuration options for the game session
+///
+/// These options affect the overall behavior of the game, including
+/// name generation, answer visibility, leaderboard display, and team formation.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Validate)]
 pub struct Options {
-    /// using random names for players (skips choosing names)
+    /// Style for automatically generated player names (None means players choose their own)
     #[garde(dive)]
     random_names: Option<NameStyle>,
-    /// whether to show answers on players devices or not
+    /// Whether to show correct answers on player devices after questions
     #[garde(skip)]
     show_answers: bool,
+    /// Whether to skip showing leaderboards between questions
     #[garde(skip)]
     no_leaderboard: bool,
+    /// Team configuration (None means individual play)
     #[garde(dive)]
     teams: Option<TeamOptions>,
 }
 
+/// The main game session struct
+///
+/// This struct represents a complete Fuiz game session, managing all
+/// aspects of the game including participant connections, question flow,
+/// scoring, team management, and real-time communication.
 #[derive(Serialize, Deserialize)]
-/// one game session
 pub struct Game {
-    /// configuration to create the game
+    /// The Fuiz configuration containing all questions and settings
     fuiz_config: Fuiz,
-    /// set of watchers listening to message actions
+    /// Manager for all connected participants (players, hosts, unassigned)
     pub watchers: Watchers,
-    /// mapping of names used in the game
+    /// Name assignments and validation for players
     names: Names,
-    /// score mapping from players/teams to score
+    /// Scoring and leaderboard management
     pub leaderboard: Leaderboard,
-    /// current phase of the game
+    /// Current phase/state of the game
     pub state: State,
+    /// Game configuration options
     options: Options,
-    /// indicates if a game is locked so new players aren't able to enter
+    /// Whether the game is locked to new participants
     locked: bool,
+    /// Team formation and management (if teams are enabled)
     team_manager: Option<TeamManager>,
 }
 
 impl Debug for Game {
+    /// Custom debug implementation that avoids printing large amounts of data
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Game")
             .field("fuiz", &self.fuiz_config)
@@ -109,15 +150,36 @@ impl Debug for Game {
     }
 }
 
+/// Messages received from different types of participants
+///
+/// This enum categorizes incoming messages based on the sender's role,
+/// ensuring that only appropriate messages are processed from each
+/// participant type.
 #[derive(Debug, Deserialize, Clone)]
 pub enum IncomingMessage {
+    /// Messages from disconnected clients trying to reconnect
     Ghost(IncomingGhostMessage),
+    /// Messages from the game host
     Host(IncomingHostMessage),
+    /// Messages from unassigned connections (not yet players)
     Unassigned(IncomingUnassignedMessage),
+    /// Messages from active players
     Player(IncomingPlayerMessage),
 }
 
 impl IncomingMessage {
+    /// Validates that a message matches the sender's participant type
+    ///
+    /// This ensures that participants can only send messages appropriate
+    /// for their current role in the game session.
+    ///
+    /// # Arguments
+    ///
+    /// * `sender_kind` - The type of participant sending the message
+    ///
+    /// # Returns
+    ///
+    /// `true` if the message type matches the sender type, `false` otherwise
     fn follows(&self, sender_kind: ValueKind) -> bool {
         matches!(
             (self, sender_kind),
@@ -128,118 +190,231 @@ impl IncomingMessage {
     }
 }
 
+/// Messages that can be sent by active players
 #[derive(Debug, Deserialize, Clone)]
 pub enum IncomingPlayerMessage {
+    /// Answer selected by index (for multiple choice questions)
     IndexAnswer(usize),
+    /// Text answer submitted (for type answer questions)
     StringAnswer(String),
+    /// Array of strings submitted (for order questions)
     StringArrayAnswer(Vec<String>),
+    /// Team preference selection (during team formation)
     ChooseTeammates(Vec<String>),
 }
 
+/// Messages that can be sent by unassigned connections
 #[derive(Debug, Deserialize, Clone)]
 pub enum IncomingUnassignedMessage {
+    /// Request to set a specific name and become a player
     NameRequest(String),
 }
 
+/// Messages that can be sent by disconnected clients trying to reconnect
 #[derive(Debug, Deserialize, Clone)]
 pub enum IncomingGhostMessage {
+    /// Request a new ID assignment
     DemandId,
+    /// Attempt to reclaim a specific existing ID
     ClaimId(Id),
 }
 
+/// Messages that can be sent by the game host
 #[derive(Debug, Deserialize, Clone, Copy)]
 pub enum IncomingHostMessage {
+    /// Advance to the next slide/question
     Next,
+    /// Jump to a specific slide by index
     Index(usize),
+    /// Lock or unlock the game to new participants
     Lock(bool),
 }
 
+/// Update messages sent to participants about game state changes
+///
+/// These messages inform participants about changes that affect their
+/// view or interaction with the game.
 #[skip_serializing_none]
 #[derive(Debug, Serialize, Clone)]
 pub enum UpdateMessage {
+    /// Assign a unique ID to a participant
     IdAssign(Id),
+    /// Update the waiting screen with current players
     WaitingScreen(TruncatedVec<String>),
+    /// Update the team display screen
     TeamDisplay(TruncatedVec<String>),
+    /// Prompt the participant to choose a name
     NameChoose,
+    /// Confirm a name assignment
     NameAssign(String),
+    /// Report an error with name validation
     NameError(names::Error),
-    Leaderboard {
-        leaderboard: LeaderboardMessage,
+    /// Send leaderboard information
+    Leaderboard { 
+        /// The leaderboard data to display
+        leaderboard: LeaderboardMessage 
     },
-    Score {
-        score: Option<ScoreMessage>,
+    /// Send individual score information
+    Score { 
+        /// The player's score information
+        score: Option<ScoreMessage> 
     },
+    /// Send game summary information
     Summary(SummaryMessage),
+    /// Inform player to find a team (team games only)
     FindTeam(String),
+    /// Prompt for teammate selection during team formation
     ChooseTeammates {
+        /// Maximum number of teammates that can be selected
         max_selection: usize,
+        /// Available players with their current selection status: (name, is_selected)
         available: Vec<(String, bool)>,
     },
 }
 
+/// Sync messages sent to participants to synchronize their view with game state
+///
+/// These messages are sent when participants connect or when their view
+/// needs to be completely synchronized with the current game state.
 #[skip_serializing_none]
 #[derive(Debug, Serialize, Clone)]
 pub enum SyncMessage {
+    /// Sync waiting screen with current players
     WaitingScreen(TruncatedVec<String>),
+    /// Sync team display screen
     TeamDisplay(TruncatedVec<String>),
+    /// Sync leaderboard view with position information
     Leaderboard {
+        /// Current slide index
         index: usize,
+        /// Total number of slides
         count: usize,
+        /// The leaderboard data to display
         leaderboard: LeaderboardMessage,
     },
+    /// Sync individual score view with position information
     Score {
+        /// Current slide index
         index: usize,
+        /// Total number of slides
         count: usize,
+        /// The player's score information
         score: Option<ScoreMessage>,
     },
+    /// Sync metadata about the game state
     Metainfo(MetainfoMessage),
+    /// Sync game summary information
     Summary(SummaryMessage),
+    /// Participant is not allowed to join
     NotAllowed,
+    /// Sync team finding information
     FindTeam(String),
+    /// Sync teammate selection options
     ChooseTeammates {
+        /// Maximum number of teammates that can be selected
         max_selection: usize,
+        /// Available players with their current selection status: (name, is_selected)
         available: Vec<(String, bool)>,
     },
 }
 
+/// Summary information sent at the end of the game
+///
+/// This enum provides different views of the game results depending
+/// on whether the recipient is a player or the host.
 #[skip_serializing_none]
 #[derive(Debug, Serialize, Clone)]
 pub enum SummaryMessage {
+    /// Summary for individual players
     Player {
+        /// Player's final score information
         score: Option<ScoreMessage>,
+        /// Points earned on each question
         points: Vec<u64>,
+        /// The game configuration that was played
         config: Fuiz,
     },
+    /// Summary for the game host with detailed statistics
     Host {
+        /// Statistics for each question: (correct_count, total_count)
         stats: Vec<(usize, usize)>,
+        /// Total number of players who participated
         player_count: usize,
+        /// The game configuration that was played
         config: Fuiz,
+        /// Game options that were used
         options: Options,
     },
 }
 
+/// Metadata information about the game state
+///
+/// This provides contextual information that participants need
+/// to understand their current status and available actions.
 #[derive(Debug, Serialize, Clone)]
 pub enum MetainfoMessage {
-    Host { locked: bool },
-    Player { score: u64, show_answers: bool },
+    /// Information for the game host
+    Host { 
+        /// Whether the game is locked to new participants
+        locked: bool 
+    },
+    /// Information for players
+    Player { 
+        /// Player's current total score
+        score: u64, 
+        /// Whether answers will be shown after questions
+        show_answers: bool 
+    },
 }
 
+/// Leaderboard data structure for display
+///
+/// Contains both current standings and previous round standings
+/// for comparison and ranking visualization.
 #[derive(Debug, Serialize, Clone)]
 pub struct LeaderboardMessage {
+    /// Current leaderboard standings
     pub current: TruncatedVec<(String, u64)>,
+    /// Previous round's standings for comparison
     pub prior: TruncatedVec<(String, u64)>,
 }
 
 // Convenience methods
 impl Game {
+    /// Sets the current game state
+    ///
+    /// # Arguments
+    ///
+    /// * `game_state` - The new state to transition to
     fn set_state(&mut self, game_state: State) {
         self.state = game_state;
     }
 
+    /// Gets the score information for a specific watcher
+    ///
+    /// # Arguments
+    ///
+    /// * `watcher_id` - The ID of the watcher to get score for
+    ///
+    /// # Returns
+    ///
+    /// Score information if the watcher has a score, otherwise `None`
     fn score(&self, watcher_id: Id) -> Option<ScoreMessage> {
         self.leaderboard.score(self.leaderboard_id(watcher_id))
     }
 
+    /// Gets the leaderboard ID for a player (team ID if in team mode, player ID otherwise)
+    ///
+    /// In team games, this returns the team ID so that team scores are tracked.
+    /// In individual games, this returns the player ID directly.
+    ///
+    /// # Arguments
+    ///
+    /// * `player_id` - The player's individual ID
+    ///
+    /// # Returns
+    ///
+    /// The ID to use for leaderboard tracking (team or individual)
     pub fn leaderboard_id(&self, player_id: Id) -> Id {
         match &self.team_manager {
             Some(team_manager) => team_manager.get_team(player_id).unwrap_or(player_id),
@@ -247,6 +422,20 @@ impl Game {
         }
     }
 
+    /// Creates a teammate selection message for team formation
+    ///
+    /// This generates the message shown to players during team formation,
+    /// allowing them to select their preferred teammates from available players.
+    ///
+    /// # Arguments
+    ///
+    /// * `watcher` - The ID of the player who needs to choose teammates
+    /// * `team_manager` - The team manager containing preference data
+    /// * `tunnel_finder` - Function to find active communication tunnels
+    ///
+    /// # Returns
+    ///
+    /// An UpdateMessage with teammate selection options
     fn choose_teammates_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &self,
         watcher: Id,
@@ -270,6 +459,24 @@ impl Game {
         }
     }
 
+    /// Generates a list of player names for the waiting screen
+    ///
+    /// Creates a truncated list of player names to display on the waiting
+    /// screen or team display. In team games, may show team names instead
+    /// of individual player names depending on the current game state.
+    ///
+    /// # Arguments
+    ///
+    /// * `tunnel_finder` - Function to find active communication tunnels
+    ///
+    /// # Returns
+    ///
+    /// A TruncatedVec containing player names with overflow information
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
     fn waiting_screen_names<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &self,
         tunnel_finder: F,
@@ -299,6 +506,15 @@ impl Game {
         )
     }
 
+    /// Creates a leaderboard message with current and previous standings
+    ///
+    /// Generates a leaderboard message containing both the current standings
+    /// and the previous round's standings for comparison. Player/team IDs
+    /// are converted to display names for the client interface.
+    ///
+    /// # Returns
+    ///
+    /// A LeaderboardMessage with current and prior standings
     fn leaderboard_message(&self) -> LeaderboardMessage {
         let [current, prior] = self.leaderboard.last_two_scores_descending();
 
@@ -314,6 +530,33 @@ impl Game {
 }
 
 impl Game {
+    /// Creates a new game instance with the provided configuration
+    ///
+    /// Initializes a new Fuiz game session with the given quiz configuration,
+    /// game options, and host identifier. Sets up the initial state, scoring
+    /// system, name management, and team configuration if teams are enabled.
+    ///
+    /// # Arguments
+    ///
+    /// * `fuiz` - The quiz configuration containing questions and settings
+    /// * `options` - Game options including team settings, name generation, etc.
+    /// * `host_id` - Unique identifier for the game host
+    ///
+    /// # Returns
+    ///
+    /// A new Game instance ready to accept players and begin
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use fuiz_game::{Game, Options, Fuiz};
+    /// use fuiz_game::watcher::Id;
+    ///
+    /// let host_id = Id::new();
+    /// let options = Options::default();
+    /// let fuiz_config = Fuiz::default();
+    /// let game = Game::new(fuiz_config, options, host_id);
+    /// ```
     pub fn new(fuiz: Fuiz, options: Options, host_id: Id) -> Self {
         Self {
             fuiz_config: fuiz,
@@ -338,7 +581,22 @@ impl Game {
         }
     }
 
-    /// starts the game
+    /// Starts the game or progresses to the next phase
+    /// 
+    /// This method handles the transition from waiting/team formation to the first slide,
+    /// or manages team formation when teams are enabled. It sets up the initial slide
+    /// state and begins the question flow.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `schedule_message` - Function to schedule delayed messages for timing
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// 
+    /// # Type Parameters
+    /// 
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
+    /// * `S` - Function type for scheduling alarm messages
     pub fn play<T: Tunnel, F: Fn(Id) -> Option<T>, S: FnMut(AlarmMessage, web_time::Duration)>(
         &mut self,
         schedule_message: S,
@@ -391,7 +649,22 @@ impl Game {
         }
     }
 
-    /// mark the current slide as done
+    /// Marks the current slide as done and transitions to the next phase
+    /// 
+    /// This method handles the completion of a slide, either advancing to the
+    /// leaderboard (if enabled) or directly to the next slide. If all slides
+    /// are complete, it announces the game summary.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `schedule_message` - Function to schedule delayed messages for timing
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// 
+    /// # Type Parameters
+    /// 
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
+    /// * `S` - Function type for scheduling alarm messages
     pub fn finish_slide<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
@@ -448,7 +721,20 @@ impl Game {
         }
     }
 
-    /// sends summary (last slide) to everyone
+    /// Sends the final game summary to all participants
+    /// 
+    /// This method transitions the game to the Done state and sends appropriate
+    /// summary messages to hosts and players. Hosts receive detailed statistics
+    /// while players receive their individual scores and points breakdown.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// 
+    /// # Type Parameters
+    /// 
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
     fn announce_summary<T: Tunnel, F: Fn(Id) -> Option<T>>(&mut self, tunnel_finder: F) {
         self.state = State::Done;
 
@@ -488,7 +774,19 @@ impl Game {
         );
     }
 
-    /// mark the game as done and disconnect players
+    /// Marks the game as done and disconnects all players
+    /// 
+    /// This method finalizes the game session by setting the state to Done
+    /// and removing all participant sessions, effectively ending the game.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// 
+    /// # Type Parameters
+    /// 
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
     pub fn mark_as_done<T: Tunnel, F: Fn(Id) -> Option<T>>(&mut self, tunnel_finder: F) {
         self.state = State::Done;
 
@@ -505,7 +803,20 @@ impl Game {
         }
     }
 
-    /// send metainfo to player about the game
+    /// Sends metadata information to a player about the game
+    /// 
+    /// This method sends game options and player-specific information like
+    /// current score and whether answers will be shown after questions.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `watcher` - ID of the player to send metadata to
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// 
+    /// # Type Parameters
+    /// 
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
     fn update_player_with_options<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &self,
         watcher: Id,
@@ -522,7 +833,21 @@ impl Game {
         );
     }
 
-    /// start interactions with unassigned player
+    /// Initiates interactions with an unassigned player
+    /// 
+    /// This method handles the initial setup for new participants, either
+    /// automatically assigning them a random name (if enabled) or prompting
+    /// them to choose their own name.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `watcher` - ID of the unassigned participant
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// 
+    /// # Type Parameters
+    /// 
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
     fn handle_unassigned<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &mut self,
         watcher: Id,
@@ -547,7 +872,27 @@ impl Game {
         }
     }
 
-    /// assigns a player a name
+    /// Assigns a name to a player and converts them from unassigned to player
+    /// 
+    /// This method validates the name, assigns it to the participant, and
+    /// updates their status from unassigned to player. It handles name
+    /// validation and uniqueness checking.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `watcher` - ID of the participant to assign a name to
+    /// * `name` - The name to assign to the participant
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// 
+    /// # Returns
+    /// 
+    /// * `Ok(())` if the name was assigned successfully
+    /// * `Err(names::Error)` if the name is invalid or already taken
+    /// 
+    /// # Type Parameters
+    /// 
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
     fn assign_player_name<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &mut self,
         watcher: Id,
@@ -566,7 +911,22 @@ impl Game {
         Ok(())
     }
 
-    /// sends messages to the player about their new assigned name
+    /// Sends messages to the player about their newly assigned name
+    /// 
+    /// This method notifies the player of their name assignment, handles team
+    /// assignment if teams are enabled, and updates the waiting screen for other
+    /// participants. It also sends the current game state to the newly named player.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `watcher` - ID of the player whose name was assigned
+    /// * `name` - The name that was assigned to the player
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// 
+    /// # Type Parameters
+    /// 
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
     pub fn update_player_with_name<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &mut self,
         watcher: Id,
@@ -626,7 +986,25 @@ impl Game {
 
     // Network
 
-    /// add a new watcher with given id and session
+    /// Adds a new unassigned participant to the game
+    /// 
+    /// This method registers a new participant in the game with unassigned status.
+    /// If the game is not locked, it immediately begins the name assignment process.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `watcher` - Unique ID for the new participant
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// 
+    /// # Returns
+    /// 
+    /// * `Ok(())` if the participant was added successfully
+    /// * `Err(watcher::Error)` if the ID is already in use or invalid
+    /// 
+    /// # Type Parameters
+    /// 
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
     pub fn add_unassigned<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &mut self,
         watcher: Id,
@@ -641,7 +1019,24 @@ impl Game {
         Ok(())
     }
 
-    /// handle incoming message from watcher id
+    /// Handles incoming messages from participants
+    /// 
+    /// This method processes all incoming messages from participants, validates
+    /// that messages are appropriate for the sender's role, and routes them to
+    /// the correct handlers based on the current game state.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `watcher_id` - ID of the participant sending the message
+    /// * `message` - The incoming message to process
+    /// * `schedule_message` - Function to schedule delayed messages for timing
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// 
+    /// # Type Parameters
+    /// 
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
+    /// * `S` - Function type for scheduling alarm messages
     pub fn receive_message<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
@@ -742,6 +1137,23 @@ impl Game {
         }
     }
 
+    /// Handles scheduled alarm messages for timed game events
+    /// 
+    /// This method processes alarm messages that were scheduled to trigger
+    /// game state transitions at specific times, such as moving from question
+    /// display to answer acceptance or from answers to results.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `message` - The alarm message to process
+    /// * `schedule_message` - Function to schedule delayed messages for timing
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// 
+    /// # Type Parameters
+    /// 
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
+    /// * `S` - Function type for scheduling alarm messages
     pub fn receive_alarm<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
@@ -786,7 +1198,27 @@ impl Game {
         }
     }
 
-    /// returns the message necessary to synchronize state
+    /// Returns the message necessary to synchronize a participant's state
+    /// 
+    /// This method generates the appropriate synchronization message based on
+    /// the current game state and the participant's role. It ensures that
+    /// newly connected or reconnecting participants receive the correct view
+    /// of the current game state.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `watcher_id` - ID of the participant to synchronize
+    /// * `watcher_kind` - Type of participant (host, player, unassigned)
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// 
+    /// # Returns
+    /// 
+    /// A SyncMessage containing the current state information appropriate for the participant
+    /// 
+    /// # Type Parameters
+    /// 
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
     pub fn state_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &self,
         watcher_id: Id,
@@ -884,7 +1316,21 @@ impl Game {
         }
     }
 
-    /// replaces the session associated with watcher id with a new one
+    /// Updates the session associated with a participant (for reconnection)
+    /// 
+    /// This method handles participant reconnection by updating their session
+    /// and sending them the current game state. It handles different participant
+    /// types appropriately and manages locked game states.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `watcher_id` - ID of the participant reconnecting
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// 
+    /// # Type Parameters
+    /// 
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
     pub fn update_session<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &mut self,
         watcher_id: Id,

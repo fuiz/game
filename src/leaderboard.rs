@@ -1,38 +1,63 @@
+//! Leaderboard and scoring functionality
+//!
+//! This module manages the scoring system for Fuiz games, including
+//! tracking points earned by players/teams across multiple questions,
+//! maintaining leaderboards, and providing score summaries and statistics.
+
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::{watcher::Id, TruncatedVec};
 
+/// Summary of final game statistics and player performance
+///
+/// This struct contains aggregated data about the completed game,
+/// including per-question statistics and individual player scores.
 #[derive(Debug, Clone)]
 pub struct FinalSummary {
-    // for each slide, how many people earned points and how many didn't
+    /// For each slide, tuple of (players who earned points, players who didn't)
     stats: Vec<(usize, usize)>,
-    // for each player, the points they earned on each slide
+    /// For each player, the points they earned on each slide
     mapping: HashMap<Id, Vec<u64>>,
 }
 
+/// Serialization helper for Leaderboard struct
 #[derive(Deserialize)]
 struct LeaderboardSerde {
     points_earned: Vec<Vec<(Id, u64)>>,
 }
 
+/// Manages scoring and leaderboard functionality for a game session
+///
+/// This struct tracks points earned by players across all questions,
+/// maintains sorted leaderboards, and provides various scoring views
+/// and statistics for the game.
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(from = "LeaderboardSerde")]
 pub struct Leaderboard {
+    /// Points earned by each player for each slide/question
     points_earned: Vec<Vec<(Id, u64)>>,
 
+    /// Previous round's scores in descending order (cached)
     #[serde(skip)]
     previous_scores_descending: Vec<(Id, u64)>,
+    /// Current scores in descending order (cached)
     #[serde(skip)]
     scores_descending: Vec<(Id, u64)>,
+    /// Mapping from player ID to their total score and leaderboard position (cached)
     #[serde(skip)]
     score_and_position: HashMap<Id, (u64, usize)>,
+    /// Final game summary (computed once when needed)
     #[serde(skip)]
     final_summary: once_cell_serde::sync::OnceCell<FinalSummary>,
 }
 
 impl From<LeaderboardSerde> for Leaderboard {
+    /// Reconstructs the Leaderboard from serialized data
+    ///
+    /// This rebuilds all the cached score data from the points earned data,
+    /// which is necessary since the cached fields are not serialized.
     fn from(serde: LeaderboardSerde) -> Self {
         let total_score_mapping = serde
             .points_earned
@@ -95,13 +120,35 @@ impl From<LeaderboardSerde> for Leaderboard {
     }
 }
 
+/// Score information for a player or team
+/// 
+/// Contains the player's current score and their position in the leaderboard.
+/// This information is sent to players so they can see their performance.
 #[derive(Debug, Serialize, Clone, Copy)]
 pub struct ScoreMessage {
+    /// Total points earned by the player or team
     pub points: u64,
+    /// Current position in the leaderboard (1-indexed)
     pub position: usize,
 }
 
 impl Leaderboard {
+    /// Adds new scores for a round and updates leaderboard standings
+    ///
+    /// Processes the scores earned by players in the latest question/round,
+    /// updates total scores, recalculates leaderboard positions, and caches
+    /// the sorted standings for efficient access.
+    ///
+    /// # Arguments
+    ///
+    /// * `scores` - Slice of (player_id, points_earned) tuples for the round
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let scores = [(player1_id, 100), (player2_id, 75), (player3_id, 50)];
+    /// leaderboard.add_scores(&scores);
+    /// ```
     pub fn add_scores(&mut self, scores: &[(Id, u64)]) {
         let mut summary: HashMap<Id, u64> = self
             .score_and_position
@@ -134,6 +181,16 @@ impl Leaderboard {
         self.score_and_position = mapping;
     }
 
+    /// Returns the current and previous leaderboard standings
+    ///
+    /// Provides the last two sets of leaderboard standings (current and previous)
+    /// as truncated vectors suitable for display to clients. This allows showing
+    /// changes in position between rounds.
+    ///
+    /// # Returns
+    ///
+    /// An array containing [current_standings, previous_standings] as TruncatedVec
+    /// where each entry is (player_id, total_score)
     pub fn last_two_scores_descending(&self) -> [TruncatedVec<(Id, u64)>; 2] {
         const LIMIT: usize = 50;
 
@@ -151,6 +208,19 @@ impl Leaderboard {
         ]
     }
 
+    /// Computes comprehensive final game statistics
+    ///
+    /// Generates detailed statistics about the completed game, including
+    /// per-question performance data and individual player score breakdowns.
+    /// The statistics can show either real scores or normalized scores (0/1).
+    ///
+    /// # Arguments
+    ///
+    /// * `show_real_score` - Whether to show actual point values or binary (0/1) scores
+    ///
+    /// # Returns
+    ///
+    /// A FinalSummary containing detailed game statistics and player performance data
     fn compute_final_summary(&self, show_real_score: bool) -> FinalSummary {
         let map_score = |s: u64| {
             if show_real_score {
@@ -198,17 +268,58 @@ impl Leaderboard {
         }
     }
 
+    /// Gets or computes the final game summary with caching
+    ///
+    /// Returns the final game summary, computing it if necessary and caching
+    /// the result for subsequent calls. This is more efficient than recomputing
+    /// statistics multiple times.
+    ///
+    /// # Arguments
+    ///
+    /// * `show_real_score` - Whether to show actual point values or binary (0/1) scores
+    ///
+    /// # Returns
+    ///
+    /// A reference to the cached FinalSummary
     fn final_summary(&self, show_real_score: bool) -> &FinalSummary {
         self.final_summary
             .get_or_init(|| self.compute_final_summary(show_real_score))
     }
 
+    /// Generates summary statistics for the game host
+    ///
+    /// Provides aggregated statistics suitable for the game host's view,
+    /// including the total number of players and per-question performance
+    /// statistics (how many players earned points vs. didn't).
+    ///
+    /// # Arguments
+    ///
+    /// * `show_real_score` - Whether to use actual point values or binary scoring
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (total_player_count, per_question_stats) where per_question_stats
+    /// is a vector of (players_who_earned_points, players_who_didn't) for each question
     pub fn host_summary(&self, show_real_score: bool) -> (usize, Vec<(usize, usize)>) {
         let final_summary = self.final_summary(show_real_score);
 
         (final_summary.mapping.len(), final_summary.stats.clone())
     }
 
+    /// Generates detailed score breakdown for a specific player
+    ///
+    /// Provides a player's individual performance across all questions,
+    /// showing the points they earned on each question. If the player
+    /// didn't participate in all questions, missing scores are filled with zeros.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The player's unique identifier
+    /// * `show_real_score` - Whether to use actual point values or binary scoring
+    ///
+    /// # Returns
+    ///
+    /// A vector containing the player's score for each question in order
     pub fn player_summary(&self, id: Id, show_real_score: bool) -> Vec<u64> {
         self.final_summary(show_real_score)
             .mapping
@@ -216,6 +327,20 @@ impl Leaderboard {
             .map_or(vec![0; self.points_earned.len()], std::clone::Clone::clone)
     }
 
+    /// Gets the current score and position for a specific player
+    ///
+    /// Retrieves a player's current total score and their position in the
+    /// leaderboard rankings. This is used for displaying individual player
+    /// status and progress.
+    ///
+    /// # Arguments
+    ///
+    /// * `watcher_id` - The player's unique identifier
+    ///
+    /// # Returns
+    ///
+    /// `Some(ScoreMessage)` containing the player's points and leaderboard position,
+    /// or `None` if the player has no recorded scores
     pub fn score(&self, watcher_id: Id) -> Option<ScoreMessage> {
         let (points, position) = self.score_and_position.get(&watcher_id)?;
         Some(ScoreMessage {
