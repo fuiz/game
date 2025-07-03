@@ -4,7 +4,7 @@
 //! a game session. It ensures name uniqueness, filters inappropriate content,
 //! and maintains bidirectional mappings between player IDs and names.
 
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 
 use rustrict::CensorStr;
 use serde::{Deserialize, Serialize};

@@ -8,7 +8,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::{watcher::Id, TruncatedVec};
+use super::{TruncatedVec, watcher::Id};
 
 /// Summary of final game statistics and player performance
 ///
@@ -121,7 +121,7 @@ impl From<LeaderboardSerde> for Leaderboard {
 }
 
 /// Score information for a player or team
-/// 
+///
 /// Contains the player's current score and their position in the leaderboard.
 /// This information is sent to players so they can see their performance.
 #[derive(Debug, Serialize, Clone, Copy)]
@@ -146,6 +146,13 @@ impl Leaderboard {
     /// # Examples
     ///
     /// ```rust
+    /// use fuiz::watcher::Id;
+    /// use fuiz::leaderboard::Leaderboard;
+    ///
+    /// let mut leaderboard = Leaderboard::default();
+    /// let player1_id = Id::new();
+    /// let player2_id = Id::new();
+    /// let player3_id = Id::new();
     /// let scores = [(player1_id, 100), (player2_id, 75), (player3_id, 50)];
     /// leaderboard.add_scores(&scores);
     /// ```
@@ -223,11 +230,7 @@ impl Leaderboard {
     /// A FinalSummary containing detailed game statistics and player performance data
     fn compute_final_summary(&self, show_real_score: bool) -> FinalSummary {
         let map_score = |s: u64| {
-            if show_real_score {
-                s
-            } else {
-                s.min(1)
-            }
+            if show_real_score { s } else { s.min(1) }
         };
 
         FinalSummary {

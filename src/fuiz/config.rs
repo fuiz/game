@@ -11,11 +11,11 @@ use garde::Validate;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    AlarmMessage, SyncMessage,
     leaderboard::Leaderboard,
     session::Tunnel,
     teams::TeamManager,
     watcher::{Id, ValueKind, Watchers},
-    AlarmMessage, SyncMessage,
 };
 
 use super::{super::game::IncomingMessage, media::Media, multiple_choice, order, type_answer};
@@ -36,7 +36,7 @@ pub enum TextOrMedia {
 ///
 /// This is the main configuration structure that defines an entire quiz game,
 /// including the title and all slides/questions that will be presented to players.
-#[derive(Debug, Serialize, Deserialize, Clone, Validate)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Validate)]
 pub struct Fuiz {
     /// The title of the Fuiz game (currently unused in gameplay)
     #[garde(length(max = crate::constants::fuiz::MAX_TITLE_LENGTH))]

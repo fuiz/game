@@ -227,11 +227,11 @@ pub enum UpdateMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AlarmMessage {
     /// Triggers a transition from one slide state to another
-    ProceedFromSlideIntoSlide { 
+    ProceedFromSlideIntoSlide {
         /// Index of the slide being transitioned
-        index: usize, 
+        index: usize,
         /// Target state to transition to
-        to: SlideState 
+        to: SlideState,
     },
 }
 
@@ -295,7 +295,7 @@ pub enum SyncMessage {
 }
 
 /// Represents a single answer option in a multiple choice question
-/// 
+///
 /// Each answer choice contains the content to display and whether
 /// it is a correct answer to the question.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -307,7 +307,7 @@ pub struct AnswerChoice {
 }
 
 /// Contains correctness information and statistics for an answer choice
-/// 
+///
 /// This struct is used in results display to show whether each answer
 /// option was correct and how many players selected it.
 #[derive(Debug, Serialize, Clone)]
@@ -320,22 +320,22 @@ pub struct AnswerChoiceResult {
 
 impl State {
     /// Starts the multiple choice slide by sending initial question announcements
-    /// 
+    ///
     /// This method initiates the question flow by transitioning to the question phase
     /// and announcing the question to all participants. It schedules the transition
     /// to the answer phase based on the configured introduction duration.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `team_manager` - Optional team manager for team-based games
     /// * `watchers` - Connection manager for all participants
     /// * `schedule_message` - Function to schedule delayed messages for timing
     /// * `tunnel_finder` - Function to find communication tunnels for participants
     /// * `index` - Current slide index in the game
     /// * `count` - Total number of slides in the game
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
@@ -363,18 +363,18 @@ impl State {
     }
 
     /// Calculates the score for a player based on how quickly they answered
-    /// 
+    ///
     /// The scoring system awards full points for immediate answers and
     /// decreases linearly to half points at the end of the time limit.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `full_duration` - Total time allowed for answering
     /// * `taken_duration` - Time taken by the player to submit their answer
     /// * `full_points_awarded` - Maximum points possible for this question
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// The calculated score (between half and full points)
     fn calculate_score(
         full_duration: Duration,
@@ -392,32 +392,32 @@ impl State {
     }
 
     /// Returns the start time of the current phase
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// The SystemTime when the current phase started, or current time if not set
     fn timer(&self) -> SystemTime {
         self.answer_start.unwrap_or(SystemTime::now())
     }
 
     /// Sends the initial question announcement to all participants
-    /// 
+    ///
     /// This method handles the transition from Unstarted to Question state,
     /// announcing the question text and media without revealing answer options.
     /// It schedules the transition to the answer phase or immediately proceeds
     /// if no introduction time is configured.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `team_manager` - Optional team manager for team-based games
     /// * `watchers` - Connection manager for all participants
     /// * `schedule_message` - Function to schedule delayed messages for timing
     /// * `tunnel_finder` - Function to find communication tunnels for participants
     /// * `index` - Current slide index in the game
     /// * `count` - Total number of slides in the game
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
@@ -469,22 +469,22 @@ impl State {
     }
 
     /// Transitions to the answer selection phase and reveals answer options
-    /// 
+    ///
     /// This method handles the transition from Question to Answers state,
     /// revealing answer options to participants and starting the answer timer.
     /// In team mode, answer options are distributed among team members to
     /// encourage collaboration.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `team_manager` - Optional team manager for team-based games
     /// * `watchers` - Connection manager for all participants
     /// * `schedule_message` - Function to schedule delayed messages for timing
     /// * `tunnel_finder` - Function to find communication tunnels for participants
     /// * `index` - Current slide index in the game
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
@@ -559,17 +559,17 @@ impl State {
     }
 
     /// Attempts to transition from one slide state to another
-    /// 
+    ///
     /// This method provides safe state transitions by checking that the current
     /// state matches the expected "before" state before changing to the "after" state.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `before` - Expected current state
     /// * `after` - Target state to transition to
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// `true` if the transition was successful, `false` if the current state didn't match
     fn change_state(&mut self, before: SlideState, after: SlideState) -> bool {
         if self.state == before {
@@ -582,26 +582,26 @@ impl State {
     }
 
     /// Returns the current state of the slide
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// The current SlideState of this multiple choice question
     fn state(&self) -> SlideState {
         self.state
     }
 
     /// Sends the results showing correct answers and player response statistics
-    /// 
+    ///
     /// This method handles the transition from Answers to AnswersResults state,
     /// revealing the correct answers and showing statistics about how players responded.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `watchers` - Connection manager for all participants
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     fn send_answers_results<T: Tunnel, F: Fn(Id) -> Option<T>>(
@@ -641,20 +641,20 @@ impl State {
     }
 
     /// Calculates and adds scores to the leaderboard based on player answers
-    /// 
+    ///
     /// This method evaluates all player answers, calculates scores based on
     /// correctness and response time, and updates the leaderboard. In team mode,
     /// it uses the fastest correct answer from team members.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `leaderboard` - Mutable reference to the game leaderboard
     /// * `watchers` - Connection manager for all participants
     /// * `team_manager` - Optional team manager for team-based games
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     fn add_scores<T: Tunnel, F: Fn(Id) -> Option<T>>(
@@ -718,21 +718,21 @@ impl State {
     }
 
     /// Determines which answer options should be visible to a specific participant
-    /// 
+    ///
     /// In individual games, players see all answer options. In team games, answer
     /// options are distributed among team members to encourage collaboration.
     /// Hosts see all options in individual mode but none in team mode.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `_id` - The participant's ID (currently unused)
     /// * `watcher_kind` - The type of participant (host, player, unassigned)
     /// * `team_size` - Number of active members in the participant's team
     /// * `team_index` - The participant's index within their team
     /// * `is_team` - Whether this is a team-based game
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A vector of answer options, some potentially hidden based on game mode and participant role
     fn get_answers_for_player(
         &self,
@@ -778,13 +778,13 @@ impl State {
     }
 
     /// Generates a synchronization message for a participant joining during the question
-    /// 
+    ///
     /// This method creates the appropriate sync message based on the current slide state,
     /// allowing newly connected participants to see the current question state with
     /// correct timing and answer visibility.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `watcher_id` - ID of the participant to synchronize
     /// * `watcher_kind` - Type of participant (host, player, unassigned)
     /// * `team_manager` - Optional team manager for team-based games
@@ -792,13 +792,13 @@ impl State {
     /// * `tunnel_finder` - Function to find communication tunnels for participants
     /// * `index` - Current slide index in the game
     /// * `count` - Total number of slides in the game
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A SyncMessage appropriate for the current state and participant type
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     pub fn state_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
@@ -901,13 +901,13 @@ impl State {
     }
 
     /// Handles incoming messages from participants during the multiple choice question
-    /// 
+    ///
     /// This method processes messages from hosts and players, including host commands
     /// to advance the slide and player answer submissions. It manages automatic
     /// progression when all players have answered.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `watcher_id` - ID of the participant sending the message
     /// * `message` - The incoming message to process
     /// * `leaderboard` - Mutable reference to the game leaderboard
@@ -917,13 +917,13 @@ impl State {
     /// * `tunnel_finder` - Function to find communication tunnels for participants
     /// * `index` - Current slide index in the game
     /// * `count` - Total number of slides in the game
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// `true` if the slide is complete and should advance to the next slide, `false` otherwise
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
@@ -998,13 +998,13 @@ impl State {
     }
 
     /// Handles scheduled alarm messages for timed state transitions
-    /// 
+    ///
     /// This method processes alarm messages that trigger automatic transitions
     /// between slide states at predetermined times, such as moving from question
     /// display to answer selection or from answers to results.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `_leaderboard` - Mutable reference to the game leaderboard (unused)
     /// * `watchers` - Connection manager for all participants
     /// * `team_manager` - Optional team manager for team-based games
@@ -1013,13 +1013,13 @@ impl State {
     /// * `message` - The alarm message to process
     /// * `index` - Current slide index in the game
     /// * `_count` - Total number of slides in the game (unused)
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// `true` if the slide is complete and should advance to the next slide, `false` otherwise
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
