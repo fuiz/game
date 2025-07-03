@@ -13,10 +13,9 @@ use serde::{Deserialize, Serialize};
 use crate::game::NameStyle;
 
 use super::{
-    names,
+    TruncatedVec, names,
     session::Tunnel,
     watcher::{self, Id, Watchers},
-    TruncatedVec,
 };
 
 /// Manages team formation and player-to-team assignments
@@ -233,7 +232,7 @@ impl TeamManager {
                 existing_teams = tree.into_iter().map(|p| p.1).collect_vec();
             }
 
-            let final_teams = existing_teams
+            existing_teams
                 .into_iter()
                 .map(|players| {
                     let team_id = Id::new();
@@ -266,9 +265,7 @@ impl TeamManager {
 
                     (team_id, team_name)
                 })
-                .collect_vec();
-
-            final_teams
+                .collect_vec()
         });
     }
 
@@ -516,14 +513,16 @@ mod tests {
 
         // Add all players to watchers
         for player in &players {
-            assert!(watchers
-                .add_watcher(
-                    *player,
-                    watcher::Value::Player(watcher::PlayerValue::Individual {
-                        name: format!("Player {player}")
-                    }),
-                )
-                .is_ok());
+            assert!(
+                watchers
+                    .add_watcher(
+                        *player,
+                        watcher::Value::Player(watcher::PlayerValue::Individual {
+                            name: format!("Player {player}")
+                        }),
+                    )
+                    .is_ok()
+            );
         }
 
         // Add all players to manager
