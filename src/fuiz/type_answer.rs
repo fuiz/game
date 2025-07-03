@@ -50,11 +50,11 @@ pub enum SlideState {
 type ValidationResult = garde::Result;
 
 /// Validates that a duration falls within specified bounds
-/// 
+///
 /// # Arguments
 /// * `field` - Name of the field being validated for error messages
 /// * `val` - Duration to validate
-/// 
+///
 /// # Returns
 /// * `Ok(())` if the duration is within bounds
 /// * `Err(garde::Error)` if the duration is outside bounds
@@ -90,7 +90,7 @@ fn validate_introduce_question(val: &Duration) -> ValidationResult {
 #[serde_with::serde_as]
 #[skip_serializing_none]
 /// Configuration for a type answer slide
-/// 
+///
 /// Contains all the settings and content for a single type answer question,
 /// including the question text, media, timing, and acceptable answers.
 #[derive(Debug, Clone, Serialize, serde::Deserialize, Validate)]
@@ -125,7 +125,7 @@ pub struct SlideConfig {
 }
 
 /// Runtime state for a type answer slide
-/// 
+///
 /// Tracks the current state of the slide including player answers,
 /// timing information, and the current phase of the question.
 #[serde_with::serde_as]
@@ -146,12 +146,12 @@ pub struct State {
 
 impl SlideConfig {
     /// Creates a new runtime state from this configuration
-    /// 
+    ///
     /// This method initializes a fresh state for gameplay, setting up
     /// empty answer tracking and the initial unstarted phase.
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A new `State` ready for gameplay
     pub fn to_state(&self) -> State {
         State {
@@ -201,11 +201,11 @@ pub enum UpdateMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AlarmMessage {
     /// Triggers a transition from one slide state to another
-    ProceedFromSlideIntoSlide { 
+    ProceedFromSlideIntoSlide {
         /// Index of the slide being transitioned
-        index: usize, 
+        index: usize,
         /// Target state to transition to
-        to: SlideState 
+        to: SlideState,
     },
 }
 
@@ -252,11 +252,11 @@ pub enum SyncMessage {
 }
 
 /// Normalizes an answer string for comparison
-/// 
+///
 /// # Arguments
 /// * `answer` - The answer string to clean
 /// * `case_sensitive` - Whether to preserve case sensitivity
-/// 
+///
 /// # Returns
 /// * Cleaned answer string (trimmed and optionally lowercased)
 fn clean_answer(answer: &str, case_sensitive: bool) -> String {
@@ -269,7 +269,7 @@ fn clean_answer(answer: &str, case_sensitive: bool) -> String {
 
 impl State {
     /// Starts the type answer slide by sending initial question announcements
-    /// 
+    ///
     /// # Arguments
     /// * `watchers` - Connection manager for players and hosts
     /// * `schedule_message` - Function to schedule delayed messages
@@ -292,14 +292,14 @@ impl State {
     }
 
     /// Calculates the score for a player based on how quickly they answered
-    /// 
+    ///
     /// Score decreases linearly from full points to half points over the duration.
-    /// 
+    ///
     /// # Arguments
     /// * `full_duration` - Total time allowed for the question
     /// * `taken_duration` - Time taken by the player to answer
     /// * `full_points_awarded` - Maximum points possible for this question
-    /// 
+    ///
     /// # Returns
     /// * Points awarded (between half and full points)
     fn calculate_score(
@@ -318,7 +318,7 @@ impl State {
     }
 
     /// Returns the start time of the current phase
-    /// 
+    ///
     /// # Returns
     /// * SystemTime when the current phase started, or current time if not set
     fn timer(&self) -> SystemTime {
@@ -326,10 +326,10 @@ impl State {
     }
 
     /// Sends the initial question announcement to all watchers
-    /// 
+    ///
     /// This method handles the transition from Unstarted to Question state,
     /// announcing the question text and media before accepting answers.
-    /// 
+    ///
     /// # Arguments
     /// * `watchers` - Connection manager for players and hosts
     /// * `schedule_message` - Function to schedule delayed messages
@@ -387,10 +387,10 @@ impl State {
     }
 
     /// Transitions to accepting answers from players
-    /// 
+    ///
     /// This method handles the transition from Question to Answers state,
     /// enabling the answer input field and starting the answer timer.
-    /// 
+    ///
     /// # Arguments
     /// * `watchers` - Connection manager for players and hosts
     /// * `schedule_message` - Function to schedule delayed messages
@@ -437,11 +437,11 @@ impl State {
     }
 
     /// Attempts to transition from one slide state to another
-    /// 
+    ///
     /// # Arguments
     /// * `before` - Expected current state
     /// * `after` - Target state
-    /// 
+    ///
     /// # Returns
     /// * `true` if transition was successful, `false` if current state didn't match expected state
     fn change_state(&mut self, before: SlideState, after: SlideState) -> bool {
@@ -460,10 +460,10 @@ impl State {
     }
 
     /// Sends the results showing correct answers and player statistics
-    /// 
+    ///
     /// This method handles the transition from Answers to AnswersResults state,
     /// revealing the correct answers and showing statistics about player responses.
-    /// 
+    ///
     /// # Arguments
     /// * `watchers` - Connection manager for players and hosts
     /// * `tunnel_finder` - Function to find communication tunnels
@@ -498,11 +498,11 @@ impl State {
     }
 
     /// Calculates and adds scores to the leaderboard based on player answers
-    /// 
+    ///
     /// This method evaluates all player answers against the correct answers,
     /// calculates scores based on correctness and timing, and updates the leaderboard.
     /// In team mode, it takes the best answer time for each team.
-    /// 
+    ///
     /// # Arguments
     /// * `leaderboard` - Mutable reference to the game leaderboard
     /// * `watchers` - Connection manager for players and hosts
@@ -577,7 +577,7 @@ impl State {
     }
 
     /// Generates a synchronization message for a newly connected watcher
-    /// 
+    ///
     /// # Arguments
     /// * `_watcher_id` - ID of the connecting watcher
     /// * `_watcher_kind` - Type of watcher (player/host)
@@ -586,7 +586,7 @@ impl State {
     /// * `_tunnel_finder` - Function to find communication tunnels
     /// * `index` - Current slide index
     /// * `count` - Total number of slides
-    /// 
+    ///
     /// # Returns
     /// * Appropriate sync message based on current slide state
     pub fn state_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
@@ -643,7 +643,7 @@ impl State {
     }
 
     /// Handles incoming messages from players and hosts
-    /// 
+    ///
     /// # Arguments
     /// * `watcher_id` - ID of the sender
     /// * `message` - The incoming message
@@ -654,7 +654,7 @@ impl State {
     /// * `tunnel_finder` - Function to find communication tunnels
     /// * `index` - Current slide index
     /// * `count` - Total number of slides
-    /// 
+    ///
     /// # Returns
     /// * `true` if the slide is complete and should advance, `false` otherwise
     pub fn receive_message<
@@ -727,7 +727,7 @@ impl State {
     }
 
     /// Handles scheduled alarm messages for state transitions
-    /// 
+    ///
     /// # Arguments
     /// * `_leaderboard` - Mutable reference to the game leaderboard
     /// * `watchers` - Connection manager
@@ -737,7 +737,7 @@ impl State {
     /// * `message` - The alarm message to handle
     /// * `index` - Current slide index
     /// * `count` - Total number of slides
-    /// 
+    ///
     /// # Returns
     /// * `true` if the slide is complete and should advance, `false` otherwise
     pub fn receive_alarm<

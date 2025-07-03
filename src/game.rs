@@ -10,7 +10,6 @@ use std::{collections::HashSet, fmt::Debug};
 use garde::Validate;
 use heck::ToTitleCase;
 use itertools::Itertools;
-use romanname::{romanname, NameConfig};
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
@@ -20,13 +19,13 @@ use crate::{
 };
 
 use super::{
+    AlarmMessage, TruncatedVec,
     fuiz::{config::Fuiz, multiple_choice},
     leaderboard::{Leaderboard, ScoreMessage},
     names::{self, Names},
     session::Tunnel,
     teams::{self, TeamManager},
     watcher::{self, Id, PlayerValue, ValueKind, Watchers},
-    AlarmMessage, TruncatedVec,
 };
 
 /// Represents the current phase or state of the game
@@ -87,7 +86,7 @@ impl NameStyle {
     /// A randomly generated name string, or `None` if generation fails
     pub fn get_name(&self) -> Option<String> {
         match self {
-            Self::Roman(count) => Some(romanname(NameConfig {
+            Self::Roman(count) => Some(romanname::romanname(romanname::NameConfig {
                 praenomen: *count > 2,
             })),
             Self::Petname(count) => petname::petname(*count as u8, " "),
@@ -100,7 +99,7 @@ impl NameStyle {
 ///
 /// These options affect the overall behavior of the game, including
 /// name generation, answer visibility, leaderboard display, and team formation.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, Validate)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, Default, Validate)]
 pub struct Options {
     /// Style for automatically generated player names (None means players choose their own)
     #[garde(dive)]
@@ -250,14 +249,14 @@ pub enum UpdateMessage {
     /// Report an error with name validation
     NameError(names::Error),
     /// Send leaderboard information
-    Leaderboard { 
+    Leaderboard {
         /// The leaderboard data to display
-        leaderboard: LeaderboardMessage 
+        leaderboard: LeaderboardMessage,
     },
     /// Send individual score information
-    Score { 
+    Score {
         /// The player's score information
-        score: Option<ScoreMessage> 
+        score: Option<ScoreMessage>,
     },
     /// Send game summary information
     Summary(SummaryMessage),
@@ -354,16 +353,16 @@ pub enum SummaryMessage {
 #[derive(Debug, Serialize, Clone)]
 pub enum MetainfoMessage {
     /// Information for the game host
-    Host { 
+    Host {
         /// Whether the game is locked to new participants
-        locked: bool 
+        locked: bool,
     },
     /// Information for players
-    Player { 
+    Player {
         /// Player's current total score
-        score: u64, 
+        score: u64,
         /// Whether answers will be shown after questions
-        show_answers: bool 
+        show_answers: bool,
     },
 }
 
@@ -549,8 +548,9 @@ impl Game {
     /// # Examples
     ///
     /// ```rust
-    /// use fuiz_game::{Game, Options, Fuiz};
-    /// use fuiz_game::watcher::Id;
+    /// use fuiz::game::{Game, Options};
+    /// use fuiz::fuiz::config::Fuiz;
+    /// use fuiz::watcher::Id;
     ///
     /// let host_id = Id::new();
     /// let options = Options::default();
@@ -582,18 +582,18 @@ impl Game {
     }
 
     /// Starts the game or progresses to the next phase
-    /// 
+    ///
     /// This method handles the transition from waiting/team formation to the first slide,
     /// or manages team formation when teams are enabled. It sets up the initial slide
     /// state and begins the question flow.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `schedule_message` - Function to schedule delayed messages for timing
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
@@ -650,18 +650,18 @@ impl Game {
     }
 
     /// Marks the current slide as done and transitions to the next phase
-    /// 
+    ///
     /// This method handles the completion of a slide, either advancing to the
     /// leaderboard (if enabled) or directly to the next slide. If all slides
     /// are complete, it announces the game summary.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `schedule_message` - Function to schedule delayed messages for timing
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
@@ -722,17 +722,17 @@ impl Game {
     }
 
     /// Sends the final game summary to all participants
-    /// 
+    ///
     /// This method transitions the game to the Done state and sends appropriate
     /// summary messages to hosts and players. Hosts receive detailed statistics
     /// while players receive their individual scores and points breakdown.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     fn announce_summary<T: Tunnel, F: Fn(Id) -> Option<T>>(&mut self, tunnel_finder: F) {
@@ -775,16 +775,16 @@ impl Game {
     }
 
     /// Marks the game as done and disconnects all players
-    /// 
+    ///
     /// This method finalizes the game session by setting the state to Done
     /// and removing all participant sessions, effectively ending the game.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     pub fn mark_as_done<T: Tunnel, F: Fn(Id) -> Option<T>>(&mut self, tunnel_finder: F) {
@@ -804,17 +804,17 @@ impl Game {
     }
 
     /// Sends metadata information to a player about the game
-    /// 
+    ///
     /// This method sends game options and player-specific information like
     /// current score and whether answers will be shown after questions.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `watcher` - ID of the player to send metadata to
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     fn update_player_with_options<T: Tunnel, F: Fn(Id) -> Option<T>>(
@@ -834,18 +834,18 @@ impl Game {
     }
 
     /// Initiates interactions with an unassigned player
-    /// 
+    ///
     /// This method handles the initial setup for new participants, either
     /// automatically assigning them a random name (if enabled) or prompting
     /// them to choose their own name.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `watcher` - ID of the unassigned participant
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     fn handle_unassigned<T: Tunnel, F: Fn(Id) -> Option<T>>(
@@ -873,24 +873,24 @@ impl Game {
     }
 
     /// Assigns a name to a player and converts them from unassigned to player
-    /// 
+    ///
     /// This method validates the name, assigns it to the participant, and
     /// updates their status from unassigned to player. It handles name
     /// validation and uniqueness checking.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `watcher` - ID of the participant to assign a name to
     /// * `name` - The name to assign to the participant
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// * `Ok(())` if the name was assigned successfully
     /// * `Err(names::Error)` if the name is invalid or already taken
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     fn assign_player_name<T: Tunnel, F: Fn(Id) -> Option<T>>(
@@ -912,19 +912,19 @@ impl Game {
     }
 
     /// Sends messages to the player about their newly assigned name
-    /// 
+    ///
     /// This method notifies the player of their name assignment, handles team
     /// assignment if teams are enabled, and updates the waiting screen for other
     /// participants. It also sends the current game state to the newly named player.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `watcher` - ID of the player whose name was assigned
     /// * `name` - The name that was assigned to the player
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     pub fn update_player_with_name<T: Tunnel, F: Fn(Id) -> Option<T>>(
@@ -987,22 +987,22 @@ impl Game {
     // Network
 
     /// Adds a new unassigned participant to the game
-    /// 
+    ///
     /// This method registers a new participant in the game with unassigned status.
     /// If the game is not locked, it immediately begins the name assignment process.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `watcher` - Unique ID for the new participant
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// * `Ok(())` if the participant was added successfully
     /// * `Err(watcher::Error)` if the ID is already in use or invalid
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     pub fn add_unassigned<T: Tunnel, F: Fn(Id) -> Option<T>>(
@@ -1020,20 +1020,20 @@ impl Game {
     }
 
     /// Handles incoming messages from participants
-    /// 
+    ///
     /// This method processes all incoming messages from participants, validates
     /// that messages are appropriate for the sender's role, and routes them to
     /// the correct handlers based on the current game state.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `watcher_id` - ID of the participant sending the message
     /// * `message` - The incoming message to process
     /// * `schedule_message` - Function to schedule delayed messages for timing
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
@@ -1138,19 +1138,19 @@ impl Game {
     }
 
     /// Handles scheduled alarm messages for timed game events
-    /// 
+    ///
     /// This method processes alarm messages that were scheduled to trigger
     /// game state transitions at specific times, such as moving from question
     /// display to answer acceptance or from answers to results.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `message` - The alarm message to process
     /// * `schedule_message` - Function to schedule delayed messages for timing
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
@@ -1199,24 +1199,24 @@ impl Game {
     }
 
     /// Returns the message necessary to synchronize a participant's state
-    /// 
+    ///
     /// This method generates the appropriate synchronization message based on
     /// the current game state and the participant's role. It ensures that
     /// newly connected or reconnecting participants receive the correct view
     /// of the current game state.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `watcher_id` - ID of the participant to synchronize
     /// * `watcher_kind` - Type of participant (host, player, unassigned)
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A SyncMessage containing the current state information appropriate for the participant
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     pub fn state_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
@@ -1317,18 +1317,18 @@ impl Game {
     }
 
     /// Updates the session associated with a participant (for reconnection)
-    /// 
+    ///
     /// This method handles participant reconnection by updating their session
     /// and sending them the current game state. It handles different participant
     /// types appropriately and manages locked game states.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `watcher_id` - ID of the participant reconnecting
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// 
+    ///
     /// # Type Parameters
-    /// 
+    ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     pub fn update_session<T: Tunnel, F: Fn(Id) -> Option<T>>(

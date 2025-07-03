@@ -18,7 +18,7 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 use thiserror::Error;
 use uuid::Uuid;
 
-use super::{session::Tunnel, SyncMessage, UpdateMessage};
+use super::{SyncMessage, UpdateMessage, session::Tunnel};
 
 /// A unique identifier for participants in the game
 ///
@@ -77,7 +77,7 @@ impl FromStr for Id {
 /// determining what actions they can perform and what information
 /// they receive.
 /// Represents the type and state of a participant in the game
-/// 
+///
 /// This enum distinguishes between different participant types and their roles,
 /// determining what actions they can perform and what information they receive.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -91,7 +91,7 @@ pub enum Value {
 }
 
 /// The kind of participant without associated data
-/// 
+///
 /// This enum represents just the discriminant of the Value enum,
 /// useful for pattern matching and filtering participants by type
 /// without needing the associated data.
@@ -107,9 +107,9 @@ pub enum ValueKind {
 
 impl Value {
     /// Returns the kind of this value without the associated data
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// The ValueKind corresponding to this Value variant
     pub fn kind(&self) -> ValueKind {
         match self {
