@@ -16,6 +16,7 @@ stages:
   - format
   - check
   - lint
+  - doc
   - test
 
 # Before script to install necessary components
@@ -42,6 +43,13 @@ clippy:
   stage: lint
   script:
     - cargo clippy --all-targets --all-features -- -D warnings
+  allow_failure: false
+
+# Documentation check
+doc:
+  stage: doc
+  script:
+    - cargo doc --all --no-deps --document-private-items
   allow_failure: false
 
 # Run tests
