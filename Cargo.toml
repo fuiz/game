@@ -3,28 +3,46 @@ name = "fuiz"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-https = []
-
 [lib]
 crate-type = ["lib"]
 
 [dependencies]
-derive-where = "1"
-enum-map = { version = "2", features = ["serde"] }
-fastrand = { version = "2", features = ["js"] }
-itertools = "0.14"
-rustrict = "0.7"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_with = { version = "3", features = ["chrono"] }
-thiserror = "2.0"
-uuid = { version = "1", features = ["v4", "serde", "js"] }
-garde = { version = "0.22", features = ["derive"] }
-derive_more = { version = "2", features = ["full"] }
-petname = "2"
-heck = "0.5"
-pluralizer = "0.5"
-web-time = { version = "1.1", features = ["serde"] }
-once_cell_serde = { version = "1.20", features = ["serde"] }
-romanname = "0.1.1"
+# Core serialization and data structures
+derive-where = "1" # Conditional derive macros
+enum-map = { version = "2", features = [
+    "serde",
+] } # Efficient enum-to-value mappings
+serde = { version = "1.0", features = ["derive"] } # Serialization framework
+serde_json = "1.0" # JSON support for serde
+serde_with = { version = "3", features = [
+    "chrono",
+] } # Additional serde utilities
+derive_more = { version = "2", features = ["full"] } # Extended derive macros
+
+# Game logic and utilities
+itertools = "0.14" # Iterator extensions
+fastrand = { version = "2", features = [
+    "js",
+] } # Fast random number generation (WASM compatible)
+uuid = { version = "1", features = [
+    "v4",
+    "serde",
+    "js",
+] } # Unique identifiers (WASM compatible)
+web-time = { version = "1.1", features = [
+    "serde",
+] } # Cross-platform time handling (WASM/native)
+once_cell_serde = { version = "1.20", features = [
+    "serde",
+] } # Lazy static values with serde
+
+# Validation and safety
+garde = { version = "0.22", features = ["derive"] } # Input validation framework
+rustrict = "0.7"                                    # Content filtering and profanity detection
+thiserror = "2.0"                                   # Error handling and custom error types
+
+# Name generation
+petname = "2"       # Pet-style name generation (adjective + animal)
+romanname = "0.1.1" # Roman-style name generation
+heck = "0.5"        # String case conversion
+pluralizer = "0.5"  # String pluralization utilities
