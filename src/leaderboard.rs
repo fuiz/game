@@ -352,3 +352,249 @@ impl Leaderboard {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_leaderboard_add_scores_single_round() {
+        let mut leaderboard = Leaderboard::default();
+        let id1 = Id::new();
+        let id2 = Id::new();
+        let id3 = Id::new();
+        
+        let scores = [(id1, 100), (id2, 75), (id3, 50)];
+        leaderboard.add_scores(&scores);
+        
+        // Check that scores are stored
+        assert_eq!(leaderboard.points_earned.len(), 1);
+        assert_eq!(leaderboard.points_earned[0], scores);
+        
+        // Check score messages
+        let score1 = leaderboard.score(id1).unwrap();
+        assert_eq!(score1.points, 100);
+        assert_eq!(score1.position, 0); // First place (0-indexed)
+        
+        let score2 = leaderboard.score(id2).unwrap();
+        assert_eq!(score2.points, 75);
+        assert_eq!(score2.position, 1); // Second place
+        
+        let score3 = leaderboard.score(id3).unwrap();
+        assert_eq!(score3.points, 50);
+        assert_eq!(score3.position, 2); // Third place
+    }
+
+    #[test]
+    fn test_leaderboard_add_scores_multiple_rounds() {
+        let mut leaderboard = Leaderboard::default();
+        let id1 = Id::new();
+        let id2 = Id::new();
+        
+        // First round
+        leaderboard.add_scores(&[(id1, 50), (id2, 100)]);
+        
+        // After first round, id2 should be first
+        assert_eq!(leaderboard.score(id2).unwrap().position, 0);
+        assert_eq!(leaderboard.score(id1).unwrap().position, 1);
+        
+        // Second round - id1 catches up
+        leaderboard.add_scores(&[(id1, 100), (id2, 25)]);
+        
+        // After second round, id1 should be first (150 vs 125)
+        assert_eq!(leaderboard.score(id1).unwrap().points, 150);
+        assert_eq!(leaderboard.score(id1).unwrap().position, 0);
+        assert_eq!(leaderboard.score(id2).unwrap().points, 125);
+        assert_eq!(leaderboard.score(id2).unwrap().position, 1);
+    }
+
+    #[test]
+    fn test_leaderboard_tied_scores() {
+        let mut leaderboard = Leaderboard::default();
+        let id1 = Id::new();
+        let id2 = Id::new();
+        
+        leaderboard.add_scores(&[(id1, 100), (id2, 100)]);
+        
+        // Both should have same score but different positions
+        assert_eq!(leaderboard.score(id1).unwrap().points, 100);
+        assert_eq!(leaderboard.score(id2).unwrap().points, 100);
+        
+        // Positions should be consecutive (0 and 1)
+        let pos1 = leaderboard.score(id1).unwrap().position;
+        let pos2 = leaderboard.score(id2).unwrap().position;
+        assert!(pos1 != pos2);
+        assert!(pos1 <= 1 && pos2 <= 1);
+    }
+
+    #[test]
+    fn test_leaderboard_score_nonexistent_player() {
+        let leaderboard = Leaderboard::default();
+        let nonexistent_id = Id::new();
+        
+        assert!(leaderboard.score(nonexistent_id).is_none());
+    }
+
+    #[test]
+    fn test_leaderboard_last_two_scores_descending() {
+        let mut leaderboard = Leaderboard::default();
+        let id1 = Id::new();
+        let id2 = Id::new();
+        
+        // First round
+        leaderboard.add_scores(&[(id1, 50), (id2, 100)]);
+        
+        // Second round
+        leaderboard.add_scores(&[(id1, 100), (id2, 25)]);
+        
+        let [current, previous] = leaderboard.last_two_scores_descending();
+        
+        // Current should show id1 first (150 total)
+        assert_eq!(current.items()[0].0, id1);
+        assert_eq!(current.items()[0].1, 150);
+        assert_eq!(current.items()[1].0, id2);
+        assert_eq!(current.items()[1].1, 125);
+        
+        // Previous should show id2 first (100 total from first round)
+        assert_eq!(previous.items()[0].0, id2);
+        assert_eq!(previous.items()[0].1, 100);
+        assert_eq!(previous.items()[1].0, id1);
+        assert_eq!(previous.items()[1].1, 50);
+    }
+
+    #[test]
+    fn test_leaderboard_host_summary() {
+        let mut leaderboard = Leaderboard::default();
+        let id1 = Id::new();
+        let id2 = Id::new();
+        let id3 = Id::new();
+        
+        // Round 1: 2 players earn points, 1 doesn't
+        leaderboard.add_scores(&[(id1, 100), (id2, 50), (id3, 0)]);
+        
+        // Round 2: All 3 players earn points
+        leaderboard.add_scores(&[(id1, 75), (id2, 25), (id3, 10)]);
+        
+        let (player_count, stats) = leaderboard.host_summary(true);
+        
+        assert_eq!(player_count, 3);
+        assert_eq!(stats.len(), 2); // Two rounds
+        
+        // Round 1: 2 earned points, 1 didn't
+        assert_eq!(stats[0], (2, 1));
+        
+        // Round 2: 3 earned points, 0 didn't
+        assert_eq!(stats[1], (3, 0));
+    }
+
+    #[test]
+    fn test_leaderboard_host_summary_binary_scoring() {
+        let mut leaderboard = Leaderboard::default();
+        let id1 = Id::new();
+        let id2 = Id::new();
+        
+        // Add scores with different values
+        leaderboard.add_scores(&[(id1, 100), (id2, 0)]);
+        
+        let (player_count, stats) = leaderboard.host_summary(false);
+        
+        assert_eq!(player_count, 2);
+        assert_eq!(stats[0], (1, 1)); // Only one player earned points (binary)
+    }
+
+    #[test]
+    fn test_leaderboard_player_summary_real_scoring() {
+        let mut leaderboard = Leaderboard::default();
+        let id1 = Id::new();
+        let id2 = Id::new();
+        
+        leaderboard.add_scores(&[(id1, 100), (id2, 50)]);
+        leaderboard.add_scores(&[(id1, 25), (id2, 75)]);
+        
+        // Test real scoring first (this caches the result)
+        let summary1 = leaderboard.player_summary(id1, true);
+        assert_eq!(summary1, vec![100, 25]);
+        
+        let summary2 = leaderboard.player_summary(id2, true);
+        assert_eq!(summary2, vec![50, 75]);
+    }
+
+    #[test]
+    fn test_leaderboard_player_summary_binary_scoring() {
+        let mut leaderboard = Leaderboard::default();
+        let id1 = Id::new();
+        let id2 = Id::new();
+        
+        leaderboard.add_scores(&[(id1, 100), (id2, 0)]);
+        leaderboard.add_scores(&[(id1, 0), (id2, 50)]);
+        
+        // Test binary scoring first (this caches the result with binary mode)
+        let summary1_binary = leaderboard.player_summary(id1, false);
+        assert_eq!(summary1_binary, vec![1, 0]); // 100 -> 1, 0 -> 0
+        
+        let summary2_binary = leaderboard.player_summary(id2, false);
+        assert_eq!(summary2_binary, vec![0, 1]); // 0 -> 0, 50 -> 1
+    }
+
+    #[test]
+    fn test_leaderboard_player_summary_nonexistent() {
+        let mut leaderboard = Leaderboard::default();
+        let id1 = Id::new();
+        let nonexistent_id = Id::new();
+        
+        leaderboard.add_scores(&[(id1, 100)]);
+        leaderboard.add_scores(&[(id1, 50)]);
+        
+        let summary = leaderboard.player_summary(nonexistent_id, true);
+        assert_eq!(summary, vec![0, 0]); // Should return zeros for all rounds
+    }
+
+    #[test]
+    fn test_leaderboard_serialization_deserialization() {
+        let mut original = Leaderboard::default();
+        let id1 = Id::new();
+        let id2 = Id::new();
+        
+        original.add_scores(&[(id1, 100), (id2, 50)]);
+        original.add_scores(&[(id1, 25), (id2, 75)]);
+        
+        // Serialize
+        let serialized = serde_json::to_string(&original).unwrap();
+        
+        // Deserialize
+        let deserialized: Leaderboard = serde_json::from_str(&serialized).unwrap();
+        
+        // Check that scores are preserved
+        assert_eq!(deserialized.score(id1).unwrap().points, 125);
+        assert_eq!(deserialized.score(id2).unwrap().points, 125);
+        
+        // Check that cached data is rebuilt correctly
+        let [current, previous] = deserialized.last_two_scores_descending();
+        assert_eq!(current.exact_count(), 2);
+        assert_eq!(previous.exact_count(), 2);
+    }
+
+    #[test]
+    fn test_leaderboard_zero_scores() {
+        let mut leaderboard = Leaderboard::default();
+        let id1 = Id::new();
+        
+        leaderboard.add_scores(&[(id1, 0)]);
+        
+        let score = leaderboard.score(id1).unwrap();
+        assert_eq!(score.points, 0);
+        assert_eq!(score.position, 0);
+    }
+
+    #[test]
+    fn test_score_message_serialization() {
+        let score_msg = ScoreMessage {
+            points: 150,
+            position: 2,
+        };
+        
+        let serialized = serde_json::to_string(&score_msg).unwrap();
+        assert!(serialized.contains("150"));
+        assert!(serialized.contains("2"));
+    }
+}
