@@ -162,7 +162,7 @@ mod tests {
     fn test_truncated_vec_new() {
         let data = vec![1, 2, 3, 4, 5];
         let truncated = TruncatedVec::new(data.into_iter(), 3, 5);
-        
+
         assert_eq!(truncated.exact_count(), 5);
         assert_eq!(truncated.items(), &[1, 2, 3]);
     }
@@ -171,7 +171,7 @@ mod tests {
     fn test_truncated_vec_new_limit_larger_than_items() {
         let data = vec![1, 2, 3];
         let truncated = TruncatedVec::new(data.into_iter(), 5, 3);
-        
+
         assert_eq!(truncated.exact_count(), 3);
         assert_eq!(truncated.items(), &[1, 2, 3]);
     }
@@ -180,7 +180,7 @@ mod tests {
     fn test_truncated_vec_new_empty() {
         let data: Vec<i32> = vec![];
         let truncated = TruncatedVec::new(data.into_iter(), 5, 0);
-        
+
         assert_eq!(truncated.exact_count(), 0);
         let empty: &[i32] = &[];
         assert_eq!(truncated.items(), empty);
@@ -191,7 +191,7 @@ mod tests {
         let data = vec![1, 2, 3];
         let truncated = TruncatedVec::new(data.into_iter(), 3, 5);
         let mapped = truncated.map(|x| x * 2);
-        
+
         assert_eq!(mapped.exact_count(), 5);
         assert_eq!(mapped.items(), &[2, 4, 6]);
     }
@@ -200,8 +200,8 @@ mod tests {
     fn test_truncated_vec_map_string() {
         let data = vec![1, 2, 3];
         let truncated = TruncatedVec::new(data.into_iter(), 2, 3);
-        let mapped = truncated.map(|x| format!("item_{}", x));
-        
+        let mapped = truncated.map(|x| format!("item_{x}"));
+
         assert_eq!(mapped.exact_count(), 3);
         assert_eq!(mapped.items(), &["item_1", "item_2"]);
     }
@@ -209,13 +209,13 @@ mod tests {
     #[test]
     fn test_sync_message_to_message() {
         let players = TruncatedVec::new(
-            vec!["Player1".to_string(), "Player2".to_string()].into_iter(), 
-            10, 
-            2
+            vec!["Player1".to_string(), "Player2".to_string()].into_iter(),
+            10,
+            2,
         );
         let sync_msg = SyncMessage::Game(crate::game::SyncMessage::WaitingScreen(players));
         let json_str = sync_msg.to_message();
-        
+
         assert!(json_str.contains("Game"));
         assert!(json_str.contains("WaitingScreen"));
     }
@@ -225,7 +225,7 @@ mod tests {
         let players = TruncatedVec::new(vec!["Player1".to_string()].into_iter(), 10, 1);
         let update_msg = UpdateMessage::Game(crate::game::UpdateMessage::WaitingScreen(players));
         let json_str = update_msg.to_message();
-        
+
         assert!(json_str.contains("Game"));
         assert!(json_str.contains("WaitingScreen"));
         assert!(json_str.contains("Player1"));
