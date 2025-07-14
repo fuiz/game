@@ -4,6 +4,7 @@
 //! It handles game sessions, player management, different question types,
 //! leaderboards, and real-time synchronization between players and hosts.
 
+#![cfg_attr(all(coverage_nightly, test), feature(coverage_attribute))]
 #![allow(clippy::too_many_arguments)]
 #![deny(missing_docs)]
 #![deny(rustdoc::missing_crate_level_docs)]
@@ -155,6 +156,7 @@ impl<T: Clone> TruncatedVec<T> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 
