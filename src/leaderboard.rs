@@ -598,4 +598,50 @@ mod tests {
         assert!(serialized.contains("150"));
         assert!(serialized.contains("2"));
     }
+
+    #[test]
+    fn test_leaderboard_deserialization_with_same_player_multiple_previous_rounds() {
+        // This test covers the missing coalesce case in previous_total_score_mapping
+        // where the same player appears multiple times in previous rounds (line 86)
+        let id1 = Id::new();
+        let id2 = Id::new();
+
+        // Create a leaderboard with multiple rounds where the same player scores multiple times
+        let mut original = Leaderboard::default();
+        original.add_scores(&[(id1, 50), (id2, 25)]); // Round 1
+        original.add_scores(&[(id1, 30), (id2, 40)]); // Round 2  
+        original.add_scores(&[(id1, 20), (id2, 35)]); // Round 3
+
+        // Serialize the leaderboard
+        let serialized = serde_json::to_string(&original).unwrap();
+
+        // Deserialize - this should trigger the coalesce logic for previous rounds
+        // When computing previous_total_score_mapping, it excludes the last round,
+        // so it processes rounds 1-2, where id1 appears in both rounds (50 + 30)
+        let deserialized: Leaderboard = serde_json::from_str(&serialized).unwrap();
+
+        // Verify the deserialized data is correct
+        assert_eq!(deserialized.score(id1).unwrap().points, 100); // 50 + 30 + 20
+        assert_eq!(deserialized.score(id2).unwrap().points, 100); // 25 + 40 + 35
+
+        // Verify that previous scores are computed correctly (should be from rounds 1-2 only)
+        let [_current, previous] = deserialized.last_two_scores_descending();
+
+        // Previous round totals should be: id1=80 (50+30), id2=65 (25+40)
+        assert_eq!(previous.items().len(), 2);
+        let prev_id1_score = previous
+            .items()
+            .iter()
+            .find(|(id, _)| *id == id1)
+            .unwrap()
+            .1;
+        let prev_id2_score = previous
+            .items()
+            .iter()
+            .find(|(id, _)| *id == id2)
+            .unwrap()
+            .1;
+        assert_eq!(prev_id1_score, 80); // This tests the coalesce Ok branch for previous rounds
+        assert_eq!(prev_id2_score, 65);
+    }
 }
