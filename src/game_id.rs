@@ -233,4 +233,20 @@ mod tests {
         // This will panic due to the u16::try_from conversion
         GameId::from_usize(usize::MAX);
     }
+
+    #[test]
+    fn test_game_id_deserialization_error() {
+        // Test deserialization error path for invalid JSON
+        let invalid_json = "123"; // Number instead of string
+        let result: Result<GameId, _> = serde_json::from_str(invalid_json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_game_id_deserialization_parse_error() {
+        // Test deserialization error path for invalid octal string
+        let invalid_octal = "\"999\""; // Invalid octal digit
+        let result: Result<GameId, _> = serde_json::from_str(invalid_octal);
+        assert!(result.is_err());
+    }
 }
