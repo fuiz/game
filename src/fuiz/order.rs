@@ -367,7 +367,7 @@ impl State {
     ///
     /// # Returns
     ///
-    /// The SystemTime when the current phase started, or current time if not set
+    /// The `SystemTime` when the current phase started, or current time if not set
     fn timer(&self) -> SystemTime {
         self.answer_start.unwrap_or(SystemTime::now())
     }
@@ -523,14 +523,14 @@ impl State {
     ///
     /// # Returns
     ///
-    /// The current SlideState of this order question
+    /// The current `SlideState` of this order question
     fn state(&self) -> SlideState {
         self.state
     }
 
     /// Sends the results showing correct order and player statistics
     ///
-    /// This method handles the transition from Answers to AnswersResults state,
+    /// This method handles the transition from Answers to `AnswersResults` state,
     /// revealing the correct order and showing statistics about player responses.
     ///
     /// # Arguments
@@ -659,12 +659,18 @@ impl State {
     ///
     /// # Returns
     ///
-    /// A SyncMessage appropriate for the current state
+    /// A `SyncMessage` appropriate for the current state
     ///
     /// # Type Parameters
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
+    ///
+    /// # Panics
+    ///
+    /// Panics if the system clock goes backwards while calculating elapsed time
+    /// if the state is not one of the expected states.
+    ///
     pub fn state_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &self,
         _watcher_id: Id,
@@ -804,7 +810,7 @@ impl State {
                 }
             }
             _ => (),
-        };
+        }
 
         false
     }
@@ -846,7 +852,7 @@ impl State {
         _team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: &mut S,
         tunnel_finder: F,
-        message: crate::AlarmMessage,
+        message: &crate::AlarmMessage,
         index: usize,
         count: usize,
     ) -> bool {
@@ -870,7 +876,7 @@ impl State {
                 }
                 _ => {}
             }
-        };
+        }
 
         false
     }

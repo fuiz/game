@@ -397,7 +397,7 @@ impl Game {
     ///
     /// # Returns
     ///
-    /// An UpdateMessage with teammate selection options
+    /// An `UpdateMessage` with teammate selection options
     fn choose_teammates_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &self,
         watcher: Id,
@@ -433,7 +433,7 @@ impl Game {
     ///
     /// # Returns
     ///
-    /// A TruncatedVec containing player names with overflow information
+    /// A `TruncatedVec` containing player names with overflow information
     ///
     /// # Type Parameters
     ///
@@ -476,7 +476,7 @@ impl Game {
     ///
     /// # Returns
     ///
-    /// A LeaderboardMessage with current and prior standings
+    /// A `LeaderboardMessage` with current and prior standings
     fn leaderboard_message(&self) -> LeaderboardMessage {
         let [current, prior] = self.leaderboard.last_two_scores_descending();
 
@@ -761,8 +761,7 @@ impl Game {
             .collect_vec();
 
         for watcher in watchers {
-            self.watchers
-                .remove_watcher_session(&watcher, &tunnel_finder);
+            Watchers::remove_watcher_session(&watcher, &tunnel_finder);
         }
     }
 
@@ -785,7 +784,7 @@ impl Game {
         watcher: Id,
         tunnel_finder: F,
     ) {
-        self.watchers.send_state(
+        Watchers::send_state(
             &SyncMessage::Metainfo(MetainfoMessage::Player {
                 score: self.score(watcher).map_or(0, |x| x.points),
                 show_answers: self.options.show_answers,
@@ -828,8 +827,7 @@ impl Game {
                 }
             }
         } else {
-            self.watchers
-                .send_message(&UpdateMessage::NameChoose.into(), watcher, tunnel_finder);
+            Watchers::send_message(&UpdateMessage::NameChoose.into(), watcher, tunnel_finder);
         }
     }
 
@@ -896,7 +894,7 @@ impl Game {
     ) {
         if let Some(team_manager) = &mut self.team_manager {
             if let Some(name) = team_manager.add_player(watcher, &mut self.watchers) {
-                self.watchers.send_message(
+                Watchers::send_message(
                     &UpdateMessage::FindTeam(name).into(),
                     watcher,
                     &tunnel_finder,
@@ -904,7 +902,7 @@ impl Game {
             }
         }
 
-        self.watchers.send_message(
+        Watchers::send_message(
             &UpdateMessage::NameAssign(name.to_string()).into(),
             watcher,
             &tunnel_finder,
@@ -938,7 +936,7 @@ impl Game {
             }
         }
 
-        self.watchers.send_state(
+        Watchers::send_state(
             &self.state_message(watcher, ValueKind::Player, &tunnel_finder),
             watcher,
             tunnel_finder,
@@ -966,6 +964,11 @@ impl Game {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
+    ///
+    /// # Errors
+    ///
+    /// If there are too many participants, the watcher may not be added.
+    ///
     pub fn add_unassigned<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &mut self,
         watcher: Id,
@@ -1026,7 +1029,7 @@ impl Game {
                 if self.options.random_names.is_none() =>
             {
                 if let Err(e) = self.assign_player_name(watcher_id, &s, &tunnel_finder) {
-                    self.watchers.send_message(
+                    Watchers::send_message(
                         &UpdateMessage::NameError(e).into(),
                         watcher_id,
                         tunnel_finder,
@@ -1121,7 +1124,7 @@ impl Game {
         S: FnMut(AlarmMessage, web_time::Duration),
     >(
         &mut self,
-        message: AlarmMessage,
+        message: &AlarmMessage,
         mut schedule_message: S,
         tunnel_finder: F,
     ) {
@@ -1140,7 +1143,7 @@ impl Game {
                 index: slide_index,
                 to: _,
             }) => match &mut self.state {
-                State::Slide(current_slide) if current_slide.index == slide_index => {
+                State::Slide(current_slide) if current_slide.index == *slide_index => {
                     if current_slide.state.receive_alarm(
                         &mut self.leaderboard,
                         &self.watchers,
@@ -1174,7 +1177,7 @@ impl Game {
     ///
     /// # Returns
     ///
-    /// A SyncMessage containing the current state information appropriate for the participant
+    /// A `SyncMessage` containing the current state information appropriate for the participant
     ///
     /// # Type Parameters
     ///
@@ -1303,12 +1306,12 @@ impl Game {
 
         match watcher_value.clone() {
             Value::Host => {
-                self.watchers.send_state(
+                Watchers::send_state(
                     &self.state_message(watcher_id, watcher_value.kind(), &tunnel_finder),
                     watcher_id,
                     &tunnel_finder,
                 );
-                self.watchers.send_state(
+                Watchers::send_state(
                     &SyncMessage::Metainfo(MetainfoMessage::Host {
                         locked: self.locked,
                     })
@@ -1324,19 +1327,19 @@ impl Game {
                     team_id: _,
                 } = &player_value
                 {
-                    self.watchers.send_message(
+                    Watchers::send_message(
                         &UpdateMessage::FindTeam(team_name.clone()).into(),
                         watcher_id,
                         &tunnel_finder,
                     );
                 }
-                self.watchers.send_message(
+                Watchers::send_message(
                     &UpdateMessage::NameAssign(player_value.name().to_owned()).into(),
                     watcher_id,
                     &tunnel_finder,
                 );
                 self.update_player_with_options(watcher_id, &tunnel_finder);
-                self.watchers.send_state(
+                Watchers::send_state(
                     &self.state_message(watcher_id, watcher_value.kind(), &tunnel_finder),
                     watcher_id,
                     &tunnel_finder,

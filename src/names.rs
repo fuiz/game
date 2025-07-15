@@ -108,7 +108,7 @@ impl From<NamesSerde> for Names {
         let NamesSerde { mapping } = serde;
         let mut reverse_mapping = HashMap::new();
         let mut existing = HashSet::new();
-        for (id, name) in mapping.iter() {
+        for (id, name) in &mapping {
             reverse_mapping.insert(name.to_owned(), *id);
             existing.insert(name.to_owned());
         }
@@ -151,7 +151,7 @@ impl Names {
     ///
     /// The player's name if they have one assigned, otherwise `None`
     pub fn get_name(&self, id: &Id) -> Option<String> {
-        self.mapping.get(id).map(|s| s.to_owned())
+        self.mapping.get(id).map(std::borrow::ToOwned::to_owned)
     }
 
     /// Assigns a name to a player after validation
@@ -418,7 +418,7 @@ mod tests {
         let default_style = NameStyle::default();
         match default_style {
             NameStyle::Petname(count) => assert_eq!(count, 2),
-            _ => panic!("Default should be Petname(2)"),
+            NameStyle::Roman(_) => panic!("Default should be Petname(2)"),
         }
     }
 

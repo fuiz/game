@@ -211,7 +211,7 @@ impl SlideState {
         match self {
             Self::MultipleChoice(s) => s.receive_message(
                 watcher_id,
-                message,
+                &message,
                 leaderboard,
                 watchers,
                 team_manager,
@@ -337,7 +337,7 @@ impl SlideState {
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: &mut S,
         tunnel_finder: F,
-        message: AlarmMessage,
+        message: &AlarmMessage,
         index: usize,
         count: usize,
     ) -> bool {

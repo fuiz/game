@@ -156,9 +156,9 @@ impl SlideConfig {
     pub fn to_state(&self) -> State {
         State {
             config: self.clone(),
-            user_answers: Default::default(),
-            answer_start: Default::default(),
-            state: Default::default(),
+            user_answers: HashMap::default(),
+            answer_start: Option::default(),
+            state: SlideState::default(),
         }
     }
 }
@@ -320,7 +320,7 @@ impl State {
     /// Returns the start time of the current phase
     ///
     /// # Returns
-    /// * SystemTime when the current phase started, or current time if not set
+    /// * `SystemTime` when the current phase started, or current time if not set
     fn timer(&self) -> SystemTime {
         self.answer_start.unwrap_or(SystemTime::now())
     }
@@ -382,7 +382,7 @@ impl State {
                 }
                 .into(),
                 self.config.introduce_question,
-            )
+            );
         }
     }
 
@@ -432,7 +432,7 @@ impl State {
                 }
                 .into(),
                 self.config.time_limit,
-            )
+            );
         }
     }
 
@@ -461,7 +461,7 @@ impl State {
 
     /// Sends the results showing correct answers and player statistics
     ///
-    /// This method handles the transition from Answers to AnswersResults state,
+    /// This method handles the transition from Answers to `AnswersResults` state,
     /// revealing the correct answers and showing statistics about player responses.
     ///
     /// # Arguments
@@ -487,7 +487,7 @@ impl State {
                         .map(|(_, (answer, _))| clean_answer(answer, self.config.case_sensitive))
                         .counts()
                         .into_iter()
-                        .map(|(i, c)| (i.to_owned(), c))
+                        .map(|(i, c)| (i.clone(), c))
                         .collect_vec(),
                     case_sensitive: self.config.case_sensitive,
                 }
@@ -589,6 +589,12 @@ impl State {
     ///
     /// # Returns
     /// * Appropriate sync message based on current slide state
+    ///
+    /// # Panics
+    ///
+    /// Panics if the system clock goes backwards while calculating elapsed time
+    /// if the state is not one of the expected states.
+    ///
     pub fn state_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &self,
         _watcher_id: Id,
@@ -635,7 +641,7 @@ impl State {
                     .map(|(_, (answer, _))| clean_answer(answer, self.config.case_sensitive))
                     .counts()
                     .into_iter()
-                    .map(|(i, c)| (i.to_owned(), c))
+                    .map(|(i, c)| (i.clone(), c))
                     .collect_vec(),
                 case_sensitive: self.config.case_sensitive,
             },
@@ -721,7 +727,7 @@ impl State {
                 }
             }
             _ => (),
-        };
+        }
 
         false
     }
@@ -751,7 +757,7 @@ impl State {
         _team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: &mut S,
         tunnel_finder: F,
-        message: crate::AlarmMessage,
+        message: &crate::AlarmMessage,
         index: usize,
         count: usize,
     ) -> bool {
@@ -775,7 +781,7 @@ impl State {
                 }
                 _ => (),
             }
-        };
+        }
 
         false
     }

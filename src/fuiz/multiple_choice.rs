@@ -395,7 +395,7 @@ impl State {
     ///
     /// # Returns
     ///
-    /// The SystemTime when the current phase started, or current time if not set
+    /// The `SystemTime` when the current phase started, or current time if not set
     fn timer(&self) -> SystemTime {
         self.answer_start.unwrap_or(SystemTime::now())
     }
@@ -463,7 +463,7 @@ impl State {
                     }
                     .into(),
                     self.config.introduce_question,
-                )
+                );
             }
         }
     }
@@ -518,7 +518,7 @@ impl State {
                                                 members
                                                     .into_iter()
                                                     .filter(|id| {
-                                                        watchers.is_alive(*id, &tunnel_finder)
+                                                        Watchers::is_alive(*id, &tunnel_finder)
                                                     })
                                                     .count()
                                                     .max(1)
@@ -531,7 +531,7 @@ impl State {
                                     match &team_manager {
                                         Some(team_manager) => team_manager
                                             .team_index(id, |id| {
-                                                watchers.is_alive(id, &tunnel_finder)
+                                                Watchers::is_alive(id, &tunnel_finder)
                                             })
                                             .unwrap_or(0),
                                         None => 0,
@@ -554,7 +554,7 @@ impl State {
                 }
                 .into(),
                 self.config.time_limit,
-            )
+            );
         }
     }
 
@@ -585,14 +585,14 @@ impl State {
     ///
     /// # Returns
     ///
-    /// The current SlideState of this multiple choice question
+    /// The current `SlideState` of this multiple choice question
     fn state(&self) -> SlideState {
         self.state
     }
 
     /// Sends the results showing correct answers and player response statistics
     ///
-    /// This method handles the transition from Answers to AnswersResults state,
+    /// This method handles the transition from Answers to `AnswersResults` state,
     /// revealing the correct answers and showing statistics about how players responded.
     ///
     /// # Arguments
@@ -795,12 +795,18 @@ impl State {
     ///
     /// # Returns
     ///
-    /// A SyncMessage appropriate for the current state and participant type
+    /// A `SyncMessage` appropriate for the current state and participant type
     ///
     /// # Type Parameters
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
+    ///
+    /// # Panics
+    ///
+    /// Panics if the system clock goes backwards while calculating elapsed time
+    /// if the state is not one of the expected states.
+    ///
     pub fn state_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &self,
         watcher_id: Id,
@@ -838,7 +844,7 @@ impl State {
                                 team_manager.team_members(watcher_id).map_or(1, |members| {
                                     members
                                         .into_iter()
-                                        .filter(|id| watchers.is_alive(*id, &tunnel_finder))
+                                        .filter(|id| Watchers::is_alive(*id, &tunnel_finder))
                                         .collect_vec()
                                         .len()
                                         .max(1)
@@ -850,7 +856,7 @@ impl State {
                     {
                         match &team_manager {
                             Some(team_manager) => team_manager
-                                .team_index(watcher_id, |id| watchers.is_alive(id, &tunnel_finder))
+                                .team_index(watcher_id, |id| Watchers::is_alive(id, &tunnel_finder))
                                 .unwrap_or(0),
                             None => 0,
                         }
@@ -934,7 +940,7 @@ impl State {
     >(
         &mut self,
         watcher_id: Id,
-        message: IncomingMessage,
+        message: &IncomingMessage,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
@@ -971,9 +977,10 @@ impl State {
                 }
             },
             IncomingMessage::Player(IncomingPlayerMessage::IndexAnswer(v))
-                if v < self.config.answers.len() =>
+                if *v < self.config.answers.len() =>
             {
-                self.user_answers.insert(watcher_id, (v, SystemTime::now()));
+                self.user_answers
+                    .insert(watcher_id, (*v, SystemTime::now()));
                 let left_set: HashSet<_> = watchers
                     .specific_vec(ValueKind::Player, &tunnel_finder)
                     .iter()
@@ -992,7 +999,7 @@ impl State {
                 }
             }
             _ => (),
-        };
+        }
 
         false
     }
@@ -1034,7 +1041,7 @@ impl State {
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: &mut S,
         tunnel_finder: F,
-        message: crate::AlarmMessage,
+        message: &crate::AlarmMessage,
         index: usize,
         _count: usize,
     ) -> bool {
@@ -1056,7 +1063,7 @@ impl State {
                 SlideState::AnswersResults => self.send_answers_results(watchers, tunnel_finder),
                 _ => (),
             }
-        };
+        }
 
         false
     }

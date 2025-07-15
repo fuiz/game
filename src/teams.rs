@@ -47,9 +47,9 @@ pub struct TeamManager<N: names::NamingScheme> {
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct PreferenceGroup(usize, Vec<Id>);
 
-impl From<Vec<Id>> for PreferenceGroup {
-    fn from(players: Vec<Id>) -> Self {
-        Self(players.len(), players)
+impl From<&Vec<Id>> for PreferenceGroup {
+    fn from(players: &Vec<Id>) -> Self {
+        Self(players.len(), players.clone())
     }
 }
 
@@ -64,7 +64,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
     ///
     /// # Returns
     ///
-    /// A new TeamManager instance ready for team formation
+    /// A new `TeamManager` instance ready for team formation
     pub fn new(optimal_size: usize, assign_random: bool, name_style: N) -> Self {
         Self {
             player_to_team: HashMap::default(),
@@ -110,9 +110,9 @@ impl<N: names::NamingScheme> TeamManager<N> {
         tunnel_finder: F,
     ) {
         if self.teams.is_none() {
-            let players = self.get_players(watchers, tunnel_finder);
+            let players = Self::get_players(watchers, tunnel_finder);
             let preference_groups = self.create_preference_groups(&players);
-            let balanced_teams = self.balance_teams(preference_groups, players.len());
+            let balanced_teams = self.balance_teams(&preference_groups, players.len());
             let team_id_names = self.create_team_id_names(balanced_teams, names);
             let result = self.assign_all_players_to_teams(&team_id_names, names, watchers);
             self.teams = Some(result);
@@ -120,7 +120,6 @@ impl<N: names::NamingScheme> TeamManager<N> {
     }
 
     fn get_players<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &self,
         watchers: &Watchers,
         tunnel_finder: F,
     ) -> Vec<Id> {
@@ -135,7 +134,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
         self.preferences
             .as_ref()
             .and_then(|p| p.get(&player_id))
-            .map(|p| p.to_owned())
+            .map(std::borrow::ToOwned::to_owned)
     }
 
     fn create_preference_groups(&self, players: &[Id]) -> Vec<Vec<Id>> {
@@ -164,7 +163,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
                 fastrand::shuffle(&mut players);
                 players
             })
-            .sorted_by_key(|group| group.len())
+            .sorted_by_key(Vec::len)
             .rev()
             .collect_vec();
 
@@ -175,7 +174,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
         preference_groups
     }
 
-    fn balance_teams(&self, teams: Vec<Vec<Id>>, players_count: usize) -> Vec<Vec<Id>> {
+    fn balance_teams(&self, teams: &[Vec<Id>], players_count: usize) -> Vec<Vec<Id>> {
         if teams.len() == players_count {
             self.redistribute_single_player_teams(teams)
         } else {
@@ -183,7 +182,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
         }
     }
 
-    fn redistribute_single_player_teams(&self, teams: Vec<Vec<Id>>) -> Vec<Vec<Id>> {
+    fn redistribute_single_player_teams(&self, teams: &[Vec<Id>]) -> Vec<Vec<Id>> {
         let total_teams = teams.len().div_ceil(self.optimal_size);
         let remainder = teams.len() % total_teams;
         let base_size = teams.len() / total_teams;
@@ -205,7 +204,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
             .collect()
     }
 
-    fn merge_teams_optimally(&self, teams: Vec<Vec<Id>>) -> Vec<Vec<Id>> {
+    fn merge_teams_optimally(&self, teams: &[Vec<Id>]) -> Vec<Vec<Id>> {
         let mut sorted_teams: BTreeSet<PreferenceGroup> = BTreeSet::new();
 
         for team in teams {
@@ -216,27 +215,25 @@ impl<N: names::NamingScheme> TeamManager<N> {
                 .next_back()
                 .map(|group| group.1.clone())
             {
-                sorted_teams.remove(&compatible_team.clone().into());
-                let merged_team: Vec<Id> = team.into_iter().chain(compatible_team).collect();
-                sorted_teams.insert(merged_team.into());
+                sorted_teams.remove(&(&compatible_team).into());
+                let merged_team: Vec<Id> =
+                    team.iter().chain(compatible_team.iter()).copied().collect();
+                sorted_teams.insert((&merged_team).into());
             } else {
                 sorted_teams.insert(team.into());
             }
         }
 
-        self.consolidate_single_member_teams(sorted_teams)
+        Self::consolidate_single_member_teams(sorted_teams)
     }
 
-    fn consolidate_single_member_teams(
-        &self,
-        mut teams: BTreeSet<PreferenceGroup>,
-    ) -> Vec<Vec<Id>> {
+    fn consolidate_single_member_teams(mut teams: BTreeSet<PreferenceGroup>) -> Vec<Vec<Id>> {
         if let Some(smallest) = teams.pop_first() {
             if smallest.0 == 1 {
                 if let Some(second_smallest) = teams.pop_first() {
                     let consolidated: Vec<Id> =
                         smallest.1.into_iter().chain(second_smallest.1).collect();
-                    teams.insert(consolidated.into());
+                    teams.insert((&consolidated).into());
                 } else {
                     teams.insert(smallest);
                 }
@@ -376,6 +373,11 @@ impl<N: names::NamingScheme> TeamManager<N> {
     ///
     /// `Some(String)` containing the team name if successfully added,
     /// or `None` if team formation hasn't been completed
+    ///
+    /// # Panics
+    ///
+    /// Panics if the player is already assigned to a team or if there are no teams available
+    ///
     pub fn add_player(&mut self, player_id: Id, watchers: &mut Watchers) -> Option<String> {
         if let Some(team) = self.get_team(player_id) {
             return self
@@ -416,25 +418,6 @@ impl<N: names::NamingScheme> TeamManager<N> {
         } else {
             None
         }
-    }
-
-    /// Gets the size of a player's team
-    ///
-    /// Returns the current number of players in the team that the specified
-    /// player belongs to.
-    ///
-    /// # Arguments
-    ///
-    /// * `player_id` - The player whose team size to check
-    ///
-    /// # Returns
-    ///
-    /// `Some(usize)` containing the team size, or `None` if the player
-    /// is not assigned to a team
-    pub fn _team_size(&self, player_id: Id) -> Option<usize> {
-        self.get_team(player_id)
-            .and_then(|team_id| self.team_to_players.get(&team_id))
-            .map(|p| p.len())
     }
 
     /// Gets all members of a player's team
@@ -523,7 +506,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
         self.preferences
             .as_ref()
             .and_then(|p| p.get(&watcher_id))
-            .map(|p| p.to_owned())
+            .map(std::borrow::ToOwned::to_owned)
     }
 }
 
@@ -545,7 +528,7 @@ mod tests {
     }
 
     /// Helper function to test team distribution with a given number of players and team size
-    fn test_team_distribution(num_players: usize, optimal_size: usize, team_sizes: Vec<usize>) {
+    fn test_team_distribution(num_players: usize, optimal_size: usize, team_sizes: &[usize]) {
         let mut manager = TeamManager::new(optimal_size, false, NameStyle::default());
         let host_id = Id::new();
         let mut watchers = Watchers::with_host_id(host_id);
@@ -609,21 +592,21 @@ mod tests {
     #[test]
     fn test_teams_perfect_distribution_team_size_2() {
         for i in 1..=10 {
-            test_team_distribution(2 * i, 2, [2].repeat(i));
+            test_team_distribution(2 * i, 2, &[2].repeat(i));
         }
     }
 
     #[test]
     fn test_teams_perfect_distribution_team_size_3() {
         for i in 1..=10 {
-            test_team_distribution(3 * i, 3, [3].repeat(i));
+            test_team_distribution(3 * i, 3, &[3].repeat(i));
         }
     }
 
     #[test]
     fn test_teams_perfect_distribution_team_size_4() {
         for i in 1..=10 {
-            test_team_distribution(4 * i, 4, [4].repeat(i));
+            test_team_distribution(4 * i, 4, &[4].repeat(i));
         }
     }
 
@@ -632,7 +615,7 @@ mod tests {
         for i in 1..=10 {
             let mut team_sizes = [2].repeat(i);
             team_sizes.insert(0, 1);
-            test_team_distribution(2 * i + 1, 2, team_sizes);
+            test_team_distribution(2 * i + 1, 2, &team_sizes);
         }
     }
 
@@ -642,25 +625,25 @@ mod tests {
             let mut team_sizes = [3].repeat(i - 1);
             team_sizes.insert(0, 2);
             team_sizes.insert(0, 2);
-            test_team_distribution(3 * i + 1, 3, team_sizes);
+            test_team_distribution(3 * i + 1, 3, &team_sizes);
         }
     }
 
     #[test]
     fn test_teams_additional_person_team_size_4() {
-        test_team_distribution(5, 4, vec![2, 3]);
-        test_team_distribution(6, 4, vec![3, 3]);
-        test_team_distribution(7, 4, vec![3, 4]);
-        test_team_distribution(9, 4, vec![3, 3, 3]);
-        test_team_distribution(10, 4, vec![3, 3, 4]);
-        test_team_distribution(11, 4, vec![3, 4, 4]);
+        test_team_distribution(5, 4, &[2, 3]);
+        test_team_distribution(6, 4, &[3, 3]);
+        test_team_distribution(7, 4, &[3, 4]);
+        test_team_distribution(9, 4, &[3, 3, 3]);
+        test_team_distribution(10, 4, &[3, 3, 4]);
+        test_team_distribution(11, 4, &[3, 4, 4]);
 
         for i in 3..=10 {
             let mut team_sizes = [4].repeat(i - 2);
             team_sizes.insert(0, 3);
             team_sizes.insert(0, 3);
             team_sizes.insert(0, 3);
-            test_team_distribution(4 * i + 1, 4, team_sizes);
+            test_team_distribution(4 * i + 1, 4, &team_sizes);
         }
     }
 
@@ -728,7 +711,7 @@ mod tests {
 
         let team_names = manager.team_names().unwrap();
         assert_eq!(team_names.exact_count(), 1);
-        assert!(team_names.items().len() > 0);
+        assert!(!team_names.items().is_empty());
     }
 
     #[test]
@@ -795,37 +778,6 @@ mod tests {
         let second_assignment = manager.add_player(player1, &mut watchers);
 
         assert_eq!(first_assignment, second_assignment);
-    }
-
-    #[test]
-    fn test_team_size() {
-        let mut manager = TeamManager::new(2, false, NameStyle::default());
-        let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
-        let mut names = names::Names::default();
-        let tunnel = |_id| Some(MockTunnel {});
-
-        let player1 = Id::new();
-        let player2 = Id::new();
-
-        for player in [player1, player2] {
-            watchers
-                .add_watcher(
-                    player,
-                    watcher::Value::Player(watcher::PlayerValue::Individual {
-                        name: format!("Player {player}"),
-                    }),
-                )
-                .unwrap();
-        }
-
-        manager.finalize(&mut watchers, &mut names, tunnel);
-
-        assert_eq!(manager._team_size(player1), Some(2));
-        assert_eq!(manager._team_size(player2), Some(2));
-
-        let unassigned_player = Id::new();
-        assert_eq!(manager._team_size(unassigned_player), None);
     }
 
     #[test]
@@ -1025,7 +977,7 @@ mod tests {
         manager.finalize(&mut watchers, &mut names, tunnel);
 
         let team_ids = manager.all_ids();
-        assert!(team_ids.len() >= 1);
+        assert!(!team_ids.is_empty());
 
         let team_sizes: Vec<usize> = team_ids
             .iter()
@@ -1100,7 +1052,7 @@ mod tests {
         manager.finalize(&mut watchers, &mut names, tunnel);
 
         let team_ids = manager.all_ids();
-        assert!(team_ids.len() >= 1);
+        assert!(!team_ids.is_empty());
 
         let team_sizes: Vec<usize> = team_ids
             .iter()
@@ -1139,7 +1091,7 @@ mod tests {
         manager.finalize(&mut watchers, &mut names, tunnel);
 
         let team_ids = manager.all_ids();
-        assert!(team_ids.len() >= 1);
+        assert!(!team_ids.is_empty());
 
         let team1 = manager.get_team(player1);
         let team2 = manager.get_team(player2);
@@ -1199,14 +1151,13 @@ mod tests {
 
         #[test]
         fn test_consolidate_single_member_teams_only_single_member() {
-            // Test line 243-244: smallest team has 1 player but no second smallest team to consolidate
-            let manager = TeamManager::new(3, false, NameStyle::default());
+            // Test that smallest team has 1 player but no second smallest team to consolidate
             let player1 = Id::new();
 
             let mut teams = BTreeSet::new();
             teams.insert(PreferenceGroup(1, vec![player1]));
 
-            let result = manager.consolidate_single_member_teams(teams);
+            let result = TeamManager::<NameStyle>::consolidate_single_member_teams(teams);
 
             assert_eq!(result.len(), 1);
             assert_eq!(result[0], vec![player1]);
@@ -1215,7 +1166,6 @@ mod tests {
         #[test]
         fn test_consolidate_single_member_teams_with_consolidation() {
             // Test consolidation of two single-member teams
-            let manager = TeamManager::new(3, false, NameStyle::default());
             let player1 = Id::new();
             let player2 = Id::new();
 
@@ -1223,7 +1173,7 @@ mod tests {
             teams.insert(PreferenceGroup(1, vec![player1]));
             teams.insert(PreferenceGroup(1, vec![player2]));
 
-            let result = manager.consolidate_single_member_teams(teams);
+            let result = TeamManager::<NameStyle>::consolidate_single_member_teams(teams);
 
             assert_eq!(result.len(), 1);
             assert_eq!(result[0].len(), 2);
@@ -1234,7 +1184,6 @@ mod tests {
         #[test]
         fn test_consolidate_single_member_teams_larger_team() {
             // Test line 248: smallest team is not size 1, so we just insert it back
-            let manager = TeamManager::new(3, false, NameStyle::default());
             let player1 = Id::new();
             let player2 = Id::new();
             let player3 = Id::new();
@@ -1244,7 +1193,7 @@ mod tests {
             teams.insert(PreferenceGroup(2, vec![player1, player2]));
             teams.insert(PreferenceGroup(2, vec![player3, player4]));
 
-            let result = manager.consolidate_single_member_teams(teams);
+            let result = TeamManager::<NameStyle>::consolidate_single_member_teams(teams);
 
             assert_eq!(result.len(), 2);
             assert!(result.iter().all(|team| team.len() == 2));
@@ -1253,10 +1202,9 @@ mod tests {
         #[test]
         fn test_consolidate_single_member_teams_empty() {
             // Test empty teams set
-            let manager = TeamManager::new(3, false, NameStyle::default());
             let teams = BTreeSet::new();
 
-            let result = manager.consolidate_single_member_teams(teams);
+            let result = TeamManager::<NameStyle>::consolidate_single_member_teams(teams);
 
             assert!(result.is_empty());
         }
@@ -1264,7 +1212,6 @@ mod tests {
         #[test]
         fn test_consolidate_single_member_teams_mixed_sizes() {
             // Test with mix of single and multi-member teams
-            let manager = TeamManager::new(3, false, NameStyle::default());
             let player1 = Id::new();
             let player2 = Id::new();
             let player3 = Id::new();
@@ -1273,7 +1220,7 @@ mod tests {
             teams.insert(PreferenceGroup(1, vec![player1]));
             teams.insert(PreferenceGroup(2, vec![player2, player3]));
 
-            let result = manager.consolidate_single_member_teams(teams);
+            let result = TeamManager::<NameStyle>::consolidate_single_member_teams(teams);
 
             // The single-member team gets consolidated with the 2-member team
             assert_eq!(result.len(), 1);
@@ -1383,7 +1330,7 @@ mod tests {
             // Accept the actual behavior which creates separate preference groups
             assert!(groups.len() >= 2);
 
-            let total_players: usize = groups.iter().map(|g| g.len()).sum();
+            let total_players: usize = groups.iter().map(Vec::len).sum();
             assert_eq!(total_players, 4);
 
             let has_individual_4 = groups.iter().any(|g| g.contains(&player4));
@@ -1405,7 +1352,7 @@ mod tests {
             let players = vec![player1, player2, player3, player4, player5];
             let groups = manager.create_preference_groups(&players);
 
-            let sizes: Vec<usize> = groups.iter().map(|g| g.len()).collect();
+            let sizes: Vec<usize> = groups.iter().map(Vec::len).collect();
             assert_eq!(sizes[0], 2);
             assert!(sizes[1..].iter().all(|&size| size == 1));
         }
@@ -1441,7 +1388,7 @@ mod tests {
             let player3 = Id::new();
 
             let teams = vec![vec![player1], vec![player2], vec![player3]];
-            let balanced = manager.balance_teams(teams, 3);
+            let balanced = manager.balance_teams(&teams, 3);
 
             assert_eq!(balanced.len(), 1);
             assert_eq!(balanced[0].len(), 3);
@@ -1463,14 +1410,14 @@ mod tests {
                 vec![player4],
                 vec![player5],
             ];
-            let balanced = manager.balance_teams(teams, 5);
+            let balanced = manager.balance_teams(&teams, 5);
 
             // With optimal size 2 and 5 single-player teams:
             // total_teams = 5.div_ceil(2) = 3
             // 1 team of size 1, 2 teams of size 2
             assert_eq!(balanced.len(), 3);
-            let mut sizes: Vec<usize> = balanced.iter().map(|team| team.len()).collect();
-            sizes.sort();
+            let mut sizes: Vec<usize> = balanced.iter().map(Vec::len).collect();
+            sizes.sort_unstable();
             assert_eq!(sizes, vec![1, 2, 2]);
         }
 
@@ -1483,7 +1430,7 @@ mod tests {
             let player4 = Id::new();
 
             let teams = vec![vec![player1, player2], vec![player3, player4]];
-            let balanced = manager.balance_teams(teams, 4);
+            let balanced = manager.balance_teams(&teams, 4);
 
             assert_eq!(balanced.len(), 1);
             assert_eq!(balanced[0].len(), 4);
@@ -1503,7 +1450,7 @@ mod tests {
                 vec![player1, player2, player3],
                 vec![player4, player5, player6],
             ];
-            let balanced = manager.balance_teams(teams, 6);
+            let balanced = manager.balance_teams(&teams, 6);
 
             assert_eq!(balanced.len(), 2);
             assert_eq!(balanced[0].len(), 3);
@@ -1525,10 +1472,10 @@ mod tests {
                 vec![player4],
                 vec![player5],
             ];
-            let balanced = manager.balance_teams(teams, 5);
+            let balanced = manager.balance_teams(&teams, 5);
 
-            assert!(balanced.iter().all(|team| team.len() >= 1));
-            let total_players: usize = balanced.iter().map(|team| team.len()).sum();
+            assert!(balanced.iter().all(|team| !team.is_empty()));
+            let total_players: usize = balanced.iter().map(Vec::len).sum();
             assert_eq!(total_players, 5);
         }
 
@@ -1536,7 +1483,7 @@ mod tests {
         fn test_balance_teams_empty_teams() {
             let manager = TeamManager::new(3, false, NameStyle::default());
             let teams = vec![vec![]];
-            let balanced = manager.balance_teams(teams, 0);
+            let balanced = manager.balance_teams(&teams, 0);
 
             assert_eq!(balanced.len(), 1);
             assert!(balanced[0].is_empty());
@@ -1552,7 +1499,7 @@ mod tests {
             let player5 = Id::new();
 
             let teams = vec![vec![player1, player2, player3, player4, player5]];
-            let balanced = manager.balance_teams(teams, 5);
+            let balanced = manager.balance_teams(&teams, 5);
 
             assert_eq!(balanced.len(), 1);
             assert_eq!(balanced[0].len(), 5);

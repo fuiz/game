@@ -99,7 +99,7 @@ impl Value {
     ///
     /// # Returns
     ///
-    /// The ValueKind corresponding to this Value variant
+    /// The `ValueKind` corresponding to this Value variant
     pub fn kind(&self) -> ValueKind {
         match self {
             Value::Unassigned => ValueKind::Unassigned,
@@ -178,7 +178,7 @@ impl From<WatchersSerde> for Watchers {
     fn from(serde: WatchersSerde) -> Self {
         let WatchersSerde { mapping } = serde;
         let mut reverse_mapping: EnumMap<ValueKind, HashSet<Id>> = EnumMap::default();
-        for (id, value) in mapping.iter() {
+        for (id, value) in &mapping {
             reverse_mapping[value.kind()].insert(*id);
         }
         Self {
@@ -340,7 +340,9 @@ impl Watchers {
     ///
     /// The watcher's value if they exist, otherwise `None`
     pub fn get_watcher_value(&self, watcher_id: Id) -> Option<Value> {
-        self.mapping.get(&watcher_id).map(|v| v.to_owned())
+        self.mapping
+            .get(&watcher_id)
+            .map(std::borrow::ToOwned::to_owned)
     }
 
     /// Checks if a watcher exists in the game session
@@ -366,11 +368,7 @@ impl Watchers {
     /// # Returns
     ///
     /// `true` if the watcher has an active tunnel, `false` otherwise
-    pub fn is_alive<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &self,
-        watcher_id: Id,
-        tunnel_finder: F,
-    ) -> bool {
+    pub fn is_alive<T: Tunnel, F: Fn(Id) -> Option<T>>(watcher_id: Id, tunnel_finder: F) -> bool {
         tunnel_finder(watcher_id).is_some()
     }
 
@@ -384,12 +382,11 @@ impl Watchers {
     /// * `watcher_id` - The ID of the watcher whose session should be removed
     /// * `tunnel_finder` - Function to retrieve the tunnel for the watcher
     pub fn remove_watcher_session<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &mut self,
         watcher_id: &Id,
         tunnel_finder: F,
     ) {
-        if let Some(x) = tunnel_finder(*watcher_id) {
-            x.close();
+        if let Some(session) = tunnel_finder(*watcher_id) {
+            session.close();
         }
     }
 
@@ -401,16 +398,13 @@ impl Watchers {
     /// * `watcher_id` - The ID of the watcher to send to
     /// * `tunnel_finder` - Function to retrieve the tunnel for the watcher
     pub fn send_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &self,
         message: &UpdateMessage,
         watcher_id: Id,
         tunnel_finder: F,
     ) {
-        let Some(session) = tunnel_finder(watcher_id) else {
-            return;
-        };
-
-        session.send_message(message);
+        if let Some(session) = tunnel_finder(watcher_id) {
+            session.send_message(message);
+        }
     }
 
     /// Sends a state synchronization message to a specific watcher
@@ -421,16 +415,13 @@ impl Watchers {
     /// * `watcher_id` - The ID of the watcher to send to
     /// * `tunnel_finder` - Function to retrieve the tunnel for the watcher
     pub fn send_state<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &self,
         message: &SyncMessage,
         watcher_id: Id,
         tunnel_finder: F,
     ) {
-        let Some(session) = tunnel_finder(watcher_id) else {
-            return;
-        };
-
-        session.send_state(message);
+        if let Some(session) = tunnel_finder(watcher_id) {
+            session.send_state(message);
+        }
     }
 
     /// Gets the display name of a watcher
@@ -538,7 +529,6 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
 
-    // Mock tunnel implementation for testing
     #[derive(Debug, Clone)]
     struct MockTunnel {
         messages: Arc<Mutex<VecDeque<UpdateMessage>>>,
@@ -733,7 +723,7 @@ mod tests {
         for i in 0..crate::constants::fuiz::MAX_PLAYER_COUNT {
             let watcher_id = Id::new();
             let result = watchers.add_watcher(watcher_id, Value::Unassigned);
-            assert!(result.is_ok(), "Failed to add player {}", i);
+            assert!(result.is_ok(), "Failed to add player {i}");
         }
 
         // Adding one more should fail
@@ -841,12 +831,12 @@ mod tests {
         let tunnel_finder = |id: Id| tunnels.get(&id).cloned();
 
         // Test filtering by ValueKind::Player
-        let players_vec = watchers.specific_vec(ValueKind::Player, &tunnel_finder);
+        let players_vec = watchers.specific_vec(ValueKind::Player, tunnel_finder);
         assert_eq!(players_vec.len(), 1);
         assert_eq!(players_vec[0].0, player_id);
 
         // Test filtering by ValueKind::Host
-        let hosts_vec = watchers.specific_vec(ValueKind::Host, &tunnel_finder);
+        let hosts_vec = watchers.specific_vec(ValueKind::Host, tunnel_finder);
         assert_eq!(hosts_vec.len(), 1);
         assert_eq!(hosts_vec[0].0, host_id);
     }
@@ -918,17 +908,15 @@ mod tests {
 
         let tunnel_finder = |id: Id| tunnels.get(&id).cloned();
 
-        assert!(watchers.is_alive(id1, &tunnel_finder));
-        assert!(!watchers.is_alive(id2, &tunnel_finder));
+        assert!(Watchers::is_alive(id1, tunnel_finder));
+        assert!(!Watchers::is_alive(id2, tunnel_finder));
     }
 
     #[test]
     fn test_remove_watcher_session() {
-        let mut watchers = Watchers::default();
         let mut tunnels = HashMap::new();
 
         let id = Id::new();
-        watchers.add_watcher(id, Value::Host).unwrap();
 
         let tunnel = MockTunnel::new();
         tunnels.insert(id, tunnel.clone());
@@ -936,8 +924,19 @@ mod tests {
         let tunnel_finder = |id: Id| tunnels.get(&id).cloned();
 
         assert!(!tunnel.is_closed());
-        watchers.remove_watcher_session(&id, tunnel_finder);
+        Watchers::remove_watcher_session(&id, tunnel_finder);
         assert!(tunnel.is_closed());
+    }
+
+    #[test]
+    fn test_remove_watcher_session_no_tunnel() {
+        // Tunnel finder that returns None (no tunnel available)
+        let id = Id::new();
+
+        let tunnel_finder = |_id: Id| -> Option<MockTunnel> { None };
+
+        // Should not panic or error when tunnel_finder returns None
+        Watchers::remove_watcher_session(&id, tunnel_finder);
     }
 
     #[test]
@@ -954,7 +953,7 @@ mod tests {
         let tunnel_finder = |id: Id| tunnels.get(&id).cloned();
         let message = mock_update_message();
 
-        watchers.send_message(&message, id, tunnel_finder);
+        Watchers::send_message(&message, id, tunnel_finder);
 
         let received = tunnel.received_messages();
         assert_eq!(received.len(), 1);
@@ -972,7 +971,7 @@ mod tests {
         let message = mock_update_message();
 
         // This should not panic and should be a no-op
-        watchers.send_message(&message, watcher_id, tunnel_finder);
+        Watchers::send_message(&message, watcher_id, tunnel_finder);
 
         // Test passes if no panic occurs
     }
@@ -991,7 +990,7 @@ mod tests {
         let tunnel_finder = |id: Id| tunnels.get(&id).cloned();
         let message = mock_sync_message();
 
-        watchers.send_state(&message, id, tunnel_finder);
+        Watchers::send_state(&message, id, tunnel_finder);
 
         let received = tunnel.received_states();
         assert_eq!(received.len(), 1);
@@ -1009,7 +1008,7 @@ mod tests {
         let message = mock_sync_message();
 
         // This should not panic and should be a no-op
-        watchers.send_state(&message, watcher_id, tunnel_finder);
+        Watchers::send_state(&message, watcher_id, tunnel_finder);
 
         // Test passes if no panic occurs
     }
@@ -1222,7 +1221,7 @@ mod tests {
 
         // Test round-trip consistency
         let id_string = id.to_string();
-        let parsed_id: Id = serde_json::from_str(&format!("\"{}\"", id_string)).unwrap();
+        let parsed_id: Id = serde_json::from_str(&format!("\"{id_string}\"")).unwrap();
         assert_eq!(id, parsed_id);
     }
 }

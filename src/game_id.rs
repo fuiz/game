@@ -107,7 +107,7 @@ impl Enum for GameId {
 }
 
 impl<V> EnumArray<V> for GameId {
-    /// Array type for storing values indexed by GameId
+    /// Array type for storing values indexed by `GameId`
     type Array = [V; Self::LENGTH];
 }
 

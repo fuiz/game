@@ -196,7 +196,7 @@ impl Leaderboard {
     ///
     /// # Returns
     ///
-    /// An array containing [current_standings, previous_standings] as TruncatedVec
+    /// An array containing [current_standings, previous_standings] as `TruncatedVec`
     /// where each entry is (player_id, total_score)
     pub fn last_two_scores_descending(&self) -> [TruncatedVec<(Id, u64)>; 2] {
         const LIMIT: usize = 50;
@@ -227,7 +227,7 @@ impl Leaderboard {
     ///
     /// # Returns
     ///
-    /// A FinalSummary containing detailed game statistics and player performance data
+    /// A `FinalSummary` containing detailed game statistics and player performance data
     fn compute_final_summary(&self, show_real_score: bool) -> FinalSummary {
         let map_score = |s: u64| {
             if show_real_score { s } else { s.min(1) }
@@ -262,7 +262,7 @@ impl Leaderboard {
                         for (id, points) in slide_score_mapping {
                             aggregate_score_mapping.entry(id).or_default().push(points);
                         }
-                        for (_, v) in aggregate_score_mapping.iter_mut() {
+                        for v in aggregate_score_mapping.values_mut() {
                             v.resize(slide_index + 1, 0);
                         }
                         aggregate_score_mapping
@@ -283,7 +283,7 @@ impl Leaderboard {
     ///
     /// # Returns
     ///
-    /// A reference to the cached FinalSummary
+    /// A reference to the cached `FinalSummary`
     fn final_summary(&self, show_real_score: bool) -> &FinalSummary {
         self.final_summary
             .get_or_init(|| self.compute_final_summary(show_real_score))
@@ -596,7 +596,7 @@ mod tests {
 
         let serialized = serde_json::to_string(&score_msg).unwrap();
         assert!(serialized.contains("150"));
-        assert!(serialized.contains("2"));
+        assert!(serialized.contains('2'));
     }
 
     #[test]
