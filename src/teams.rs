@@ -7,7 +7,6 @@
 use std::collections::{BTreeSet, HashMap};
 
 use itertools::Itertools;
-use once_cell_serde::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 
 use crate::game::NameStyle;
@@ -39,7 +38,7 @@ pub struct TeamManager {
     preferences: Option<HashMap<Id, Vec<Id>>>,
 
     /// Finalized list of teams with their IDs and names (computed once)
-    teams: OnceCell<Vec<(Id, String)>>,
+    teams: Option<Vec<(Id, String)>>,
     /// Index for round-robin assignment of players to teams
     next_team_to_receive_player: usize,
 
@@ -80,7 +79,7 @@ impl TeamManager {
             } else {
                 Some(HashMap::default())
             },
-            teams: OnceCell::default(),
+            teams: None,
             next_team_to_receive_player: 0,
         }
     }
@@ -112,13 +111,13 @@ impl TeamManager {
         names: &mut names::Names,
         tunnel_finder: F,
     ) {
-        if self.teams.get().is_none() {
+        if self.teams.is_none() {
             let players = self.get_players(watchers, tunnel_finder);
             let preference_groups = self.create_preference_groups(&players);
             let balanced_teams = self.balance_teams(preference_groups, players.len());
             let team_id_names = self.create_team_id_names(balanced_teams, names);
             let result = self.assign_all_players_to_teams(&team_id_names, names, watchers);
-            let _ = self.teams.set(result);
+            self.teams = Some(result);
         }
     }
 
@@ -325,7 +324,7 @@ impl TeamManager {
     /// `Some(TruncatedVec<String>)` containing team names if teams have been
     /// finalized, or `None` if team formation hasn't completed yet
     pub fn team_names(&self) -> Option<TruncatedVec<String>> {
-        self.teams.get().map(|v| {
+        self.teams.as_ref().map(|v| {
             TruncatedVec::new(
                 v.iter().map(|(_, team_name)| team_name.to_owned()),
                 50,
@@ -384,12 +383,12 @@ impl TeamManager {
         if let Some(team) = self.get_team(player_id) {
             return self
                 .teams
-                .get()
+                .as_ref()
                 .and_then(|teams| teams.iter().find(|(id, _)| *id == team))
                 .map(|(_, name)| name.to_owned());
         }
 
-        if let Some(teams) = self.teams.get() {
+        if let Some(teams) = self.teams.as_ref() {
             let next_index = self.next_team_to_receive_player;
 
             self.next_team_to_receive_player += 1;
@@ -505,7 +504,7 @@ impl TeamManager {
     /// A vector containing all team IDs, or an empty vector if teams
     /// haven't been finalized yet
     pub fn all_ids(&self) -> Vec<Id> {
-        self.teams.get().map_or(Vec::new(), |teams| {
+        self.teams.as_ref().map_or(Vec::new(), |teams| {
             teams.iter().map(|(id, _)| *id).collect_vec()
         })
     }
