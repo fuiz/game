@@ -43,11 +43,7 @@ impl NameStyle {
             Self::Roman(count) => romanname::romanname(romanname::NameConfig {
                 praenomen: *count > 2,
             }),
-            Self::Petname(count) => loop {
-                if let Some(name) = petname::petname(*count as u8, " ") {
-                    return name;
-                }
-            },
+            Self::Petname(count) => petname::petname(*count as u8, " ").unwrap_or_default(),
         }
         .to_title_case()
     }
@@ -415,5 +411,66 @@ mod tests {
 
         assert_eq!(names.get_name(&id), Some(unicode_name.to_string()));
         assert_eq!(names.get_id(unicode_name), Some(id));
+    }
+
+    #[test]
+    fn test_name_style_default() {
+        let default_style = NameStyle::default();
+        match default_style {
+            NameStyle::Petname(count) => assert_eq!(count, 2),
+            _ => panic!("Default should be Petname(2)"),
+        }
+    }
+
+    #[test]
+    fn test_name_style_roman_name_generation() {
+        // Test Roman style with 2 words (no praenomen)
+        let style_2 = NameStyle::Roman(2);
+        let name_2 = style_2.get_name();
+        assert!(!name_2.is_empty());
+        assert!(name_2.chars().next().unwrap().is_uppercase());
+
+        // Test Roman style with 3 words (with praenomen)
+        let style_3 = NameStyle::Roman(3);
+        let name_3 = style_3.get_name();
+        assert!(!name_3.is_empty());
+        assert!(name_3.chars().next().unwrap().is_uppercase());
+    }
+
+    #[test]
+    fn test_name_style_petname_generation() {
+        // Test Petname style with 2 words
+        let style_2 = NameStyle::Petname(2);
+        let name_2 = style_2.get_name();
+        assert!(!name_2.is_empty());
+        // Should be title case after processing
+        assert!(name_2.contains(' ')); // Should have multiple words
+
+        // Test Petname style with 3 words
+        let style_3 = NameStyle::Petname(3);
+        let name_3 = style_3.get_name();
+        assert!(!name_3.is_empty());
+        // Count spaces to verify word count (3 words = 2 spaces)
+        assert_eq!(name_3.matches(' ').count(), 2);
+    }
+
+    #[test]
+    fn test_naming_scheme_implementation() {
+        let roman_style = NameStyle::Roman(2);
+        let petname_style = NameStyle::Petname(2);
+
+        // Test that NamingScheme trait works
+        let roman_name = NamingScheme::get_name(&roman_style);
+        let petname_name = NamingScheme::get_name(&petname_style);
+
+        assert!(!roman_name.is_empty());
+        assert!(!petname_name.is_empty());
+
+        // Test plural name generation
+        let roman_plural = roman_style.get_plural_name();
+        let petname_plural = petname_style.get_plural_name();
+
+        assert!(!roman_plural.is_empty());
+        assert!(!petname_plural.is_empty());
     }
 }
