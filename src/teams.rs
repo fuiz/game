@@ -1159,6 +1159,41 @@ mod tests {
         assert!(team_sizes.iter().all(|&size| size >= 1));
     }
 
+    #[test]
+    fn test_finalize_when_teams_already_exist() {
+        // This test covers when the closing brace when teams are already finalized
+        let mut manager = TeamManager::new(2, false, NameStyle::default());
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id);
+        let mut names = names::Names::default();
+        let tunnel = |_id| Some(MockTunnel {});
+
+        let player1 = Id::new();
+        let player2 = Id::new();
+
+        for player in [player1, player2] {
+            watchers
+                .add_watcher(
+                    player,
+                    watcher::Value::Player(watcher::PlayerValue::Individual {
+                        name: format!("Player {player}"),
+                    }),
+                )
+                .unwrap();
+        }
+
+        // First finalization
+        manager.finalize(&mut watchers, &mut names, tunnel);
+        let initial_teams = manager.teams.clone();
+
+        // Second finalization should not change anything and hit line 119
+        manager.finalize(&mut watchers, &mut names, tunnel);
+
+        // Verify teams haven't changed
+        assert_eq!(manager.teams, initial_teams);
+        assert!(manager.teams.is_some());
+    }
+
     mod consolidate_single_member_teams_tests {
         use super::*;
 
@@ -1860,7 +1895,7 @@ mod tests {
             fn get_name(&self) -> String {
                 let mut count = self.call_count.borrow_mut();
                 *count += 1;
-                
+
                 // First call returns the base name, subsequent calls return modified names
                 if *count == 1 {
                     self.name.clone()
@@ -1881,21 +1916,21 @@ mod tests {
             let mock_style = MockCollidingNameStyle::new("Cats".to_string());
             let manager = TeamManager::new(3, false, mock_style);
             let mut names = names::Names::default();
-            
+
             // Pre-populate names with "Cats" to force a collision
             let existing_id = Id::new();
             names.set_name(existing_id, "Cats").unwrap();
-            
+
             let team_id = Id::new();
             let unique_name = manager.generate_unique_team_name(team_id, &mut names);
-            
+
             // Should have generated a different name due to collision
             assert_ne!(unique_name, "Cats");
             assert_eq!(unique_name, "Cats 2");
-            
+
             // Verify the mock was called multiple times (collision occurred)
             assert_eq!(manager.name_style.call_count(), 2);
-            
+
             // Verify the name was actually set
             assert_eq!(names.get_name(&team_id), Some(unique_name));
         }
@@ -1905,16 +1940,16 @@ mod tests {
             let mock_style = MockCollidingNameStyle::new("Dogs".to_string());
             let manager = TeamManager::new(3, false, mock_style);
             let mut names = names::Names::default();
-            
+
             let team_id = Id::new();
             let unique_name = manager.generate_unique_team_name(team_id, &mut names);
-            
+
             // Should use the first generated name since no collision
             assert_eq!(unique_name, "Dogs");
-            
+
             // Verify the mock was called only once (no collision)
             assert_eq!(manager.name_style.call_count(), 1);
-            
+
             // Verify the name was actually set
             assert_eq!(names.get_name(&team_id), Some(unique_name));
         }
@@ -1924,22 +1959,22 @@ mod tests {
             let mock_style = MockCollidingNameStyle::new("Birds".to_string());
             let manager = TeamManager::new(3, false, mock_style);
             let mut names = names::Names::default();
-            
+
             // Pre-populate names to force multiple collisions
             let id1 = Id::new();
             let id2 = Id::new();
             names.set_name(id1, "Birds").unwrap();
             names.set_name(id2, "Birds 2").unwrap();
-            
+
             let team_id = Id::new();
             let unique_name = manager.generate_unique_team_name(team_id, &mut names);
-            
+
             // Should eventually find a unique name
             assert_eq!(unique_name, "Birds 3");
-            
+
             // Verify the mock was called multiple times
             assert_eq!(manager.name_style.call_count(), 3);
-            
+
             // Verify the name was actually set
             assert_eq!(names.get_name(&team_id), Some(unique_name));
         }
