@@ -83,15 +83,19 @@ impl NameStyle {
     ///
     /// # Returns
     ///
-    /// A randomly generated name string, or `None` if generation fails
-    pub fn get_name(&self) -> Option<String> {
+    /// A randomly generated name as a String.
+    pub fn get_name(&self) -> String {
         match self {
-            Self::Roman(count) => Some(romanname::romanname(romanname::NameConfig {
+            Self::Roman(count) => romanname::romanname(romanname::NameConfig {
                 praenomen: *count > 2,
-            })),
-            Self::Petname(count) => petname::petname(*count as u8, " "),
+            }),
+            Self::Petname(count) => loop {
+                if let Some(name) = petname::petname(*count as u8, " ") {
+                    return name;
+                }
+            },
         }
-        .map(|x| x.to_title_case())
+        .to_title_case()
     }
 }
 
@@ -855,9 +859,7 @@ impl Game {
     ) {
         if let Some(name_style) = self.options.random_names {
             loop {
-                let Some(name) = name_style.get_name() else {
-                    continue;
-                };
+                let name = name_style.get_name();
 
                 if self
                     .assign_player_name(watcher, &name, &tunnel_finder)

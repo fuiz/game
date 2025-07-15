@@ -210,23 +210,26 @@ impl TeamManager {
                     }
                 }
 
-                if tree.len() >= 2 {
-                    if let Some(first) = tree.first() {
-                        if first.0 == 1 {
-                            if let (Some(smallest), Some(second_smallest)) =
-                                (tree.pop_first(), tree.pop_first())
-                            {
-                                tree.insert(
-                                    smallest
-                                        .1
-                                        .into_iter()
-                                        .chain(second_smallest.1)
-                                        .collect_vec()
-                                        .into(),
-                                );
-                            }
-                        }
+                let smallest = tree
+                    .pop_first()
+                    .expect("there should always be at least one team");
+
+                if smallest.0 == 1 {
+                    if let Some(second_smallest) = tree.pop_first() {
+                        tree.insert(
+                            smallest
+                                .1
+                                .into_iter()
+                                .chain(second_smallest.1)
+                                .collect_vec()
+                                .into(),
+                        );
+                    } else {
+                        // should be unreachable, but just in case
+                        tree.insert(smallest);
                     }
+                } else {
+                    tree.insert(smallest);
                 }
 
                 existing_teams = tree.into_iter().map(|p| p.1).collect_vec();
@@ -238,9 +241,7 @@ impl TeamManager {
                     let team_id = Id::new();
 
                     let team_name = loop {
-                        let Some(name) = self.name_style.get_name() else {
-                            continue;
-                        };
+                        let name = self.name_style.get_name();
 
                         let plural_name = pluralizer::pluralize(&name, 2, false);
 
@@ -619,5 +620,468 @@ mod tests {
             team_sizes.insert(0, 3);
             test_team_distribution(4 * i + 1, 4, team_sizes);
         }
+    }
+
+    #[test]
+    fn test_random_assignment() {
+        let manager = TeamManager::new(3, true, NameStyle::default());
+        assert!(manager.is_random_assignments());
+        assert!(manager.preferences.is_none());
+    }
+
+    #[test]
+    fn test_non_random_assignment() {
+        let manager = TeamManager::new(3, false, NameStyle::default());
+        assert!(!manager.is_random_assignments());
+        assert!(manager.preferences.is_some());
+    }
+
+    #[test]
+    fn test_set_preferences() {
+        let mut manager = TeamManager::new(3, false, NameStyle::default());
+        let player1 = Id::new();
+        let player2 = Id::new();
+        let preferences = vec![player2];
+
+        manager.set_preferences(player1, preferences.clone());
+        assert_eq!(manager.get_preferences(player1), Some(preferences));
+    }
+
+    #[test]
+    fn test_set_preferences_random_mode() {
+        let mut manager = TeamManager::new(3, true, NameStyle::default());
+        let player1 = Id::new();
+        let player2 = Id::new();
+        let preferences = vec![player2];
+
+        manager.set_preferences(player1, preferences);
+        assert_eq!(manager.get_preferences(player1), None);
+    }
+
+    #[test]
+    fn test_team_names() {
+        let mut manager = TeamManager::new(2, false, NameStyle::default());
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id);
+        let mut names = names::Names::default();
+        let tunnel = |_id| Some(MockTunnel {});
+
+        assert!(manager.team_names().is_none());
+
+        let player1 = Id::new();
+        let player2 = Id::new();
+
+        for player in [player1, player2] {
+            watchers
+                .add_watcher(
+                    player,
+                    watcher::Value::Player(watcher::PlayerValue::Individual {
+                        name: format!("Player {player}"),
+                    }),
+                )
+                .unwrap();
+        }
+
+        manager.finalize(&mut watchers, &mut names, tunnel);
+
+        let team_names = manager.team_names().unwrap();
+        assert_eq!(team_names.exact_count(), 1);
+        assert!(team_names.items().len() > 0);
+    }
+
+    #[test]
+    fn test_add_player_after_finalization() {
+        let mut manager = TeamManager::new(2, false, NameStyle::default());
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id);
+        let mut names = names::Names::default();
+        let tunnel = |_id| Some(MockTunnel {});
+
+        let player1 = Id::new();
+        let player2 = Id::new();
+        let player3 = Id::new();
+
+        for player in [player1, player2] {
+            watchers
+                .add_watcher(
+                    player,
+                    watcher::Value::Player(watcher::PlayerValue::Individual {
+                        name: format!("Player {player}"),
+                    }),
+                )
+                .unwrap();
+        }
+
+        manager.finalize(&mut watchers, &mut names, tunnel);
+
+        watchers
+            .add_watcher(
+                player3,
+                watcher::Value::Player(watcher::PlayerValue::Individual {
+                    name: format!("Player {player3}"),
+                }),
+            )
+            .unwrap();
+
+        let team_name = manager.add_player(player3, &mut watchers);
+        assert!(team_name.is_some());
+        assert!(manager.get_team(player3).is_some());
+    }
+
+    #[test]
+    fn test_add_player_already_assigned() {
+        let mut manager = TeamManager::new(2, false, NameStyle::default());
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id);
+        let mut names = names::Names::default();
+        let tunnel = |_id| Some(MockTunnel {});
+
+        let player1 = Id::new();
+
+        watchers
+            .add_watcher(
+                player1,
+                watcher::Value::Player(watcher::PlayerValue::Individual {
+                    name: format!("Player {player1}"),
+                }),
+            )
+            .unwrap();
+
+        manager.finalize(&mut watchers, &mut names, tunnel);
+
+        let first_assignment = manager.add_player(player1, &mut watchers);
+        let second_assignment = manager.add_player(player1, &mut watchers);
+
+        assert_eq!(first_assignment, second_assignment);
+    }
+
+    #[test]
+    fn test_team_size() {
+        let mut manager = TeamManager::new(2, false, NameStyle::default());
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id);
+        let mut names = names::Names::default();
+        let tunnel = |_id| Some(MockTunnel {});
+
+        let player1 = Id::new();
+        let player2 = Id::new();
+
+        for player in [player1, player2] {
+            watchers
+                .add_watcher(
+                    player,
+                    watcher::Value::Player(watcher::PlayerValue::Individual {
+                        name: format!("Player {player}"),
+                    }),
+                )
+                .unwrap();
+        }
+
+        manager.finalize(&mut watchers, &mut names, tunnel);
+
+        assert_eq!(manager._team_size(player1), Some(2));
+        assert_eq!(manager._team_size(player2), Some(2));
+
+        let unassigned_player = Id::new();
+        assert_eq!(manager._team_size(unassigned_player), None);
+    }
+
+    #[test]
+    fn test_team_index() {
+        let mut manager = TeamManager::new(3, false, NameStyle::default());
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id);
+        let mut names = names::Names::default();
+        let tunnel = |_id| Some(MockTunnel {});
+
+        let player1 = Id::new();
+        let player2 = Id::new();
+        let player3 = Id::new();
+
+        for player in [player1, player2, player3] {
+            watchers
+                .add_watcher(
+                    player,
+                    watcher::Value::Player(watcher::PlayerValue::Individual {
+                        name: format!("Player {player}"),
+                    }),
+                )
+                .unwrap();
+        }
+
+        manager.finalize(&mut watchers, &mut names, tunnel);
+
+        let index = manager.team_index(player1, |_| true);
+        assert!(index.is_some());
+        assert!(index.unwrap() < 3);
+
+        let no_match_index = manager.team_index(player1, |_| false);
+        assert_eq!(no_match_index, None);
+
+        let unassigned_player = Id::new();
+        assert_eq!(manager.team_index(unassigned_player, |_| true), None);
+    }
+
+    #[test]
+    fn test_all_ids() {
+        let mut manager = TeamManager::new(2, false, NameStyle::default());
+        assert_eq!(manager.all_ids(), Vec::<Id>::new());
+
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id);
+        let mut names = names::Names::default();
+        let tunnel = |_id| Some(MockTunnel {});
+
+        let player1 = Id::new();
+        let player2 = Id::new();
+
+        for player in [player1, player2] {
+            watchers
+                .add_watcher(
+                    player,
+                    watcher::Value::Player(watcher::PlayerValue::Individual {
+                        name: format!("Player {player}"),
+                    }),
+                )
+                .unwrap();
+        }
+
+        manager.finalize(&mut watchers, &mut names, tunnel);
+
+        let team_ids = manager.all_ids();
+        assert_eq!(team_ids.len(), 1);
+    }
+
+    #[test]
+    fn test_preferences_with_mutual_preferences() {
+        let mut manager = TeamManager::new(4, false, NameStyle::default());
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id);
+        let mut names = names::Names::default();
+        let tunnel = |_id| Some(MockTunnel {});
+
+        let player1 = Id::new();
+        let player2 = Id::new();
+        let player3 = Id::new();
+        let player4 = Id::new();
+
+        for player in [player1, player2, player3, player4] {
+            watchers
+                .add_watcher(
+                    player,
+                    watcher::Value::Player(watcher::PlayerValue::Individual {
+                        name: format!("Player {player}"),
+                    }),
+                )
+                .unwrap();
+        }
+
+        manager.set_preferences(player1, vec![player2]);
+        manager.set_preferences(player2, vec![player1]);
+
+        manager.finalize(&mut watchers, &mut names, tunnel);
+
+        let team1 = manager.get_team(player1);
+        let team2 = manager.get_team(player2);
+        assert_eq!(team1, team2);
+    }
+
+    #[test]
+    fn test_complex_team_formation_with_preferences() {
+        let mut manager = TeamManager::new(3, false, NameStyle::default());
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id);
+        let mut names = names::Names::default();
+        let tunnel = |_id| Some(MockTunnel {});
+
+        let player1 = Id::new();
+        let player2 = Id::new();
+        let player3 = Id::new();
+        let player4 = Id::new();
+        let player5 = Id::new();
+
+        for player in [player1, player2, player3, player4, player5] {
+            watchers
+                .add_watcher(
+                    player,
+                    watcher::Value::Player(watcher::PlayerValue::Individual {
+                        name: format!("Player {player}"),
+                    }),
+                )
+                .unwrap();
+        }
+
+        manager.set_preferences(player1, vec![player2]);
+        manager.set_preferences(player2, vec![player3]);
+        manager.set_preferences(player3, vec![player1]);
+        manager.set_preferences(player4, vec![player5]);
+
+        manager.finalize(&mut watchers, &mut names, tunnel);
+
+        assert!(manager.get_team(player1).is_some());
+        assert!(manager.get_team(player2).is_some());
+        assert!(manager.get_team(player3).is_some());
+        assert!(manager.get_team(player4).is_some());
+        assert!(manager.get_team(player5).is_some());
+    }
+
+    #[test]
+    fn test_single_player_teams_consolidation() {
+        let mut manager = TeamManager::new(2, false, NameStyle::default());
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id);
+        let mut names = names::Names::default();
+        let tunnel = |_id| Some(MockTunnel {});
+
+        let player1 = Id::new();
+        let player2 = Id::new();
+        let player3 = Id::new();
+
+        for player in [player1, player2, player3] {
+            watchers
+                .add_watcher(
+                    player,
+                    watcher::Value::Player(watcher::PlayerValue::Individual {
+                        name: format!("Player {player}"),
+                    }),
+                )
+                .unwrap();
+        }
+
+        manager.finalize(&mut watchers, &mut names, tunnel);
+
+        let team_ids = manager.all_ids();
+        assert!(team_ids.len() >= 1);
+
+        let team_sizes: Vec<usize> = team_ids
+            .iter()
+            .map(|&team_id| manager.team_to_players.get(&team_id).unwrap().len())
+            .collect();
+
+        assert!(team_sizes.iter().all(|&size| size >= 1));
+    }
+
+    #[test]
+    fn test_empty_teams_edge_case() {
+        let mut manager = TeamManager::new(2, false, NameStyle::default());
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id);
+        let mut names = names::Names::default();
+        let tunnel = |_id| Some(MockTunnel {});
+
+        manager.finalize(&mut watchers, &mut names, tunnel);
+
+        let team_ids = manager.all_ids();
+        assert_eq!(team_ids.len(), 1);
+    }
+
+    #[test]
+    fn test_add_player_before_finalization() {
+        let mut manager = TeamManager::new(2, false, NameStyle::default());
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id);
+        let player = Id::new();
+
+        watchers
+            .add_watcher(
+                player,
+                watcher::Value::Player(watcher::PlayerValue::Individual {
+                    name: format!("Player {player}"),
+                }),
+            )
+            .unwrap();
+
+        let result = manager.add_player(player, &mut watchers);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_single_team_consolidation() {
+        let mut manager = TeamManager::new(3, false, NameStyle::default());
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id);
+        let mut names = names::Names::default();
+        let tunnel = |_id| Some(MockTunnel {});
+
+        let player1 = Id::new();
+        let player2 = Id::new();
+        let player3 = Id::new();
+        let player4 = Id::new();
+
+        for player in [player1, player2, player3, player4] {
+            watchers
+                .add_watcher(
+                    player,
+                    watcher::Value::Player(watcher::PlayerValue::Individual {
+                        name: format!("Player {player}"),
+                    }),
+                )
+                .unwrap();
+        }
+
+        manager.set_preferences(player1, vec![player2]);
+        manager.set_preferences(player3, vec![player4]);
+        manager.set_preferences(player4, vec![player3]);
+
+        manager.finalize(&mut watchers, &mut names, tunnel);
+
+        let team_ids = manager.all_ids();
+        assert!(team_ids.len() >= 1);
+
+        let team_sizes: Vec<usize> = team_ids
+            .iter()
+            .map(|&team_id| manager.team_to_players.get(&team_id).unwrap().len())
+            .collect();
+
+        assert!(team_sizes.iter().all(|&size| size >= 1));
+    }
+
+    #[test]
+    fn test_single_member_team_consolidation() {
+        let mut manager = TeamManager::new(4, false, NameStyle::default());
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id);
+        let mut names = names::Names::default();
+        let tunnel = |_id| Some(MockTunnel {});
+
+        let player1 = Id::new();
+        let player2 = Id::new();
+        let player3 = Id::new();
+
+        for player in [player1, player2, player3] {
+            watchers
+                .add_watcher(
+                    player,
+                    watcher::Value::Player(watcher::PlayerValue::Individual {
+                        name: format!("Player {player}"),
+                    }),
+                )
+                .unwrap();
+        }
+
+        manager.set_preferences(player2, vec![player3]);
+        manager.set_preferences(player3, vec![player2]);
+
+        manager.finalize(&mut watchers, &mut names, tunnel);
+
+        let team_ids = manager.all_ids();
+        assert!(team_ids.len() >= 1);
+
+        let team1 = manager.get_team(player1);
+        let team2 = manager.get_team(player2);
+        let team3 = manager.get_team(player3);
+
+        assert!(team1.is_some());
+        assert!(team2.is_some());
+        assert!(team3.is_some());
+
+        assert_eq!(team2, team3);
+
+        let team_sizes: Vec<usize> = team_ids
+            .iter()
+            .map(|&team_id| manager.team_to_players.get(&team_id).unwrap().len())
+            .collect();
+
+        assert!(team_sizes.iter().all(|&size| size >= 1));
     }
 }
