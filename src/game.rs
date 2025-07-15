@@ -8,7 +8,6 @@
 use std::{collections::HashSet, fmt::Debug};
 
 use garde::Validate;
-use heck::ToTitleCase;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
@@ -59,46 +58,6 @@ pub struct TeamOptions {
     assign_random: bool,
 }
 
-/// Defines the style of automatically generated player names
-///
-/// When random names are enabled, this enum determines what type of
-/// names are generated for players who don't choose their own names.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, Validate)]
-pub enum NameStyle {
-    /// Roman-style names (praenomen + nomen, optionally + cognomen)
-    Roman(#[garde(range(min = 2, max = 3))] usize),
-    /// Pet-style names (adjective + animal combinations)
-    Petname(#[garde(range(min = 2, max = 3))] usize),
-}
-
-impl Default for NameStyle {
-    /// Default name style is Petname with 2 words
-    fn default() -> Self {
-        Self::Petname(2)
-    }
-}
-
-impl NameStyle {
-    /// Generates a random name according to this style
-    ///
-    /// # Returns
-    ///
-    /// A randomly generated name as a String.
-    pub fn get_name(&self) -> String {
-        match self {
-            Self::Roman(count) => romanname::romanname(romanname::NameConfig {
-                praenomen: *count > 2,
-            }),
-            Self::Petname(count) => loop {
-                if let Some(name) = petname::petname(*count as u8, " ") {
-                    return name;
-                }
-            },
-        }
-        .to_title_case()
-    }
-}
-
 /// Global configuration options for the game session
 ///
 /// These options affect the overall behavior of the game, including
@@ -107,7 +66,7 @@ impl NameStyle {
 pub struct Options {
     /// Style for automatically generated player names (None means players choose their own)
     #[garde(dive)]
-    random_names: Option<NameStyle>,
+    random_names: Option<names::NameStyle>,
     /// Whether to show correct answers on player devices after questions
     #[garde(skip)]
     show_answers: bool,
@@ -141,7 +100,7 @@ pub struct Game {
     /// Whether the game is locked to new participants
     locked: bool,
     /// Team formation and management (if teams are enabled)
-    team_manager: Option<TeamManager>,
+    team_manager: Option<TeamManager<names::NameStyle>>,
 }
 
 impl Debug for Game {
@@ -442,7 +401,7 @@ impl Game {
     fn choose_teammates_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &self,
         watcher: Id,
-        team_manager: &TeamManager,
+        team_manager: &TeamManager<names::NameStyle>,
         tunnel_finder: F,
     ) -> UpdateMessage {
         let pref: HashSet<_> = team_manager

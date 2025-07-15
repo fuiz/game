@@ -9,8 +9,6 @@ use std::collections::{BTreeSet, HashMap};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-use crate::game::NameStyle;
-
 use super::{
     TruncatedVec, names,
     session::Tunnel,
@@ -24,7 +22,7 @@ use super::{
 /// for teammates. It also manages team naming and maintains the mapping
 /// between players and their assigned teams.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct TeamManager {
+pub struct TeamManager<N: names::NamingScheme> {
     /// Mapping from player ID to their team ID
     player_to_team: HashMap<Id, Id>,
     /// Ideal size for each team
@@ -32,7 +30,7 @@ pub struct TeamManager {
     /// Whether to use random assignment or preference-based assignment
     assign_random: bool,
     /// Style for generating team names
-    name_style: NameStyle,
+    name_style: N,
 
     /// Player preferences for teammates (only used in non-random mode)
     preferences: Option<HashMap<Id, Vec<Id>>>,
@@ -55,7 +53,7 @@ impl From<Vec<Id>> for PreferenceGroup {
     }
 }
 
-impl TeamManager {
+impl<N: names::NamingScheme> TeamManager<N> {
     /// Creates a new team manager with the specified configuration
     ///
     /// # Arguments
@@ -67,7 +65,7 @@ impl TeamManager {
     /// # Returns
     ///
     /// A new TeamManager instance ready for team formation
-    pub fn new(optimal_size: usize, assign_random: bool, name_style: NameStyle) -> Self {
+    pub fn new(optimal_size: usize, assign_random: bool, name_style: N) -> Self {
         Self {
             player_to_team: HashMap::default(),
             team_to_players: HashMap::default(),
@@ -282,10 +280,9 @@ impl TeamManager {
 
     fn generate_unique_team_name(&self, team_id: Id, names: &mut names::Names) -> String {
         loop {
-            let name = self.name_style.get_name();
-            let plural_name = pluralizer::pluralize(&name, 2, false);
+            let name = self.name_style.get_plural_name();
 
-            if let Ok(unique_name) = names.set_name(team_id, &plural_name) {
+            if let Ok(unique_name) = names.set_name(team_id, &name) {
                 return unique_name;
             }
         }
@@ -533,6 +530,8 @@ impl TeamManager {
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
+    use crate::names::NameStyle;
+
     use super::*;
 
     struct MockTunnel {}

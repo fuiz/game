@@ -345,7 +345,7 @@ impl State {
         S: FnMut(crate::AlarmMessage, time::Duration),
     >(
         &mut self,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         schedule_message: S,
         tunnel_finder: F,
@@ -427,7 +427,7 @@ impl State {
         S: FnMut(crate::AlarmMessage, time::Duration),
     >(
         &mut self,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         mut schedule_message: S,
         tunnel_finder: F,
@@ -494,7 +494,7 @@ impl State {
         S: FnMut(crate::AlarmMessage, time::Duration),
     >(
         &mut self,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         mut schedule_message: S,
         tunnel_finder: F,
@@ -661,7 +661,7 @@ impl State {
         &self,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         tunnel_finder: F,
     ) {
         let starting_instant = self.timer();
@@ -805,7 +805,7 @@ impl State {
         &self,
         watcher_id: Id,
         watcher_kind: ValueKind,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         tunnel_finder: F,
         index: usize,
@@ -937,7 +937,7 @@ impl State {
         message: IncomingMessage,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: S,
         tunnel_finder: F,
         index: usize,
@@ -1031,7 +1031,7 @@ impl State {
         &mut self,
         _leaderboard: &mut Leaderboard,
         watchers: &Watchers,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: &mut S,
         tunnel_finder: F,
         message: crate::AlarmMessage,

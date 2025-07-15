@@ -6,11 +6,76 @@
 
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 
+use heck::ToTitleCase;
 use rustrict::CensorStr;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::watcher::Id;
+
+/// Defines the style of automatically generated player names
+///
+/// When random names are enabled, this enum determines what type of
+/// names are generated for players who don't choose their own names.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, garde::Validate)]
+pub enum NameStyle {
+    /// Roman-style names (praenomen + nomen, optionally + cognomen)
+    Roman(#[garde(range(min = 2, max = 3))] usize),
+    /// Pet-style names (adjective + animal combinations)
+    Petname(#[garde(range(min = 2, max = 3))] usize),
+}
+
+impl Default for NameStyle {
+    /// Default name style is Petname with 2 words
+    fn default() -> Self {
+        Self::Petname(2)
+    }
+}
+
+impl NameStyle {
+    /// Generates a random name according to this style
+    ///
+    /// # Returns
+    ///
+    /// A randomly generated name as a String.
+    pub fn get_name(&self) -> String {
+        match self {
+            Self::Roman(count) => romanname::romanname(romanname::NameConfig {
+                praenomen: *count > 2,
+            }),
+            Self::Petname(count) => loop {
+                if let Some(name) = petname::petname(*count as u8, " ") {
+                    return name;
+                }
+            },
+        }
+        .to_title_case()
+    }
+}
+
+/// Trait for generating names according to a specific naming scheme.
+///
+/// Implementors of this trait provide a method to generate and return a name
+/// based on their scheme.
+pub trait NamingScheme {
+    /// Generates and returns a name according to the naming scheme.
+    fn get_name(&self) -> String;
+
+    /// Generates and returns the plural form of a name according to the naming scheme.
+    ///
+    /// # Returns
+    ///
+    /// A pluralized version of the generated name as a String.
+    fn get_plural_name(&self) -> String {
+        pluralizer::pluralize(&self.get_name(), 3, false)
+    }
+}
+
+impl NamingScheme for NameStyle {
+    fn get_name(&self) -> String {
+        self.get_name()
+    }
+}
 
 /// Serialization helper for Names struct
 #[derive(Deserialize)]
