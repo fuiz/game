@@ -47,6 +47,15 @@ pub struct TeamManager {
     team_to_players: HashMap<Id, Vec<Id>>,
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct PreferenceGroup(usize, Vec<Id>);
+
+impl From<Vec<Id>> for PreferenceGroup {
+    fn from(players: Vec<Id>) -> Self {
+        Self(players.len(), players)
+    }
+}
+
 impl TeamManager {
     /// Creates a new team manager with the specified configuration
     ///
@@ -103,171 +112,206 @@ impl TeamManager {
         names: &mut names::Names,
         tunnel_finder: F,
     ) {
-        let optimal_size = self.optimal_size;
-        let preferences = &self.preferences;
-        let player_to_team = &mut self.player_to_team;
-        let team_to_players = &mut self.team_to_players;
+        if self.teams.get().is_none() {
+            let players = self.get_players(watchers, tunnel_finder);
+            let preference_groups = self.create_preference_groups(&players);
+            let balanced_teams = self.balance_teams(preference_groups, players.len());
+            let team_id_names = self.create_team_id_names(balanced_teams, names);
+            let result = self.assign_all_players_to_teams(&team_id_names, names, watchers);
+            let _ = self.teams.set(result);
+        }
+    }
 
-        let get_preferences = |player_id: Id| -> Option<Vec<Id>> {
-            preferences
-                .as_ref()
-                .and_then(|p| p.get(&player_id))
-                .map(|p| p.to_owned())
-        };
+    fn get_players<T: Tunnel, F: Fn(Id) -> Option<T>>(
+        &self,
+        watchers: &Watchers,
+        tunnel_finder: F,
+    ) -> Vec<Id> {
+        watchers
+            .specific_vec(watcher::ValueKind::Player, tunnel_finder)
+            .into_iter()
+            .map(|(id, _, _)| id)
+            .collect_vec()
+    }
 
-        self.teams.get_or_init(|| {
-            let players = watchers
-                .specific_vec(watcher::ValueKind::Player, tunnel_finder)
-                .into_iter()
-                .map(|(id, _, _)| id)
-                .collect_vec();
+    fn get_player_preferences(&self, player_id: Id) -> Option<Vec<Id>> {
+        self.preferences
+            .as_ref()
+            .and_then(|p| p.get(&player_id))
+            .map(|p| p.to_owned())
+    }
 
-            let players_count = players.len();
-
-            let mut existing_teams = players
-                .into_iter()
-                .map(|id| {
-                    (
-                        get_preferences(id)
-                            .unwrap_or_default()
-                            .into_iter()
-                            .filter(|pref| {
-                                get_preferences(*pref)
-                                    .unwrap_or_default()
-                                    .into_iter()
-                                    .any(|prefs_pref| prefs_pref == id)
-                            })
-                            .min()
-                            .unwrap_or(id)
-                            .min(id),
-                        id,
-                    )
-                })
-                .sorted()
-                .chunk_by(|(smallest_moot, _)| *smallest_moot)
-                .into_iter()
-                .map(|(_, g)| {
-                    // to guard against attacks
-                    let mut players = g.map(|(_, player_id)| player_id).collect_vec();
-                    fastrand::shuffle(&mut players);
-                    players
-                })
-                .sorted_by_key(std::vec::Vec::len)
-                .rev()
-                .collect_vec();
-
-            if existing_teams.is_empty() {
-                existing_teams.push(Vec::new());
-            }
-
-            if existing_teams.len() == players_count {
-                let total_teams = existing_teams.len().div_ceil(optimal_size);
-
-                let how_many_big_teams = existing_teams.len() % total_teams;
-                let how_many_small_teams = total_teams - how_many_big_teams;
-
-                let size_of_small_teams = existing_teams.len() / total_teams;
-                let size_of_big_teams = size_of_small_teams + 1;
-
-                let (small_teams, big_teams) =
-                    existing_teams.split_at(how_many_small_teams * size_of_small_teams);
-
-                existing_teams = small_teams
-                    .iter()
-                    .chunks(size_of_small_teams)
+    fn create_preference_groups(&self, players: &[Id]) -> Vec<Vec<Id>> {
+        let mut preference_groups = players
+            .iter()
+            .map(|&id| {
+                let mutual_preferences = self
+                    .get_player_preferences(id)
+                    .unwrap_or_default()
                     .into_iter()
-                    .map(|chunk| chunk.into_iter().flatten().copied().collect_vec())
-                    .chain(
-                        big_teams
-                            .iter()
-                            .chunks(size_of_big_teams)
-                            .into_iter()
-                            .map(|chunk| chunk.into_iter().flatten().copied().collect_vec()),
-                    )
-                    .collect_vec();
+                    .filter(|&pref| {
+                        self.get_player_preferences(pref)
+                            .unwrap_or_default()
+                            .contains(&id)
+                    })
+                    .min()
+                    .unwrap_or(id)
+                    .min(id);
+                (mutual_preferences, id)
+            })
+            .sorted()
+            .chunk_by(|(smallest_mutual, _)| *smallest_mutual)
+            .into_iter()
+            .map(|(_, group)| {
+                let mut players: Vec<Id> = group.map(|(_, player_id)| player_id).collect();
+                fastrand::shuffle(&mut players);
+                players
+            })
+            .sorted_by_key(|group| group.len())
+            .rev()
+            .collect_vec();
+
+        if preference_groups.is_empty() {
+            preference_groups.push(Vec::new());
+        }
+
+        preference_groups
+    }
+
+    fn balance_teams(&self, teams: Vec<Vec<Id>>, players_count: usize) -> Vec<Vec<Id>> {
+        if teams.len() == players_count {
+            self.redistribute_single_player_teams(teams)
+        } else {
+            self.merge_teams_optimally(teams)
+        }
+    }
+
+    fn redistribute_single_player_teams(&self, teams: Vec<Vec<Id>>) -> Vec<Vec<Id>> {
+        let total_teams = teams.len().div_ceil(self.optimal_size);
+        let remainder = teams.len() % total_teams;
+        let base_size = teams.len() / total_teams;
+
+        let small_team_count = total_teams - remainder;
+        let big_team_size = base_size + 1;
+
+        let split_point = small_team_count * base_size;
+        let (small_teams, big_teams) = teams.split_at(split_point);
+
+        small_teams
+            .chunks(base_size)
+            .map(|chunk| chunk.iter().flatten().copied().collect())
+            .chain(
+                big_teams
+                    .chunks(big_team_size)
+                    .map(|chunk| chunk.iter().flatten().copied().collect()),
+            )
+            .collect()
+    }
+
+    fn merge_teams_optimally(&self, teams: Vec<Vec<Id>>) -> Vec<Vec<Id>> {
+        let mut sorted_teams: BTreeSet<PreferenceGroup> = BTreeSet::new();
+
+        for team in teams {
+            let available_space = self.optimal_size.saturating_sub(team.len()) + 1;
+
+            if let Some(compatible_team) = sorted_teams
+                .range(..(PreferenceGroup(available_space, Vec::new())))
+                .next_back()
+                .map(|group| group.1.clone())
+            {
+                sorted_teams.remove(&compatible_team.clone().into());
+                let merged_team: Vec<Id> = team.into_iter().chain(compatible_team).collect();
+                sorted_teams.insert(merged_team.into());
             } else {
-                #[derive(PartialEq, Eq, PartialOrd, Ord)]
-                struct PreferenceGroup(usize, Vec<Id>);
-
-                impl From<Vec<Id>> for PreferenceGroup {
-                    fn from(value: Vec<Id>) -> Self {
-                        Self(value.len(), value)
-                    }
-                }
-
-                let mut tree: BTreeSet<PreferenceGroup> = BTreeSet::new();
-
-                for prefs in existing_teams {
-                    if let Some(bucket) = tree
-                        .range(..(PreferenceGroup(optimal_size - prefs.len() + 1, Vec::new())))
-                        .next_back()
-                        .map(|b| b.1.clone())
-                    {
-                        tree.remove(&bucket.clone().into());
-                        tree.insert(prefs.into_iter().chain(bucket).collect_vec().into());
-                    } else {
-                        tree.insert(prefs.into());
-                    }
-                }
-
-                let smallest = tree
-                    .pop_first()
-                    .expect("there should always be at least one team");
-
-                if smallest.0 == 1 {
-                    if let Some(second_smallest) = tree.pop_first() {
-                        tree.insert(
-                            smallest
-                                .1
-                                .into_iter()
-                                .chain(second_smallest.1)
-                                .collect_vec()
-                                .into(),
-                        );
-                    } else {
-                        // should be unreachable, but just in case
-                        tree.insert(smallest);
-                    }
-                } else {
-                    tree.insert(smallest);
-                }
-
-                existing_teams = tree.into_iter().map(|p| p.1).collect_vec();
+                sorted_teams.insert(team.into());
             }
+        }
 
-            existing_teams
-                .into_iter()
-                .map(|players| {
-                    let team_id = Id::new();
+        self.consolidate_single_member_teams(sorted_teams)
+    }
 
-                    let team_name = loop {
-                        let name = self.name_style.get_name();
+    fn consolidate_single_member_teams(
+        &self,
+        mut teams: BTreeSet<PreferenceGroup>,
+    ) -> Vec<Vec<Id>> {
+        if let Some(smallest) = teams.pop_first() {
+            if smallest.0 == 1 {
+                if let Some(second_smallest) = teams.pop_first() {
+                    let consolidated: Vec<Id> =
+                        smallest.1.into_iter().chain(second_smallest.1).collect();
+                    teams.insert(consolidated.into());
+                } else {
+                    teams.insert(smallest);
+                }
+            } else {
+                teams.insert(smallest);
+            }
+        }
 
-                        let plural_name = pluralizer::pluralize(&name, 2, false);
+        teams.into_iter().map(|group| group.1).collect()
+    }
 
-                        if let Ok(unique_name) = names.set_name(team_id, &plural_name) {
-                            break unique_name;
-                        }
-                    };
+    fn create_team_id_names(
+        &self,
+        teams: Vec<Vec<Id>>,
+        names: &mut names::Names,
+    ) -> Vec<(Id, String, Vec<Id>)> {
+        teams
+            .into_iter()
+            .map(|players| {
+                let team_id = Id::new();
+                let team_name = self.generate_unique_team_name(team_id, names);
+                (team_id, team_name, players)
+            })
+            .collect()
+    }
 
-                    players.iter().copied().for_each(|player_id| {
-                        player_to_team.insert(player_id, team_id);
-                        watchers.update_watcher_value(
-                            player_id,
-                            watcher::Value::Player(watcher::PlayerValue::Team {
-                                team_name: team_name.clone(),
-                                individual_name: names.get_name(&player_id).unwrap_or_default(),
-                                team_id,
-                            }),
-                        );
-                    });
+    fn assign_all_players_to_teams(
+        &mut self,
+        teams: &[(Id, String, Vec<Id>)],
+        names: &names::Names,
+        watchers: &mut Watchers,
+    ) -> Vec<(Id, String)> {
+        teams
+            .iter()
+            .map(|(team_id, team_name, players)| {
+                self.assign_players_to_team(players, *team_id, team_name, names, watchers);
+                (*team_id, team_name.clone())
+            })
+            .collect()
+    }
 
-                    team_to_players.insert(team_id, players.to_vec());
+    fn generate_unique_team_name(&self, team_id: Id, names: &mut names::Names) -> String {
+        loop {
+            let name = self.name_style.get_name();
+            let plural_name = pluralizer::pluralize(&name, 2, false);
 
-                    (team_id, team_name)
-                })
-                .collect_vec()
-        });
+            if let Ok(unique_name) = names.set_name(team_id, &plural_name) {
+                return unique_name;
+            }
+        }
+    }
+
+    fn assign_players_to_team(
+        &mut self,
+        players: &[Id],
+        team_id: Id,
+        team_name: &str,
+        names: &names::Names,
+        watchers: &mut Watchers,
+    ) {
+        for &player_id in players {
+            self.player_to_team.insert(player_id, team_id);
+            watchers.update_watcher_value(
+                player_id,
+                watcher::Value::Player(watcher::PlayerValue::Team {
+                    team_name: team_name.to_owned(),
+                    individual_name: names.get_name(&player_id).unwrap_or_default(),
+                    team_id,
+                }),
+            );
+        }
+        self.team_to_players.insert(team_id, players.to_vec());
     }
 
     /// Gets the names of all formed teams
