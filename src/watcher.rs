@@ -14,7 +14,6 @@ use std::{
 use enum_map::{Enum, EnumMap};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use serde_with::{DeserializeFromStr, SerializeDisplay};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -24,9 +23,7 @@ use super::{SyncMessage, UpdateMessage, session::Tunnel};
 ///
 /// Each participant (host, player, or unassigned connection) gets a unique ID
 /// that persists throughout their participation in the game session.
-#[derive(
-    Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, DeserializeFromStr, SerializeDisplay,
-)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Id(Uuid);
 
 impl Id {
@@ -855,6 +852,57 @@ mod tests {
     }
 
     #[test]
+    fn test_specific_vec_with_missing_tunnels() {
+        let mut watchers = Watchers::default();
+        let mut tunnels = HashMap::new();
+
+        let player1_id = Id::new();
+        let player2_id = Id::new();
+        let player3_id = Id::new();
+
+        // Add three players
+        watchers
+            .add_watcher(
+                player1_id,
+                Value::Player(PlayerValue::Individual {
+                    name: "Alice".to_string(),
+                }),
+            )
+            .unwrap();
+        watchers
+            .add_watcher(
+                player2_id,
+                Value::Player(PlayerValue::Individual {
+                    name: "Bob".to_string(),
+                }),
+            )
+            .unwrap();
+        watchers
+            .add_watcher(
+                player3_id,
+                Value::Player(PlayerValue::Individual {
+                    name: "Charlie".to_string(),
+                }),
+            )
+            .unwrap();
+
+        // Only add tunnels for player1 and player3 (player2 has no tunnel)
+        tunnels.insert(player1_id, MockTunnel::new());
+        tunnels.insert(player3_id, MockTunnel::new());
+
+        let tunnel_finder = |id: Id| tunnels.get(&id).cloned();
+
+        // Test specific_vec - should only include players with tunnels
+        let players_vec = watchers.specific_vec(ValueKind::Player, tunnel_finder);
+        assert_eq!(players_vec.len(), 2);
+
+        let returned_ids: HashSet<Id> = players_vec.iter().map(|(id, _, _)| *id).collect();
+        assert!(returned_ids.contains(&player1_id));
+        assert!(!returned_ids.contains(&player2_id)); // No tunnel
+        assert!(returned_ids.contains(&player3_id));
+    }
+
+    #[test]
     fn test_is_alive() {
         let mut watchers = Watchers::default();
         let mut tunnels = HashMap::new();
@@ -913,6 +961,23 @@ mod tests {
     }
 
     #[test]
+    fn test_send_message_no_tunnel() {
+        let mut watchers = Watchers::default();
+        let watcher_id = Id::new();
+
+        watchers.add_watcher(watcher_id, Value::Host).unwrap();
+
+        // Tunnel finder that returns None (no tunnel available)
+        let tunnel_finder = |_id: Id| -> Option<MockTunnel> { None };
+        let message = mock_update_message();
+
+        // This should not panic and should be a no-op
+        watchers.send_message(&message, watcher_id, tunnel_finder);
+
+        // Test passes if no panic occurs
+    }
+
+    #[test]
     fn test_send_state() {
         let mut watchers = Watchers::default();
         let mut tunnels = HashMap::new();
@@ -930,6 +995,23 @@ mod tests {
 
         let received = tunnel.received_states();
         assert_eq!(received.len(), 1);
+    }
+
+    #[test]
+    fn test_send_state_no_tunnel() {
+        let mut watchers = Watchers::default();
+        let watcher_id = Id::new();
+
+        watchers.add_watcher(watcher_id, Value::Host).unwrap();
+
+        // Tunnel finder that returns None (no tunnel available)
+        let tunnel_finder = |_id: Id| -> Option<MockTunnel> { None };
+        let message = mock_sync_message();
+
+        // This should not panic and should be a no-op
+        watchers.send_state(&message, watcher_id, tunnel_finder);
+
+        // Test passes if no panic occurs
     }
 
     #[test]
@@ -1121,5 +1203,26 @@ mod tests {
     fn test_error_display() {
         let error = Error::MaximumPlayers;
         assert_eq!(error.to_string(), "maximum number of players reached");
+    }
+
+    #[test]
+    fn test_id_serialize_deserialize() {
+        let id = Id::new();
+
+        // Test serialization to JSON (using SerializeDisplay)
+        let serialized = serde_json::to_string(&id).unwrap();
+        // Should be a quoted UUID string
+        assert!(serialized.starts_with('"'));
+        assert!(serialized.ends_with('"'));
+        assert_eq!(serialized.len(), 38); // 36 chars + 2 quotes
+
+        // Test deserialization from JSON
+        let deserialized: Id = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(id, deserialized);
+
+        // Test round-trip consistency
+        let id_string = id.to_string();
+        let parsed_id: Id = serde_json::from_str(&format!("\"{}\"", id_string)).unwrap();
+        assert_eq!(id, parsed_id);
     }
 }
