@@ -382,12 +382,10 @@ impl Watchers {
     /// * `watcher_id` - The ID of the watcher whose session should be removed
     /// * `tunnel_finder` - Function to retrieve the tunnel for the watcher
     pub fn remove_watcher_session<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        watcher_id: &Id,
+        watcher_id: Id,
         tunnel_finder: F,
     ) {
-        if let Some(session) = tunnel_finder(*watcher_id) {
-            session.close();
-        }
+        Watchers::apply_to_session(watcher_id, tunnel_finder, Tunnel::close);
     }
 
     /// Sends an update message to a specific watcher
@@ -402,8 +400,19 @@ impl Watchers {
         watcher_id: Id,
         tunnel_finder: F,
     ) {
-        if let Some(session) = tunnel_finder(watcher_id) {
+        Watchers::apply_to_session(watcher_id, tunnel_finder, |session| {
             session.send_message(message);
+        });
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn apply_to_session<T: Tunnel, F: Fn(Id) -> Option<T>, A: FnOnce(T)>(
+        watcher_id: Id,
+        tunnel_finder: F,
+        action: A,
+    ) {
+        if let Some(session) = tunnel_finder(watcher_id) {
+            action(session);
         }
     }
 
@@ -419,9 +428,9 @@ impl Watchers {
         watcher_id: Id,
         tunnel_finder: F,
     ) {
-        if let Some(session) = tunnel_finder(watcher_id) {
+        Watchers::apply_to_session(watcher_id, tunnel_finder, |session| {
             session.send_state(message);
-        }
+        });
     }
 
     /// Gets the display name of a watcher
@@ -924,7 +933,7 @@ mod tests {
         let tunnel_finder = |id: Id| tunnels.get(&id).cloned();
 
         assert!(!tunnel.is_closed());
-        Watchers::remove_watcher_session(&id, tunnel_finder);
+        Watchers::remove_watcher_session(id, tunnel_finder);
         assert!(tunnel.is_closed());
     }
 
@@ -936,7 +945,7 @@ mod tests {
         let tunnel_finder = |_id: Id| -> Option<MockTunnel> { None };
 
         // Should not panic or error when tunnel_finder returns None
-        Watchers::remove_watcher_session(&id, tunnel_finder);
+        Watchers::remove_watcher_session(id, tunnel_finder);
     }
 
     #[test]

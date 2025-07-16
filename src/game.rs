@@ -761,7 +761,7 @@ impl Game {
             .collect_vec();
 
         for watcher in watchers {
-            Watchers::remove_watcher_session(&watcher, &tunnel_finder);
+            Watchers::remove_watcher_session(watcher, &tunnel_finder);
         }
     }
 
