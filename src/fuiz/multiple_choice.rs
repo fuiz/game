@@ -1068,3 +1068,253 @@ impl State {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fuiz::config::{Fuiz, TextOrMedia};
+    use std::time::Duration;
+    use garde::Validate;
+
+    fn create_test_slide_config() -> SlideConfig {
+        SlideConfig {
+            title: "Test Question".to_string(),
+            media: None,
+            introduce_question: Duration::from_secs(5),
+            time_limit: Duration::from_secs(30),
+            points_awarded: 1000,
+            answers: vec![
+                AnswerChoice {
+                    correct: true,
+                    content: TextOrMedia::Text("Correct Answer".to_string()),
+                },
+                AnswerChoice {
+                    correct: false,
+                    content: TextOrMedia::Text("Wrong Answer 1".to_string()),
+                },
+                AnswerChoice {
+                    correct: false,
+                    content: TextOrMedia::Text("Wrong Answer 2".to_string()),
+                },
+            ],
+        }
+    }
+
+    fn create_test_fuiz() -> Fuiz {
+        Fuiz {
+            title: "Test Quiz".to_string(),
+            slides: vec![
+                crate::fuiz::config::SlideConfig::MultipleChoice(create_test_slide_config()),
+            ],
+        }
+    }
+
+    #[test]
+    fn test_slide_config_validation() {
+        let config = create_test_slide_config();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_slide_config_title_too_short() {
+        let mut config = create_test_slide_config();
+        // MIN_TITLE_LENGTH is 0, so empty string is actually valid
+        config.title = "".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_slide_config_title_too_long() {
+        let mut config = create_test_slide_config();
+        config.title = "a".repeat(crate::constants::multiple_choice::MAX_TITLE_LENGTH + 1);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_introduce_question_too_short() {
+        let mut config = create_test_slide_config();
+        // MIN_INTRODUCE_QUESTION is 0, so we can't test too short. Test at minimum boundary.
+        config.introduce_question = Duration::from_secs(0);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_slide_config_introduce_question_too_long() {
+        let mut config = create_test_slide_config();
+        config.introduce_question = Duration::from_secs(crate::constants::multiple_choice::MAX_INTRODUCE_QUESTION + 1);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_time_limit_too_short() {
+        let mut config = create_test_slide_config();
+        config.time_limit = Duration::from_secs(crate::constants::multiple_choice::MIN_TIME_LIMIT - 1);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_time_limit_too_long() {
+        let mut config = create_test_slide_config();
+        config.time_limit = Duration::from_secs(crate::constants::multiple_choice::MAX_TIME_LIMIT + 1);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_too_many_answers() {
+        let mut config = create_test_slide_config();
+        config.answers = vec![
+            AnswerChoice {
+                correct: false,
+                content: TextOrMedia::Text("Answer".to_string()),
+            };
+            crate::constants::multiple_choice::MAX_ANSWER_COUNT + 1
+        ];
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_to_state() {
+        let config = create_test_slide_config();
+        let state = config.to_state();
+        
+        assert_eq!(state.state, SlideState::Unstarted);
+        assert!(state.user_answers.is_empty());
+        assert!(state.answer_start.is_none());
+        assert_eq!(state.config.title, config.title);
+    }
+
+    #[test]
+    fn test_fuiz_config_validation() {
+        let fuiz = create_test_fuiz();
+        assert!(fuiz.validate().is_ok());
+    }
+
+    #[test]
+    fn test_fuiz_len_and_empty() {
+        let fuiz = create_test_fuiz();
+        assert_eq!(fuiz.len(), 1);
+        assert!(!fuiz.is_empty());
+
+        let empty_fuiz = Fuiz {
+            title: "Empty".to_string(),
+            slides: vec![],
+        };
+        assert_eq!(empty_fuiz.len(), 0);
+        assert!(empty_fuiz.is_empty());
+    }
+
+    #[test]
+    fn test_fuiz_title_too_long() {
+        let mut fuiz = create_test_fuiz();
+        fuiz.title = "a".repeat(crate::constants::fuiz::MAX_TITLE_LENGTH + 1);
+        assert!(fuiz.validate().is_err());
+    }
+
+    #[test]
+    fn test_fuiz_too_many_slides() {
+        let mut fuiz = create_test_fuiz();
+        fuiz.slides = vec![
+            crate::fuiz::config::SlideConfig::MultipleChoice(create_test_slide_config());
+            crate::constants::fuiz::MAX_SLIDES_COUNT + 1
+        ];
+        assert!(fuiz.validate().is_err());
+    }
+
+    #[test]
+    fn test_state_change() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        
+        // Test successful state change
+        assert!(state.change_state(SlideState::Unstarted, SlideState::Question));
+        assert_eq!(state.state(), SlideState::Question);
+        
+        // Test failed state change (wrong current state)
+        assert!(!state.change_state(SlideState::Unstarted, SlideState::Answers));
+        assert_eq!(state.state(), SlideState::Question);
+    }
+
+    #[test]
+    fn test_calculate_score() {
+        let full_duration = Duration::from_secs(30);
+        let full_points = 1000;
+        
+        // Immediate answer should get full points
+        let immediate_score = State::calculate_score(full_duration, Duration::from_secs(0), full_points);
+        assert_eq!(immediate_score, full_points);
+        
+        // Answer at the end should get half points
+        let late_score = State::calculate_score(full_duration, full_duration, full_points);
+        assert_eq!(late_score, 500);
+        
+        // Answer in the middle should get 3/4 points
+        let mid_score = State::calculate_score(full_duration, Duration::from_secs(15), full_points);
+        assert_eq!(mid_score, 750);
+    }
+
+    #[test]
+    fn test_text_or_media_validation() {
+        // Valid text
+        let valid_text = TextOrMedia::Text("Valid answer".to_string());
+        assert!(valid_text.validate().is_ok());
+        
+        // Text too long
+        let long_text = TextOrMedia::Text("a".repeat(crate::constants::answer_text::MAX_LENGTH + 1));
+        assert!(long_text.validate().is_err());
+        
+        // Media should validate without errors (garde skip)
+        let media = TextOrMedia::Media(crate::fuiz::media::Media::Image(crate::fuiz::media::Image::Corkboard {
+            id: "a".repeat(crate::constants::corkboard::ID_LENGTH),
+            alt: "Test image".to_string(),
+        }));
+        assert!(media.validate().is_ok());
+    }
+
+    #[test]
+    fn test_slide_state_default() {
+        let state: SlideState = Default::default();
+        assert_eq!(state, SlideState::Unstarted);
+    }
+
+    #[test]
+    fn test_possibly_hidden_serialization() {
+        let visible = PossiblyHidden::Visible("test".to_string());
+        let hidden: PossiblyHidden<String> = PossiblyHidden::Hidden;
+        
+        // These should serialize without errors
+        let _visible_json = serde_json::to_string(&visible).unwrap();
+        let _hidden_json = serde_json::to_string(&hidden).unwrap();
+    }
+
+    #[test]
+    fn test_validate_duration_functions() {
+        // Test introduce_question validation
+        let valid_introduce = Duration::from_secs(crate::constants::multiple_choice::MIN_INTRODUCE_QUESTION);
+        assert!(validate_introduce_question(&valid_introduce).is_ok());
+        
+        // MIN_INTRODUCE_QUESTION is 0, so we can't test too short. Test at minimum boundary.
+        let invalid_introduce = Duration::from_secs(0);
+        assert!(validate_introduce_question(&invalid_introduce).is_ok());
+        
+        // Test time_limit validation
+        let valid_time_limit = Duration::from_secs(crate::constants::multiple_choice::MIN_TIME_LIMIT);
+        assert!(validate_time_limit(&valid_time_limit).is_ok());
+        
+        let invalid_time_limit = Duration::from_secs(crate::constants::multiple_choice::MIN_TIME_LIMIT - 1);
+        assert!(validate_time_limit(&invalid_time_limit).is_err());
+    }
+
+    #[test]
+    fn test_answer_choice_creation() {
+        let answer = AnswerChoice {
+            correct: true,
+            content: TextOrMedia::Text("Test answer".to_string()),
+        };
+        
+        assert!(answer.correct);
+        match answer.content {
+            TextOrMedia::Text(text) => assert_eq!(text, "Test answer"),
+            _ => panic!("Expected text content"),
+        }
+    }
+}

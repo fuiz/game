@@ -881,3 +881,299 @@ impl State {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fuiz::config::{Fuiz, SlideConfig as ConfigSlideConfig};
+    use std::time::Duration;
+    use garde::Validate;
+
+    fn create_test_slide_config() -> SlideConfig {
+        SlideConfig {
+            title: "Order these items".to_string(),
+            media: None,
+            introduce_question: Duration::from_secs(3),
+            time_limit: Duration::from_secs(45),
+            points_awarded: 1000,
+            answers: vec![
+                "First".to_string(),
+                "Second".to_string(),
+                "Third".to_string(),
+                "Fourth".to_string(),
+            ],
+            axis_labels: AxisLabels {
+                from: Some("Start".to_string()),
+                to: Some("End".to_string()),
+            },
+        }
+    }
+
+    fn create_test_fuiz() -> Fuiz {
+        Fuiz {
+            title: "Test Order Quiz".to_string(),
+            slides: vec![
+                ConfigSlideConfig::Order(create_test_slide_config()),
+            ],
+        }
+    }
+
+    #[test]
+    fn test_slide_config_validation() {
+        let config = create_test_slide_config();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_slide_config_title_too_short() {
+        let mut config = create_test_slide_config();
+        // MIN_TITLE_LENGTH is 0, so we can't test too short. Test at minimum boundary.
+        config.title = "".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_slide_config_title_too_long() {
+        let mut config = create_test_slide_config();
+        config.title = "a".repeat(crate::constants::order::MAX_TITLE_LENGTH + 1);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_introduce_question_too_short() {
+        let mut config = create_test_slide_config();
+        // MIN_INTRODUCE_QUESTION is 0, so we can't test too short. Test at minimum boundary.
+        config.introduce_question = Duration::from_secs(0);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_slide_config_introduce_question_too_long() {
+        let mut config = create_test_slide_config();
+        config.introduce_question = Duration::from_secs(crate::constants::order::MAX_INTRODUCE_QUESTION + 1);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_time_limit_too_short() {
+        let mut config = create_test_slide_config();
+        config.time_limit = Duration::from_secs(crate::constants::order::MIN_TIME_LIMIT - 1);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_time_limit_too_long() {
+        let mut config = create_test_slide_config();
+        config.time_limit = Duration::from_secs(crate::constants::order::MAX_TIME_LIMIT + 1);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_too_many_answers() {
+        let mut config = create_test_slide_config();
+        config.answers = vec!["Answer".to_string(); crate::constants::order::MAX_ANSWER_COUNT + 1];
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_answer_too_long() {
+        let mut config = create_test_slide_config();
+        config.answers = vec!["a".repeat(crate::constants::answer_text::MAX_LENGTH + 1)];
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_axis_labels_validation() {
+        let mut labels = AxisLabels {
+            from: Some("a".repeat(crate::constants::order::MAX_LABEL_LENGTH + 1)),
+            to: Some("Valid".to_string()),
+        };
+        assert!(labels.validate().is_err());
+
+        labels.from = Some("Valid".to_string());
+        labels.to = Some("a".repeat(crate::constants::order::MAX_LABEL_LENGTH + 1));
+        assert!(labels.validate().is_err());
+
+        labels.to = Some("Valid".to_string());
+        assert!(labels.validate().is_ok());
+    }
+
+    #[test]
+    fn test_axis_labels_default() {
+        let labels: AxisLabels = Default::default();
+        assert!(labels.from.is_none());
+        assert!(labels.to.is_none());
+    }
+
+    #[test]
+    fn test_slide_config_to_state() {
+        let config = create_test_slide_config();
+        let state = config.to_state();
+        
+        assert_eq!(state.state, SlideState::Unstarted);
+        assert!(state.user_answers.is_empty());
+        assert!(state.answer_start.is_none());
+        assert!(state.shuffled_answers.is_empty());
+        assert_eq!(state.config.title, config.title);
+    }
+
+    #[test]
+    fn test_fuiz_config_validation() {
+        let fuiz = create_test_fuiz();
+        assert!(fuiz.validate().is_ok());
+    }
+
+    #[test]
+    fn test_fuiz_len_and_empty() {
+        let fuiz = create_test_fuiz();
+        assert_eq!(fuiz.len(), 1);
+        assert!(!fuiz.is_empty());
+
+        let empty_fuiz = Fuiz {
+            title: "Empty".to_string(),
+            slides: vec![],
+        };
+        assert_eq!(empty_fuiz.len(), 0);
+        assert!(empty_fuiz.is_empty());
+    }
+
+    #[test]
+    fn test_fuiz_title_too_long() {
+        let mut fuiz = create_test_fuiz();
+        fuiz.title = "a".repeat(crate::constants::fuiz::MAX_TITLE_LENGTH + 1);
+        assert!(fuiz.validate().is_err());
+    }
+
+    #[test]
+    fn test_fuiz_too_many_slides() {
+        let mut fuiz = create_test_fuiz();
+        fuiz.slides = vec![
+            ConfigSlideConfig::Order(create_test_slide_config());
+            crate::constants::fuiz::MAX_SLIDES_COUNT + 1
+        ];
+        assert!(fuiz.validate().is_err());
+    }
+
+    #[test]
+    fn test_state_change() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        
+        // Test successful state change
+        assert!(state.change_state(SlideState::Unstarted, SlideState::Question));
+        assert_eq!(state.state(), SlideState::Question);
+        
+        // Test failed state change (wrong current state)
+        assert!(!state.change_state(SlideState::Unstarted, SlideState::Answers));
+        assert_eq!(state.state(), SlideState::Question);
+    }
+
+    #[test]
+    fn test_calculate_score() {
+        let full_duration = Duration::from_secs(45);
+        let full_points = 1000;
+        
+        // Immediate answer should get full points
+        let immediate_score = State::calculate_score(full_duration, Duration::from_secs(0), full_points);
+        assert_eq!(immediate_score, full_points);
+        
+        // Answer at the end should get half points
+        let late_score = State::calculate_score(full_duration, full_duration, full_points);
+        assert_eq!(late_score, 500);
+        
+        // Answer in the middle should get 3/4 points
+        let mid_score = State::calculate_score(full_duration, Duration::from_secs(22), full_points);
+        assert!(mid_score > 700 && mid_score < 800); // Approximate due to rounding
+    }
+
+    #[test]
+    fn test_slide_state_default() {
+        let state: SlideState = Default::default();
+        assert_eq!(state, SlideState::Unstarted);
+    }
+
+    #[test]
+    fn test_validate_duration_functions() {
+        // Test introduce_question validation
+        let valid_introduce = Duration::from_secs(crate::constants::order::MIN_INTRODUCE_QUESTION);
+        assert!(validate_introduce_question(&valid_introduce).is_ok());
+        
+        // MIN_INTRODUCE_QUESTION is 0, so we can't test too short. Test at minimum boundary.
+        let invalid_introduce = Duration::from_secs(0);
+        assert!(validate_introduce_question(&invalid_introduce).is_ok());
+        
+        // Test time_limit validation
+        let valid_time_limit = Duration::from_secs(crate::constants::order::MIN_TIME_LIMIT);
+        assert!(validate_time_limit(&valid_time_limit).is_ok());
+        
+        let invalid_time_limit = Duration::from_secs(crate::constants::order::MIN_TIME_LIMIT - 1);
+        assert!(validate_time_limit(&invalid_time_limit).is_err());
+    }
+
+    #[test]
+    fn test_answer_ordering_and_comparison() {
+        let config = create_test_slide_config();
+        let state = config.to_state();
+        
+        // Test correct order
+        let correct_order = vec!["First".to_string(), "Second".to_string(), "Third".to_string(), "Fourth".to_string()];
+        assert_eq!(correct_order, state.config.answers);
+        
+        // Test wrong order
+        let wrong_order = vec!["Fourth".to_string(), "Third".to_string(), "Second".to_string(), "First".to_string()];
+        assert_ne!(wrong_order, state.config.answers);
+    }
+
+    #[test]
+    fn test_config_to_state_conversion() {
+        let config = create_test_slide_config();
+        let state = config.to_state();
+        
+        // Verify the state is properly initialized from config
+        assert_eq!(state.config.title, config.title);
+        assert_eq!(state.config.answers, config.answers);
+        assert_eq!(state.config.time_limit, config.time_limit);
+        assert_eq!(state.config.points_awarded, config.points_awarded);
+        assert_eq!(state.config.axis_labels.from, config.axis_labels.from);
+        assert_eq!(state.config.axis_labels.to, config.axis_labels.to);
+    }
+
+    #[test]
+    fn test_slide_config_serialization() {
+        let config = create_test_slide_config();
+        
+        // Test that the config can be serialized and deserialized
+        let serialized = serde_json::to_string(&config).unwrap();
+        let deserialized: SlideConfig = serde_json::from_str(&serialized).unwrap();
+        
+        assert_eq!(config.title, deserialized.title);
+        assert_eq!(config.answers, deserialized.answers);
+    }
+
+    #[test]
+    fn test_message_serialization() {
+        let update_msg = UpdateMessage::QuestionAnnouncement {
+            index: 0,
+            count: 5,
+            question: "Test question".to_string(),
+            media: None,
+            duration: Duration::from_secs(10),
+        };
+        
+        // Should serialize without errors
+        let _serialized = serde_json::to_string(&update_msg).unwrap();
+        
+        let sync_msg = SyncMessage::AnswersResults {
+            index: 0,
+            count: 5,
+            question: "Test question".to_string(),
+            axis_labels: AxisLabels::default(),
+            media: None,
+            answers: vec!["A".to_string(), "B".to_string()],
+            results: (5, 3),
+        };
+        
+        // Should serialize without errors
+        let _serialized = serde_json::to_string(&sync_msg).unwrap();
+    }
+}

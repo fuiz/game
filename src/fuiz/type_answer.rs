@@ -786,3 +786,341 @@ impl State {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fuiz::config::{Fuiz, SlideConfig as ConfigSlideConfig};
+    use std::time::Duration;
+    use garde::Validate;
+
+    fn create_test_slide_config() -> SlideConfig {
+        SlideConfig {
+            title: "What is the capital of France?".to_string(),
+            media: None,
+            introduce_question: Duration::from_secs(2),
+            time_limit: Duration::from_secs(30),
+            points_awarded: 1000,
+            answers: vec![
+                "Paris".to_string(),
+                "paris".to_string(),
+                "PARIS".to_string(),
+            ],
+            case_sensitive: false,
+        }
+    }
+
+    fn create_test_slide_config_case_sensitive() -> SlideConfig {
+        SlideConfig {
+            title: "Type the exact word: Hello".to_string(),
+            media: None,
+            introduce_question: Duration::from_secs(0),
+            time_limit: Duration::from_secs(20),
+            points_awarded: 500,
+            answers: vec!["Hello".to_string()],
+            case_sensitive: true,
+        }
+    }
+
+    fn create_test_fuiz() -> Fuiz {
+        Fuiz {
+            title: "Test Type Answer Quiz".to_string(),
+            slides: vec![
+                ConfigSlideConfig::TypeAnswer(create_test_slide_config()),
+            ],
+        }
+    }
+
+    #[test]
+    fn test_slide_config_validation() {
+        let config = create_test_slide_config();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_slide_config_title_too_short() {
+        let mut config = create_test_slide_config();
+        // MIN_TITLE_LENGTH is 0, so we can't test too short. Test at minimum boundary.
+        config.title = "".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_slide_config_title_too_long() {
+        let mut config = create_test_slide_config();
+        config.title = "a".repeat(crate::constants::type_answer::MAX_TITLE_LENGTH + 1);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_introduce_question_too_short() {
+        let mut config = create_test_slide_config();
+        // MIN_INTRODUCE_QUESTION is 0, so we can't test too short. Test at minimum boundary.
+        config.introduce_question = Duration::from_secs(0);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_slide_config_introduce_question_too_long() {
+        let mut config = create_test_slide_config();
+        config.introduce_question = Duration::from_secs(crate::constants::type_answer::MAX_INTRODUCE_QUESTION + 1);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_time_limit_too_short() {
+        let mut config = create_test_slide_config();
+        config.time_limit = Duration::from_secs(crate::constants::type_answer::MIN_TIME_LIMIT - 1);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_time_limit_too_long() {
+        let mut config = create_test_slide_config();
+        config.time_limit = Duration::from_secs(crate::constants::type_answer::MAX_TIME_LIMIT + 1);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_too_many_answers() {
+        let mut config = create_test_slide_config();
+        config.answers = vec!["Answer".to_string(); crate::constants::type_answer::MAX_ANSWER_COUNT + 1];
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_answer_too_long() {
+        let mut config = create_test_slide_config();
+        config.answers = vec!["a".repeat(crate::constants::answer_text::MAX_LENGTH + 1)];
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_config_to_state() {
+        let config = create_test_slide_config();
+        let state = config.to_state();
+        
+        assert_eq!(state.state, SlideState::Unstarted);
+        assert!(state.user_answers.is_empty());
+        assert!(state.answer_start.is_none());
+        assert_eq!(state.config.title, config.title);
+        assert_eq!(state.config.case_sensitive, config.case_sensitive);
+    }
+
+    #[test]
+    fn test_fuiz_config_validation() {
+        let fuiz = create_test_fuiz();
+        assert!(fuiz.validate().is_ok());
+    }
+
+    #[test]
+    fn test_fuiz_len_and_empty() {
+        let fuiz = create_test_fuiz();
+        assert_eq!(fuiz.len(), 1);
+        assert!(!fuiz.is_empty());
+
+        let empty_fuiz = Fuiz {
+            title: "Empty".to_string(),
+            slides: vec![],
+        };
+        assert_eq!(empty_fuiz.len(), 0);
+        assert!(empty_fuiz.is_empty());
+    }
+
+    #[test]
+    fn test_fuiz_title_too_long() {
+        let mut fuiz = create_test_fuiz();
+        fuiz.title = "a".repeat(crate::constants::fuiz::MAX_TITLE_LENGTH + 1);
+        assert!(fuiz.validate().is_err());
+    }
+
+    #[test]
+    fn test_fuiz_too_many_slides() {
+        let mut fuiz = create_test_fuiz();
+        fuiz.slides = vec![
+            ConfigSlideConfig::TypeAnswer(create_test_slide_config());
+            crate::constants::fuiz::MAX_SLIDES_COUNT + 1
+        ];
+        assert!(fuiz.validate().is_err());
+    }
+
+    #[test]
+    fn test_state_change() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        
+        // Test successful state change
+        assert!(state.change_state(SlideState::Unstarted, SlideState::Question));
+        assert_eq!(state.state(), SlideState::Question);
+        
+        // Test failed state change (wrong current state)
+        assert!(!state.change_state(SlideState::Unstarted, SlideState::Answers));
+        assert_eq!(state.state(), SlideState::Question);
+    }
+
+    #[test]
+    fn test_calculate_score() {
+        let full_duration = Duration::from_secs(30);
+        let full_points = 1000;
+        
+        // Immediate answer should get full points
+        let immediate_score = State::calculate_score(full_duration, Duration::from_secs(0), full_points);
+        assert_eq!(immediate_score, full_points);
+        
+        // Answer at the end should get half points
+        let late_score = State::calculate_score(full_duration, full_duration, full_points);
+        assert_eq!(late_score, 500);
+        
+        // Answer in the middle should get 3/4 points
+        let mid_score = State::calculate_score(full_duration, Duration::from_secs(15), full_points);
+        assert_eq!(mid_score, 750);
+    }
+
+    #[test]
+    fn test_clean_answer_case_insensitive() {
+        assert_eq!(clean_answer("  Paris  ", false), "paris");
+        assert_eq!(clean_answer("PARIS", false), "paris");
+        assert_eq!(clean_answer("pArIs", false), "paris");
+        assert_eq!(clean_answer("   hello WORLD   ", false), "hello world");
+    }
+
+    #[test]
+    fn test_clean_answer_case_sensitive() {
+        assert_eq!(clean_answer("  Paris  ", true), "Paris");
+        assert_eq!(clean_answer("PARIS", true), "PARIS");
+        assert_eq!(clean_answer("pArIs", true), "pArIs");
+        assert_eq!(clean_answer("   Hello World   ", true), "Hello World");
+    }
+
+    #[test]
+    fn test_slide_state_default() {
+        let state: SlideState = Default::default();
+        assert_eq!(state, SlideState::Unstarted);
+    }
+
+    #[test]
+    fn test_validate_duration_functions() {
+        // Test introduce_question validation
+        let valid_introduce = Duration::from_secs(crate::constants::type_answer::MIN_INTRODUCE_QUESTION);
+        assert!(validate_introduce_question(&valid_introduce).is_ok());
+        
+        // MIN_INTRODUCE_QUESTION is 0, so we can't test too short. Test at minimum boundary.
+        let invalid_introduce = Duration::from_secs(0);
+        assert!(validate_introduce_question(&invalid_introduce).is_ok());
+        
+        // Test time_limit validation
+        let valid_time_limit = Duration::from_secs(crate::constants::type_answer::MIN_TIME_LIMIT);
+        assert!(validate_time_limit(&valid_time_limit).is_ok());
+        
+        let invalid_time_limit = Duration::from_secs(crate::constants::type_answer::MIN_TIME_LIMIT - 1);
+        assert!(validate_time_limit(&invalid_time_limit).is_err());
+    }
+
+    #[test]
+    fn test_case_sensitivity_behavior() {
+        let case_insensitive_config = create_test_slide_config();
+        let case_sensitive_config = create_test_slide_config_case_sensitive();
+        
+        assert!(!case_insensitive_config.case_sensitive);
+        assert!(case_sensitive_config.case_sensitive);
+        
+        // Verify the configuration is applied to the state
+        let case_insensitive_state = case_insensitive_config.to_state();
+        let case_sensitive_state = case_sensitive_config.to_state();
+        
+        assert!(!case_insensitive_state.config.case_sensitive);
+        assert!(case_sensitive_state.config.case_sensitive);
+    }
+
+    #[test]
+    fn test_config_to_state_conversion() {
+        let config = create_test_slide_config();
+        let state = config.to_state();
+        
+        // Verify the state is properly initialized from config
+        assert_eq!(state.config.title, config.title);
+        assert_eq!(state.config.answers, config.answers);
+        assert_eq!(state.config.time_limit, config.time_limit);
+        assert_eq!(state.config.points_awarded, config.points_awarded);
+        assert_eq!(state.config.case_sensitive, config.case_sensitive);
+        assert_eq!(state.config.introduce_question, config.introduce_question);
+    }
+
+    #[test]
+    fn test_slide_config_serialization() {
+        let config = create_test_slide_config();
+        
+        // Test that the config can be serialized and deserialized
+        let serialized = serde_json::to_string(&config).unwrap();
+        let deserialized: SlideConfig = serde_json::from_str(&serialized).unwrap();
+        
+        assert_eq!(config.title, deserialized.title);
+        assert_eq!(config.answers, deserialized.answers);
+        assert_eq!(config.case_sensitive, deserialized.case_sensitive);
+    }
+
+    #[test]
+    fn test_message_serialization() {
+        let update_msg = UpdateMessage::QuestionAnnouncement {
+            index: 0,
+            count: 5,
+            question: "Test question".to_string(),
+            media: None,
+            duration: Duration::from_secs(10),
+            accept_answers: true,
+        };
+        
+        // Should serialize without errors
+        let _serialized = serde_json::to_string(&update_msg).unwrap();
+        
+        let sync_msg = SyncMessage::AnswersResults {
+            index: 0,
+            count: 5,
+            question: "Test question".to_string(),
+            media: None,
+            answers: vec!["A".to_string(), "B".to_string()],
+            results: vec![("A".to_string(), 3), ("B".to_string(), 2)],
+            case_sensitive: false,
+        };
+        
+        // Should serialize without errors
+        let _serialized = serde_json::to_string(&sync_msg).unwrap();
+    }
+
+    #[test]
+    fn test_answer_validation_logic() {
+        let config = create_test_slide_config();
+        
+        // Test that case insensitive matching should work
+        let cleaned_answers: std::collections::HashSet<_> = config
+            .answers
+            .iter()
+            .map(|answer| clean_answer(answer, config.case_sensitive))
+            .collect();
+        
+        // All variations should resolve to "paris"
+        assert!(cleaned_answers.contains("paris"));
+        assert_eq!(cleaned_answers.len(), 1); // All variations collapse to one answer
+        
+        // Test case sensitive config
+        let case_sensitive_config = create_test_slide_config_case_sensitive();
+        let case_sensitive_answers: std::collections::HashSet<_> = case_sensitive_config
+            .answers
+            .iter()
+            .map(|answer| clean_answer(answer, case_sensitive_config.case_sensitive))
+            .collect();
+        
+        assert!(case_sensitive_answers.contains("Hello"));
+        assert_eq!(case_sensitive_answers.len(), 1);
+    }
+
+    #[test]
+    fn test_config_defaults() {
+        // Test that introduce_question defaults to 0 when using serde default
+        let json = r#"{"title":"Test","time_limit":30000,"points_awarded":100,"answers":["test"],"case_sensitive":false}"#;
+        let config: SlideConfig = serde_json::from_str(json).unwrap();
+        
+        assert_eq!(config.introduce_question, Duration::from_secs(0));
+        assert!(!config.case_sensitive);
+    }
+}

@@ -40,7 +40,7 @@ pub enum TextOrMedia {
 pub struct Fuiz {
     /// The title of the Fuiz game (currently unused in gameplay)
     #[garde(length(max = crate::constants::fuiz::MAX_TITLE_LENGTH))]
-    title: String,
+    pub title: String,
 
     /// The collection of slides/questions in the game
     #[garde(length(max = crate::constants::fuiz::MAX_SLIDES_COUNT), dive)]
