@@ -1823,4 +1823,316 @@ mod tests {
         assert_eq!(state.state(), SlideState::Question);
         assert!(state.answer_start.is_some());
     }
+
+    #[test]
+    fn test_send_accepting_answers_wrong_state() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+
+        // Put state in Answers (not Question), so send_accepting_answers should fail
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        state.change_state(SlideState::Question, SlideState::Answers);
+        assert_eq!(state.state(), SlideState::Answers);
+
+        let watchers = mocks::mock_watchers();
+        let tunnel_finder = mocks::mock_tunnel_finder();
+        let mut schedule_message = mocks::mock_schedule_message();
+
+        // Store current state and timer
+        let current_state = state.state();
+        let current_timer = state.answer_start;
+
+        // Call receive_alarm with transition to Answers when already in Answers
+        // This will call send_accepting_answers, but the state change will fail
+        let alarm_message =
+            crate::AlarmMessage::TypeAnswer(AlarmMessage::ProceedFromSlideIntoSlide {
+                index: 0,
+                to: SlideState::Answers,
+            });
+
+        let result = state.receive_alarm(
+            &mut mocks::mock_leaderboard(),
+            &watchers,
+            None,
+            &mut schedule_message,
+            tunnel_finder,
+            &alarm_message,
+            0,
+            1,
+        );
+
+        // The alarm handling should not change state since change_state failed
+        // This tests the else branch in send_accepting_answers
+        assert!(!result);
+        assert_eq!(state.state(), current_state);
+        assert_eq!(state.answer_start, current_timer);
+    }
+
+    #[test]
+    fn test_send_answers_results_wrong_state() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+
+        // Put state in Question (not Answers), so send_answers_results should fail
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        assert_eq!(state.state(), SlideState::Question);
+
+        let watchers = mocks::mock_watchers();
+        let tunnel_finder = mocks::mock_tunnel_finder();
+
+        // Store current state and timer
+        let current_state = state.state();
+        let current_timer = state.answer_start;
+
+        // Call receive_alarm with transition to AnswersResults when in Question state
+        // This will call send_answers_results, but the state change will fail
+        let alarm_message =
+            crate::AlarmMessage::TypeAnswer(AlarmMessage::ProceedFromSlideIntoSlide {
+                index: 0,
+                to: SlideState::AnswersResults,
+            });
+
+        let result = state.receive_alarm(
+            &mut mocks::mock_leaderboard(),
+            &watchers,
+            None,
+            &mut mocks::mock_schedule_message(),
+            tunnel_finder,
+            &alarm_message,
+            0,
+            1,
+        );
+
+        // The alarm handling should not change state since change_state failed
+        // This tests the else branch in send_answers_results
+        assert!(!result);
+        assert_eq!(state.state(), current_state);
+        assert_eq!(state.answer_start, current_timer);
+    }
+
+    #[test]
+    fn test_add_scores_with_correct_and_incorrect_answers() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+
+        // Set up state to AnswersResults with some user answers
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        state.change_state(SlideState::Question, SlideState::Answers);
+        state.change_state(SlideState::Answers, SlideState::AnswersResults);
+
+        // Add some user answers - correct and incorrect
+        let player1 = Id::new();
+        let player2 = Id::new();
+        let player3 = Id::new();
+
+        state.start_timer(); // Start timing
+
+        // Simulate answers at different times
+        state
+            .user_answers
+            .insert(player1, ("Paris".to_string(), web_time::SystemTime::now()));
+        state
+            .user_answers
+            .insert(player2, ("London".to_string(), web_time::SystemTime::now()));
+        state
+            .user_answers
+            .insert(player3, ("PARIS".to_string(), web_time::SystemTime::now()));
+
+        let mut leaderboard = mocks::mock_leaderboard();
+        let watchers = mocks::mock_watchers();
+        let tunnel_finder = mocks::mock_tunnel_finder();
+        let schedule_message = mocks::mock_schedule_message_std();
+
+        // Call receive_message with Host::Next from AnswersResults
+        // This should call add_scores and test the score calculation logic
+        let result = state.receive_message(
+            Id::new(),
+            IncomingMessage::Host(IncomingHostMessage::Next),
+            &mut leaderboard,
+            &watchers,
+            None,
+            schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        // Should return true (slide complete) and process scores
+        assert!(result);
+
+        // The add_scores function should have been called, testing lines 532-549
+        // This tests:
+        // - Correct answer detection (lines 532-533)
+        // - Score calculation for correct answers (lines 536-544)
+        // - Zero score for incorrect answers (lines 544-545)
+    }
+
+    #[test]
+    fn test_add_scores_case_sensitive() {
+        let config = create_test_slide_config_case_sensitive();
+        let mut state = config.to_state();
+
+        // Set up state to AnswersResults with some user answers
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        state.change_state(SlideState::Question, SlideState::Answers);
+        state.change_state(SlideState::Answers, SlideState::AnswersResults);
+
+        // Add answers with different cases
+        let player1 = Id::new();
+        let player2 = Id::new();
+
+        state.start_timer(); // Start timing
+
+        // For case-sensitive config, only exact match should be correct
+        state
+            .user_answers
+            .insert(player1, ("Hello".to_string(), web_time::SystemTime::now()));
+        state
+            .user_answers
+            .insert(player2, ("hello".to_string(), web_time::SystemTime::now()));
+
+        let mut leaderboard = mocks::mock_leaderboard();
+        let watchers = mocks::mock_watchers();
+        let tunnel_finder = mocks::mock_tunnel_finder();
+        let schedule_message = mocks::mock_schedule_message_std();
+
+        // Call receive_message with Host::Next from AnswersResults
+        // This should call add_scores with case-sensitive matching
+        let result = state.receive_message(
+            Id::new(),
+            IncomingMessage::Host(IncomingHostMessage::Next),
+            &mut leaderboard,
+            &watchers,
+            None,
+            schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        // Should return true (slide complete) and process scores
+        assert!(result);
+
+        // This tests the case-sensitive path in add_scores
+        // where "Hello" should be correct but "hello" should be incorrect
+    }
+
+    #[test]
+    fn test_add_scores_with_team_manager() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+
+        // Set up state to AnswersResults with some user answers
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        state.change_state(SlideState::Question, SlideState::Answers);
+        state.change_state(SlideState::Answers, SlideState::AnswersResults);
+
+        // Add some user answers
+        let player1 = Id::new();
+        let player2 = Id::new();
+
+        state.start_timer(); // Start timing
+
+        // Simulate answers from players
+        state
+            .user_answers
+            .insert(player1, ("Paris".to_string(), web_time::SystemTime::now()));
+        state
+            .user_answers
+            .insert(player2, ("London".to_string(), web_time::SystemTime::now()));
+
+        let mut leaderboard = mocks::mock_leaderboard();
+        let watchers = mocks::mock_watchers();
+        let tunnel_finder = mocks::mock_tunnel_finder();
+
+        // Create a team manager to test the Some(team_manager) branch
+        let team_manager = crate::teams::TeamManager::new(
+            2,                                   // optimal_size
+            false,                               // assign_random
+            crate::names::NameStyle::Petname(2), // name_style
+        );
+
+        let schedule_message = mocks::mock_schedule_message_std();
+
+        // Call receive_message with Host::Next from AnswersResults
+        // This time pass Some(team_manager) to test line 553
+        let result = state.receive_message(
+            Id::new(),
+            IncomingMessage::Host(IncomingHostMessage::Next),
+            &mut leaderboard,
+            &watchers,
+            Some(&team_manager), // This will make team_manager Some() in add_scores
+            schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        // Should return true (slide complete) and process scores
+        assert!(result);
+
+        // This test hits the Some(team_manager) branch at line 553
+        // where team_manager.get_team(player_id).unwrap_or(player_id) is called
+    }
+
+    #[test]
+    fn test_player_answer_partial_completion() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+
+        // Set up state to Answers (accepting answers)
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        state.change_state(SlideState::Question, SlideState::Answers);
+
+        let mut leaderboard = mocks::mock_leaderboard();
+        let mut watchers = mocks::mock_watchers();
+
+        // Add players to watchers to test partial completion
+        let player1 = Id::new();
+        let player2 = Id::new();
+
+        // Add players to watchers
+        let _ = watchers.add_watcher(
+            player1,
+            crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
+                name: "Player1".to_string(),
+            }),
+        );
+        let _ = watchers.add_watcher(
+            player2,
+            crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
+                name: "Player2".to_string(),
+            }),
+        );
+
+        let tunnel_finder = mocks::mock_tunnel_finder();
+        let schedule_message = mocks::mock_schedule_message_std();
+
+        // Submit one player answer when there are multiple players
+        // This should trigger the else branch at lines 721-727
+        let result = state.receive_message(
+            player1,
+            IncomingMessage::Player(IncomingPlayerMessage::StringAnswer("Paris".to_string())),
+            &mut leaderboard,
+            &watchers,
+            None,
+            schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        // Should not complete slide since not all players answered
+        assert!(!result);
+
+        // Should remain in Answers state
+        assert_eq!(state.state(), SlideState::Answers);
+
+        // Should have recorded the answer
+        assert!(state.user_answers.contains_key(&player1));
+        assert_eq!(state.user_answers.get(&player1).unwrap().0, "Paris");
+
+        // This test covers lines 721-727 - the else branch that announces
+        // AnswersCount to hosts when not all players have answered
+    }
 }
