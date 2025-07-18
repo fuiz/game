@@ -1070,11 +1070,12 @@ impl State {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::fuiz::config::{Fuiz, TextOrMedia};
-    use std::time::Duration;
     use garde::Validate;
+    use std::time::Duration;
 
     fn create_test_slide_config() -> SlideConfig {
         SlideConfig {
@@ -1103,9 +1104,9 @@ mod tests {
     fn create_test_fuiz() -> Fuiz {
         Fuiz {
             title: "Test Quiz".to_string(),
-            slides: vec![
-                crate::fuiz::config::SlideConfig::MultipleChoice(create_test_slide_config()),
-            ],
+            slides: vec![crate::fuiz::config::SlideConfig::MultipleChoice(
+                create_test_slide_config(),
+            )],
         }
     }
 
@@ -1119,7 +1120,7 @@ mod tests {
     fn test_slide_config_title_too_short() {
         let mut config = create_test_slide_config();
         // MIN_TITLE_LENGTH is 0, so empty string is actually valid
-        config.title = "".to_string();
+        config.title = String::new();
         assert!(config.validate().is_ok());
     }
 
@@ -1141,21 +1142,24 @@ mod tests {
     #[test]
     fn test_slide_config_introduce_question_too_long() {
         let mut config = create_test_slide_config();
-        config.introduce_question = Duration::from_secs(crate::constants::multiple_choice::MAX_INTRODUCE_QUESTION + 1);
+        config.introduce_question =
+            Duration::from_secs(crate::constants::multiple_choice::MAX_INTRODUCE_QUESTION + 1);
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_slide_config_time_limit_too_short() {
         let mut config = create_test_slide_config();
-        config.time_limit = Duration::from_secs(crate::constants::multiple_choice::MIN_TIME_LIMIT - 1);
+        config.time_limit =
+            Duration::from_secs(crate::constants::multiple_choice::MIN_TIME_LIMIT - 1);
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_slide_config_time_limit_too_long() {
         let mut config = create_test_slide_config();
-        config.time_limit = Duration::from_secs(crate::constants::multiple_choice::MAX_TIME_LIMIT + 1);
+        config.time_limit =
+            Duration::from_secs(crate::constants::multiple_choice::MAX_TIME_LIMIT + 1);
         assert!(config.validate().is_err());
     }
 
@@ -1176,7 +1180,7 @@ mod tests {
     fn test_slide_config_to_state() {
         let config = create_test_slide_config();
         let state = config.to_state();
-        
+
         assert_eq!(state.state, SlideState::Unstarted);
         assert!(state.user_answers.is_empty());
         assert!(state.answer_start.is_none());
@@ -1213,10 +1217,11 @@ mod tests {
     #[test]
     fn test_fuiz_too_many_slides() {
         let mut fuiz = create_test_fuiz();
-        fuiz.slides = vec![
-            crate::fuiz::config::SlideConfig::MultipleChoice(create_test_slide_config());
-            crate::constants::fuiz::MAX_SLIDES_COUNT + 1
-        ];
+        fuiz.slides =
+            vec![
+                crate::fuiz::config::SlideConfig::MultipleChoice(create_test_slide_config());
+                crate::constants::fuiz::MAX_SLIDES_COUNT + 1
+            ];
         assert!(fuiz.validate().is_err());
     }
 
@@ -1224,11 +1229,11 @@ mod tests {
     fn test_state_change() {
         let config = create_test_slide_config();
         let mut state = config.to_state();
-        
+
         // Test successful state change
         assert!(state.change_state(SlideState::Unstarted, SlideState::Question));
         assert_eq!(state.state(), SlideState::Question);
-        
+
         // Test failed state change (wrong current state)
         assert!(!state.change_state(SlideState::Unstarted, SlideState::Answers));
         assert_eq!(state.state(), SlideState::Question);
@@ -1238,15 +1243,16 @@ mod tests {
     fn test_calculate_score() {
         let full_duration = Duration::from_secs(30);
         let full_points = 1000;
-        
+
         // Immediate answer should get full points
-        let immediate_score = State::calculate_score(full_duration, Duration::from_secs(0), full_points);
+        let immediate_score =
+            State::calculate_score(full_duration, Duration::from_secs(0), full_points);
         assert_eq!(immediate_score, full_points);
-        
+
         // Answer at the end should get half points
         let late_score = State::calculate_score(full_duration, full_duration, full_points);
         assert_eq!(late_score, 500);
-        
+
         // Answer in the middle should get 3/4 points
         let mid_score = State::calculate_score(full_duration, Duration::from_secs(15), full_points);
         assert_eq!(mid_score, 750);
@@ -1257,22 +1263,25 @@ mod tests {
         // Valid text
         let valid_text = TextOrMedia::Text("Valid answer".to_string());
         assert!(valid_text.validate().is_ok());
-        
+
         // Text too long
-        let long_text = TextOrMedia::Text("a".repeat(crate::constants::answer_text::MAX_LENGTH + 1));
+        let long_text =
+            TextOrMedia::Text("a".repeat(crate::constants::answer_text::MAX_LENGTH + 1));
         assert!(long_text.validate().is_err());
-        
+
         // Media should validate without errors (garde skip)
-        let media = TextOrMedia::Media(crate::fuiz::media::Media::Image(crate::fuiz::media::Image::Corkboard {
-            id: "a".repeat(crate::constants::corkboard::ID_LENGTH),
-            alt: "Test image".to_string(),
-        }));
+        let media = TextOrMedia::Media(crate::fuiz::media::Media::Image(
+            crate::fuiz::media::Image::Corkboard {
+                id: "a".repeat(crate::constants::corkboard::ID_LENGTH),
+                alt: "Test image".to_string(),
+            },
+        ));
         assert!(media.validate().is_ok());
     }
 
     #[test]
     fn test_slide_state_default() {
-        let state: SlideState = Default::default();
+        let state: SlideState = SlideState::default();
         assert_eq!(state, SlideState::Unstarted);
     }
 
@@ -1280,7 +1289,7 @@ mod tests {
     fn test_possibly_hidden_serialization() {
         let visible = PossiblyHidden::Visible("test".to_string());
         let hidden: PossiblyHidden<String> = PossiblyHidden::Hidden;
-        
+
         // These should serialize without errors
         let _visible_json = serde_json::to_string(&visible).unwrap();
         let _hidden_json = serde_json::to_string(&hidden).unwrap();
@@ -1289,18 +1298,21 @@ mod tests {
     #[test]
     fn test_validate_duration_functions() {
         // Test introduce_question validation
-        let valid_introduce = Duration::from_secs(crate::constants::multiple_choice::MIN_INTRODUCE_QUESTION);
+        let valid_introduce =
+            Duration::from_secs(crate::constants::multiple_choice::MIN_INTRODUCE_QUESTION);
         assert!(validate_introduce_question(&valid_introduce).is_ok());
-        
+
         // MIN_INTRODUCE_QUESTION is 0, so we can't test too short. Test at minimum boundary.
         let invalid_introduce = Duration::from_secs(0);
         assert!(validate_introduce_question(&invalid_introduce).is_ok());
-        
+
         // Test time_limit validation
-        let valid_time_limit = Duration::from_secs(crate::constants::multiple_choice::MIN_TIME_LIMIT);
+        let valid_time_limit =
+            Duration::from_secs(crate::constants::multiple_choice::MIN_TIME_LIMIT);
         assert!(validate_time_limit(&valid_time_limit).is_ok());
-        
-        let invalid_time_limit = Duration::from_secs(crate::constants::multiple_choice::MIN_TIME_LIMIT - 1);
+
+        let invalid_time_limit =
+            Duration::from_secs(crate::constants::multiple_choice::MIN_TIME_LIMIT - 1);
         assert!(validate_time_limit(&invalid_time_limit).is_err());
     }
 
@@ -1310,11 +1322,8 @@ mod tests {
             correct: true,
             content: TextOrMedia::Text("Test answer".to_string()),
         };
-        
+
         assert!(answer.correct);
-        match answer.content {
-            TextOrMedia::Text(text) => assert_eq!(text, "Test answer"),
-            _ => panic!("Expected text content"),
-        }
+        assert!(matches!(answer.content, TextOrMedia::Text(text) if text == "Test answer"));
     }
 }

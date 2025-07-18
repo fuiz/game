@@ -883,11 +883,12 @@ impl State {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::fuiz::config::{Fuiz, SlideConfig as ConfigSlideConfig};
-    use std::time::Duration;
     use garde::Validate;
+    use std::time::Duration;
 
     fn create_test_slide_config() -> SlideConfig {
         SlideConfig {
@@ -912,9 +913,7 @@ mod tests {
     fn create_test_fuiz() -> Fuiz {
         Fuiz {
             title: "Test Order Quiz".to_string(),
-            slides: vec![
-                ConfigSlideConfig::Order(create_test_slide_config()),
-            ],
+            slides: vec![ConfigSlideConfig::Order(create_test_slide_config())],
         }
     }
 
@@ -928,7 +927,7 @@ mod tests {
     fn test_slide_config_title_too_short() {
         let mut config = create_test_slide_config();
         // MIN_TITLE_LENGTH is 0, so we can't test too short. Test at minimum boundary.
-        config.title = "".to_string();
+        config.title = String::new();
         assert!(config.validate().is_ok());
     }
 
@@ -950,7 +949,8 @@ mod tests {
     #[test]
     fn test_slide_config_introduce_question_too_long() {
         let mut config = create_test_slide_config();
-        config.introduce_question = Duration::from_secs(crate::constants::order::MAX_INTRODUCE_QUESTION + 1);
+        config.introduce_question =
+            Duration::from_secs(crate::constants::order::MAX_INTRODUCE_QUESTION + 1);
         assert!(config.validate().is_err());
     }
 
@@ -1000,7 +1000,7 @@ mod tests {
 
     #[test]
     fn test_axis_labels_default() {
-        let labels: AxisLabels = Default::default();
+        let labels: AxisLabels = AxisLabels::default();
         assert!(labels.from.is_none());
         assert!(labels.to.is_none());
     }
@@ -1009,7 +1009,7 @@ mod tests {
     fn test_slide_config_to_state() {
         let config = create_test_slide_config();
         let state = config.to_state();
-        
+
         assert_eq!(state.state, SlideState::Unstarted);
         assert!(state.user_answers.is_empty());
         assert!(state.answer_start.is_none());
@@ -1058,11 +1058,11 @@ mod tests {
     fn test_state_change() {
         let config = create_test_slide_config();
         let mut state = config.to_state();
-        
+
         // Test successful state change
         assert!(state.change_state(SlideState::Unstarted, SlideState::Question));
         assert_eq!(state.state(), SlideState::Question);
-        
+
         // Test failed state change (wrong current state)
         assert!(!state.change_state(SlideState::Unstarted, SlideState::Answers));
         assert_eq!(state.state(), SlideState::Question);
@@ -1072,15 +1072,16 @@ mod tests {
     fn test_calculate_score() {
         let full_duration = Duration::from_secs(45);
         let full_points = 1000;
-        
+
         // Immediate answer should get full points
-        let immediate_score = State::calculate_score(full_duration, Duration::from_secs(0), full_points);
+        let immediate_score =
+            State::calculate_score(full_duration, Duration::from_secs(0), full_points);
         assert_eq!(immediate_score, full_points);
-        
+
         // Answer at the end should get half points
         let late_score = State::calculate_score(full_duration, full_duration, full_points);
         assert_eq!(late_score, 500);
-        
+
         // Answer in the middle should get 3/4 points
         let mid_score = State::calculate_score(full_duration, Duration::from_secs(22), full_points);
         assert!(mid_score > 700 && mid_score < 800); // Approximate due to rounding
@@ -1088,7 +1089,7 @@ mod tests {
 
     #[test]
     fn test_slide_state_default() {
-        let state: SlideState = Default::default();
+        let state: SlideState = SlideState::default();
         assert_eq!(state, SlideState::Unstarted);
     }
 
@@ -1097,15 +1098,15 @@ mod tests {
         // Test introduce_question validation
         let valid_introduce = Duration::from_secs(crate::constants::order::MIN_INTRODUCE_QUESTION);
         assert!(validate_introduce_question(&valid_introduce).is_ok());
-        
+
         // MIN_INTRODUCE_QUESTION is 0, so we can't test too short. Test at minimum boundary.
         let invalid_introduce = Duration::from_secs(0);
         assert!(validate_introduce_question(&invalid_introduce).is_ok());
-        
+
         // Test time_limit validation
         let valid_time_limit = Duration::from_secs(crate::constants::order::MIN_TIME_LIMIT);
         assert!(validate_time_limit(&valid_time_limit).is_ok());
-        
+
         let invalid_time_limit = Duration::from_secs(crate::constants::order::MIN_TIME_LIMIT - 1);
         assert!(validate_time_limit(&invalid_time_limit).is_err());
     }
@@ -1114,13 +1115,23 @@ mod tests {
     fn test_answer_ordering_and_comparison() {
         let config = create_test_slide_config();
         let state = config.to_state();
-        
+
         // Test correct order
-        let correct_order = vec!["First".to_string(), "Second".to_string(), "Third".to_string(), "Fourth".to_string()];
+        let correct_order = vec![
+            "First".to_string(),
+            "Second".to_string(),
+            "Third".to_string(),
+            "Fourth".to_string(),
+        ];
         assert_eq!(correct_order, state.config.answers);
-        
+
         // Test wrong order
-        let wrong_order = vec!["Fourth".to_string(), "Third".to_string(), "Second".to_string(), "First".to_string()];
+        let wrong_order = vec![
+            "Fourth".to_string(),
+            "Third".to_string(),
+            "Second".to_string(),
+            "First".to_string(),
+        ];
         assert_ne!(wrong_order, state.config.answers);
     }
 
@@ -1128,7 +1139,7 @@ mod tests {
     fn test_config_to_state_conversion() {
         let config = create_test_slide_config();
         let state = config.to_state();
-        
+
         // Verify the state is properly initialized from config
         assert_eq!(state.config.title, config.title);
         assert_eq!(state.config.answers, config.answers);
@@ -1141,11 +1152,11 @@ mod tests {
     #[test]
     fn test_slide_config_serialization() {
         let config = create_test_slide_config();
-        
+
         // Test that the config can be serialized and deserialized
         let serialized = serde_json::to_string(&config).unwrap();
         let deserialized: SlideConfig = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(config.title, deserialized.title);
         assert_eq!(config.answers, deserialized.answers);
     }
@@ -1159,10 +1170,10 @@ mod tests {
             media: None,
             duration: Duration::from_secs(10),
         };
-        
+
         // Should serialize without errors
         let _serialized = serde_json::to_string(&update_msg).unwrap();
-        
+
         let sync_msg = SyncMessage::AnswersResults {
             index: 0,
             count: 5,
@@ -1172,7 +1183,7 @@ mod tests {
             answers: vec!["A".to_string(), "B".to_string()],
             results: (5, 3),
         };
-        
+
         // Should serialize without errors
         let _serialized = serde_json::to_string(&sync_msg).unwrap();
     }
