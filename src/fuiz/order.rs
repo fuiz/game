@@ -2038,4 +2038,131 @@ mod tests {
         assert!(!result); // Should not complete slide yet
         assert_eq!(state.state(), SlideState::AnswersResults); // Should progress to results
     }
+
+    use crate::names::NameStyle;
+    use crate::teams::TeamManager;
+
+    fn create_mock_team_manager() -> TeamManager<NameStyle> {
+        TeamManager::new(2, false, NameStyle::default())
+    }
+
+    #[test]
+    fn test_add_scores_with_team_manager() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let team_manager = create_mock_team_manager();
+
+        // Set up answers with team players
+        state.start_timer();
+        let player1_id = Id::new();
+        let player2_id = Id::new();
+
+        // Add player answers
+        state
+            .user_answers
+            .insert(player1_id, (config.answers.clone(), SystemTime::now())); // Correct
+        state
+            .user_answers
+            .insert(player2_id, (vec!["Wrong".to_string()], SystemTime::now())); // Wrong
+
+        // Test add_scores function with team manager (covers line 618)
+        state.add_scores(
+            &mut leaderboard,
+            &watchers,
+            Some(&team_manager),
+            tunnel_finder,
+        );
+
+        // Verify that the function executed without panicking
+        assert!(state.user_answers.len() == 2);
+    }
+
+    #[test]
+    fn test_add_scores_with_team_manager_all_ids() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let team_manager = create_mock_team_manager();
+
+        // Set up state without user answers to test the all_ids path
+        state.start_timer();
+
+        // Test add_scores function with team manager but no user answers (covers line 628)
+        state.add_scores(
+            &mut leaderboard,
+            &watchers,
+            Some(&team_manager),
+            tunnel_finder,
+        );
+
+        // Verify that the function executed without panicking
+        assert!(state.user_answers.is_empty());
+    }
+
+    #[test]
+    fn test_receive_message_player_partial_answers_count() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id);
+        let schedule_message = mock_schedule_message();
+
+        // Set state to Answers first
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        state.change_state(SlideState::Question, SlideState::Answers);
+
+        // Create multiple players but only one will submit an answer
+        let player1_id = Id::new();
+        let player2_id = Id::new();
+        let player3_id = Id::new();
+
+        // Add players to watchers
+        for &player_id in &[player1_id, player2_id, player3_id] {
+            watchers
+                .add_watcher(
+                    player_id,
+                    crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
+                        name: format!("Player {}", player_id),
+                    }),
+                )
+                .unwrap();
+        }
+
+        // Use a simple tunnel finder that returns MockTunnel for everyone
+        let tunnel_finder = mock_tunnel_finder();
+
+        // Player 1 submits an answer (but not all players have answered)
+        let answer = vec!["First".to_string(), "Second".to_string()];
+        let message = IncomingMessage::Player(IncomingPlayerMessage::StringArrayAnswer(answer));
+
+        let result = state.receive_message(
+            player1_id,
+            message,
+            &mut leaderboard,
+            &watchers,
+            None,
+            schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        // Should not complete the slide
+        assert!(!result);
+
+        // The player answer should be stored
+        assert!(state.user_answers.contains_key(&player1_id));
+
+        // State should remain in Answers (not progressed to results)
+        assert_eq!(state.state(), SlideState::Answers);
+
+        // This test covers lines 802-808 by executing the path where not all players
+        // have answered, so AnswersCount message is sent to host
+    }
 }
