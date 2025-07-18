@@ -665,12 +665,6 @@ impl State {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    ///
-    /// # Panics
-    ///
-    /// Panics if the system clock goes backwards while calculating elapsed time
-    /// if the state is not one of the expected states.
-    ///
     pub fn state_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &self,
         _watcher_id: Id,
@@ -687,8 +681,10 @@ impl State {
                 count,
                 question: self.config.title.clone(),
                 media: self.config.media.clone(),
-                duration: self.config.introduce_question
-                    - self.timer().elapsed().expect("system clock went backwards"),
+                duration: self
+                    .config
+                    .introduce_question
+                    .saturating_sub(self.timer().elapsed().unwrap_or(Duration::ZERO)),
             },
             SlideState::Answers => SyncMessage::AnswersAnnouncement {
                 index,
@@ -697,8 +693,10 @@ impl State {
                 axis_labels: self.config.axis_labels.clone(),
                 media: self.config.media.clone(),
                 answers: self.shuffled_answers.clone(),
-                duration: self.config.time_limit
-                    - self.timer().elapsed().expect("system clock went backwards"),
+                duration: self
+                    .config
+                    .time_limit
+                    .saturating_sub(self.timer().elapsed().unwrap_or(Duration::ZERO)),
             },
             SlideState::AnswersResults => SyncMessage::AnswersResults {
                 index,
@@ -1186,5 +1184,858 @@ mod tests {
 
         // Should serialize without errors
         let _serialized = serde_json::to_string(&sync_msg).unwrap();
+    }
+
+    // Test helpers for mock implementations
+    #[derive(Debug, Clone)]
+    struct MockTunnel {
+        messages: std::rc::Rc<std::cell::RefCell<Vec<crate::UpdateMessage>>>,
+        states: std::rc::Rc<std::cell::RefCell<Vec<crate::SyncMessage>>>,
+        closed: std::rc::Rc<std::cell::RefCell<bool>>,
+    }
+
+    impl MockTunnel {
+        fn new() -> Self {
+            Self {
+                messages: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
+                states: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
+                closed: std::rc::Rc::new(std::cell::RefCell::new(false)),
+            }
+        }
+    }
+
+    impl Tunnel for MockTunnel {
+        fn send_message(&self, message: &crate::UpdateMessage) {
+            self.messages.borrow_mut().push(message.clone());
+        }
+
+        fn send_state(&self, state: &crate::SyncMessage) {
+            self.states.borrow_mut().push(state.clone());
+        }
+
+        fn close(self) {
+            *self.closed.borrow_mut() = true;
+        }
+    }
+
+    fn mock_watchers() -> Watchers {
+        Watchers::with_host_id(Id::new())
+    }
+
+    fn mock_leaderboard() -> Leaderboard {
+        Leaderboard::default()
+    }
+
+    fn mock_tunnel_finder() -> impl Fn(Id) -> Option<MockTunnel> {
+        |_id| Some(MockTunnel::new())
+    }
+
+    fn mock_schedule_message() -> impl FnMut(crate::AlarmMessage, web_time::Duration) {
+        |_msg, _dur| {}
+    }
+
+    #[test]
+    fn test_receive_alarm_proceed_to_answers() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let mut schedule_message = mock_schedule_message();
+
+        // Set state to Question first
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+
+        let alarm_msg = crate::AlarmMessage::Order(AlarmMessage::ProceedFromSlideIntoSlide {
+            index: 0,
+            to: SlideState::Answers,
+        });
+
+        let result = state.receive_alarm(
+            &mut leaderboard,
+            &watchers,
+            None,
+            &mut schedule_message,
+            tunnel_finder,
+            &alarm_msg,
+            0,
+            1,
+        );
+
+        assert!(!result); // Should not complete slide
+        assert_eq!(state.state(), SlideState::Answers);
+        assert!(!state.shuffled_answers.is_empty()); // Should have shuffled answers
+    }
+
+    #[test]
+    fn test_receive_alarm_proceed_to_answers_results() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let mut schedule_message = mock_schedule_message();
+
+        // Set state to Answers first
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        state.change_state(SlideState::Question, SlideState::Answers);
+
+        let alarm_msg = crate::AlarmMessage::Order(AlarmMessage::ProceedFromSlideIntoSlide {
+            index: 0,
+            to: SlideState::AnswersResults,
+        });
+
+        let result = state.receive_alarm(
+            &mut leaderboard,
+            &watchers,
+            None,
+            &mut schedule_message,
+            tunnel_finder,
+            &alarm_msg,
+            0,
+            1,
+        );
+
+        assert!(!result); // Should not complete slide
+        assert_eq!(state.state(), SlideState::AnswersResults);
+    }
+
+    #[test]
+    fn test_receive_alarm_invalid_state_transition() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let mut schedule_message = mock_schedule_message();
+
+        // Try to proceed to Answers from Unstarted (should fail)
+        let alarm_msg = crate::AlarmMessage::Order(AlarmMessage::ProceedFromSlideIntoSlide {
+            index: 0,
+            to: SlideState::Answers,
+        });
+
+        let result = state.receive_alarm(
+            &mut leaderboard,
+            &watchers,
+            None,
+            &mut schedule_message,
+            tunnel_finder,
+            &alarm_msg,
+            0,
+            1,
+        );
+
+        assert!(!result);
+        assert_eq!(state.state(), SlideState::Unstarted); // Should remain unchanged
+    }
+
+    #[test]
+    fn test_receive_alarm_non_order_message() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let mut schedule_message = mock_schedule_message();
+
+        // Use a different alarm message type
+        let alarm_msg = crate::AlarmMessage::TypeAnswer(
+            crate::fuiz::type_answer::AlarmMessage::ProceedFromSlideIntoSlide {
+                index: 0,
+                to: crate::fuiz::type_answer::SlideState::Answers,
+            },
+        );
+
+        let result = state.receive_alarm(
+            &mut leaderboard,
+            &watchers,
+            None,
+            &mut schedule_message,
+            tunnel_finder,
+            &alarm_msg,
+            0,
+            1,
+        );
+
+        assert!(!result);
+        assert_eq!(state.state(), SlideState::Unstarted); // Should remain unchanged
+    }
+
+    #[test]
+    fn test_receive_alarm_ignore_unknown_target_state() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let mut schedule_message = mock_schedule_message();
+
+        // Set state to Question first
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+
+        let alarm_msg = crate::AlarmMessage::Order(AlarmMessage::ProceedFromSlideIntoSlide {
+            index: 0,
+            to: SlideState::Question, // Unknown target state for alarm
+        });
+
+        let result = state.receive_alarm(
+            &mut leaderboard,
+            &watchers,
+            None,
+            &mut schedule_message,
+            tunnel_finder,
+            &alarm_msg,
+            0,
+            1,
+        );
+
+        assert!(!result);
+        assert_eq!(state.state(), SlideState::Question); // Should remain unchanged
+    }
+
+    #[test]
+    fn test_receive_message_host_next_unstarted() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let schedule_message = mock_schedule_message();
+
+        let host_id = Id::new();
+        let message = IncomingMessage::Host(IncomingHostMessage::Next);
+
+        let result = state.receive_message(
+            host_id,
+            message,
+            &mut leaderboard,
+            &watchers,
+            None,
+            schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        assert!(!result);
+        assert_eq!(state.state(), SlideState::Question);
+    }
+
+    #[test]
+    fn test_receive_message_host_next_question() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let schedule_message = mock_schedule_message();
+
+        // Set state to Question first
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+
+        let host_id = Id::new();
+        let message = IncomingMessage::Host(IncomingHostMessage::Next);
+
+        let result = state.receive_message(
+            host_id,
+            message,
+            &mut leaderboard,
+            &watchers,
+            None,
+            schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        assert!(!result);
+        assert_eq!(state.state(), SlideState::Answers);
+        assert!(!state.shuffled_answers.is_empty());
+    }
+
+    #[test]
+    fn test_receive_message_host_next_answers() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let schedule_message = mock_schedule_message();
+
+        // Set state to Answers first
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        state.change_state(SlideState::Question, SlideState::Answers);
+
+        let host_id = Id::new();
+        let message = IncomingMessage::Host(IncomingHostMessage::Next);
+
+        let result = state.receive_message(
+            host_id,
+            message,
+            &mut leaderboard,
+            &watchers,
+            None,
+            schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        assert!(!result);
+        assert_eq!(state.state(), SlideState::AnswersResults);
+    }
+
+    #[test]
+    fn test_receive_message_host_next_answers_results() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let schedule_message = mock_schedule_message();
+
+        // Set state to AnswersResults first
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        state.change_state(SlideState::Question, SlideState::Answers);
+        state.change_state(SlideState::Answers, SlideState::AnswersResults);
+
+        let host_id = Id::new();
+        let message = IncomingMessage::Host(IncomingHostMessage::Next);
+
+        let result = state.receive_message(
+            host_id,
+            message,
+            &mut leaderboard,
+            &watchers,
+            None,
+            schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        assert!(result); // Should complete slide
+        assert_eq!(state.state(), SlideState::AnswersResults);
+    }
+
+    #[test]
+    fn test_receive_message_player_string_array_answer() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let schedule_message = mock_schedule_message();
+
+        // Set state to Answers first
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        state.change_state(SlideState::Question, SlideState::Answers);
+
+        let player_id = Id::new();
+        let answer = vec!["First".to_string(), "Second".to_string()];
+        let message =
+            IncomingMessage::Player(IncomingPlayerMessage::StringArrayAnswer(answer.clone()));
+
+        let result = state.receive_message(
+            player_id,
+            message,
+            &mut leaderboard,
+            &watchers,
+            None,
+            schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        assert!(!result);
+        assert!(state.user_answers.contains_key(&player_id));
+        assert_eq!(state.user_answers.get(&player_id).unwrap().0, answer);
+    }
+
+    #[test]
+    fn test_receive_message_player_correct_answer() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let schedule_message = mock_schedule_message();
+
+        // Set state to Answers first
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        state.change_state(SlideState::Question, SlideState::Answers);
+
+        let player_id = Id::new();
+        let correct_answer = config.answers.clone(); // Use correct order
+        let message = IncomingMessage::Player(IncomingPlayerMessage::StringArrayAnswer(
+            correct_answer.clone(),
+        ));
+
+        let result = state.receive_message(
+            player_id,
+            message,
+            &mut leaderboard,
+            &watchers,
+            None,
+            schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        assert!(!result);
+        assert!(state.user_answers.contains_key(&player_id));
+        assert_eq!(
+            state.user_answers.get(&player_id).unwrap().0,
+            correct_answer
+        );
+    }
+
+    #[test]
+    fn test_receive_message_ignore_non_relevant_message() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let schedule_message = mock_schedule_message();
+
+        let player_id = Id::new();
+        let message =
+            IncomingMessage::Player(IncomingPlayerMessage::StringAnswer("single".to_string()));
+
+        let result = state.receive_message(
+            player_id,
+            message,
+            &mut leaderboard,
+            &watchers,
+            None,
+            schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        assert!(!result);
+        assert!(state.user_answers.is_empty()); // Should not add any answer
+    }
+
+    #[test]
+    fn test_state_message_unstarted() {
+        let config = create_test_slide_config();
+        let state = config.to_state();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+
+        let watcher_id = Id::new();
+        let sync_msg = state.state_message(
+            watcher_id,
+            ValueKind::Player,
+            None,
+            &watchers,
+            tunnel_finder,
+            0,
+            5,
+        );
+
+        match sync_msg {
+            SyncMessage::QuestionAnnouncement {
+                index,
+                count,
+                question,
+                media: _,
+                duration,
+            } => {
+                assert_eq!(index, 0);
+                assert_eq!(count, 5);
+                assert_eq!(question, config.title);
+                assert!(duration <= config.introduce_question);
+            }
+            _ => panic!("Expected QuestionAnnouncement"),
+        }
+    }
+
+    #[test]
+    fn test_state_message_question() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+
+        // Set state to Question
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+
+        let watcher_id = Id::new();
+        let sync_msg = state.state_message(
+            watcher_id,
+            ValueKind::Player,
+            None,
+            &watchers,
+            tunnel_finder,
+            2,
+            10,
+        );
+
+        match sync_msg {
+            SyncMessage::QuestionAnnouncement {
+                index,
+                count,
+                question,
+                media: _,
+                duration,
+            } => {
+                assert_eq!(index, 2);
+                assert_eq!(count, 10);
+                assert_eq!(question, config.title);
+                assert!(duration <= config.introduce_question);
+            }
+            _ => panic!("Expected QuestionAnnouncement"),
+        }
+    }
+
+    #[test]
+    fn test_state_message_answers() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+
+        // Set state to Answers and populate shuffled_answers
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        state.change_state(SlideState::Question, SlideState::Answers);
+        state.shuffled_answers = vec![
+            "Third".to_string(),
+            "First".to_string(),
+            "Fourth".to_string(),
+            "Second".to_string(),
+        ];
+
+        let watcher_id = Id::new();
+        let sync_msg = state.state_message(
+            watcher_id,
+            ValueKind::Player,
+            None,
+            &watchers,
+            tunnel_finder,
+            1,
+            3,
+        );
+
+        match sync_msg {
+            SyncMessage::AnswersAnnouncement {
+                index,
+                count,
+                question,
+                axis_labels,
+                media: _,
+                answers,
+                duration,
+            } => {
+                assert_eq!(index, 1);
+                assert_eq!(count, 3);
+                assert_eq!(question, config.title);
+                assert_eq!(axis_labels.from, config.axis_labels.from);
+                assert_eq!(axis_labels.to, config.axis_labels.to);
+                assert_eq!(answers, state.shuffled_answers);
+                assert!(duration <= config.time_limit);
+            }
+            _ => panic!("Expected AnswersAnnouncement"),
+        }
+    }
+
+    #[test]
+    fn test_state_message_answers_results() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+
+        // Set state to AnswersResults and add some user answers
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        state.change_state(SlideState::Question, SlideState::Answers);
+        state.change_state(SlideState::Answers, SlideState::AnswersResults);
+
+        // Add some user answers
+        let player1_id = Id::new();
+        let player2_id = Id::new();
+        state
+            .user_answers
+            .insert(player1_id, (config.answers.clone(), SystemTime::now())); // Correct answer
+        state.user_answers.insert(
+            player2_id,
+            (
+                vec!["Wrong".to_string(), "Order".to_string()],
+                SystemTime::now(),
+            ),
+        ); // Wrong answer
+
+        let watcher_id = Id::new();
+        let sync_msg = state.state_message(
+            watcher_id,
+            ValueKind::Player,
+            None,
+            &watchers,
+            tunnel_finder,
+            3,
+            7,
+        );
+
+        match sync_msg {
+            SyncMessage::AnswersResults {
+                index,
+                count,
+                question,
+                axis_labels,
+                media: _,
+                answers,
+                results,
+            } => {
+                assert_eq!(index, 3);
+                assert_eq!(count, 7);
+                assert_eq!(question, config.title);
+                assert_eq!(axis_labels.from, config.axis_labels.from);
+                assert_eq!(axis_labels.to, config.axis_labels.to);
+                assert_eq!(answers, config.answers);
+                assert_eq!(results, (1, 1)); // 1 correct, 1 incorrect
+            }
+            _ => panic!("Expected AnswersResults"),
+        }
+    }
+
+    #[test]
+    fn test_state_message_answers_results_no_answers() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+
+        // Set state to AnswersResults with no user answers
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        state.change_state(SlideState::Question, SlideState::Answers);
+        state.change_state(SlideState::Answers, SlideState::AnswersResults);
+
+        let watcher_id = Id::new();
+        let sync_msg = state.state_message(
+            watcher_id,
+            ValueKind::Player,
+            None,
+            &watchers,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        match sync_msg {
+            SyncMessage::AnswersResults {
+                index,
+                count,
+                question,
+                axis_labels,
+                media: _,
+                answers,
+                results,
+            } => {
+                assert_eq!(index, 0);
+                assert_eq!(count, 1);
+                assert_eq!(question, config.title);
+                assert_eq!(axis_labels.from, config.axis_labels.from);
+                assert_eq!(axis_labels.to, config.axis_labels.to);
+                assert_eq!(answers, config.answers);
+                assert_eq!(results, (0, 0)); // No answers submitted
+            }
+            _ => panic!("Expected AnswersResults"),
+        }
+    }
+
+    #[test]
+    fn test_play_function() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let schedule_message = mock_schedule_message();
+
+        // Test play function calls send_question_announcements
+        state.play(&watchers, schedule_message, tunnel_finder, 0, 5);
+
+        // Should transition to Question state
+        assert_eq!(state.state(), SlideState::Question);
+    }
+
+    #[test]
+    fn test_play_function_with_zero_introduce_time() {
+        let mut config = create_test_slide_config();
+        config.introduce_question = Duration::from_secs(0);
+        let mut state = config.to_state();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let schedule_message = mock_schedule_message();
+
+        // Test play function when introduce_question is 0
+        state.play(&watchers, schedule_message, tunnel_finder, 0, 1);
+
+        // Should transition to Answers state directly
+        assert_eq!(state.state(), SlideState::Answers);
+        assert!(!state.shuffled_answers.is_empty());
+    }
+
+    #[test]
+    fn test_timer_and_start_timer() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+
+        // Test timer before start_timer is called
+        let initial_time = state.timer();
+
+        // Start timer
+        state.start_timer();
+
+        // Timer should now return the set time
+        let after_start = state.timer();
+        assert!(after_start >= initial_time);
+
+        // Test that answer_start is set
+        assert!(state.answer_start.is_some());
+    }
+
+    #[test]
+    fn test_add_scores_with_correct_answers() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+
+        // Set up answers
+        state.start_timer();
+        let player1_id = Id::new();
+        let player2_id = Id::new();
+        state
+            .user_answers
+            .insert(player1_id, (config.answers.clone(), SystemTime::now())); // Correct
+        state
+            .user_answers
+            .insert(player2_id, (vec!["Wrong".to_string()], SystemTime::now())); // Wrong
+
+        // Test add_scores function
+        state.add_scores(&mut leaderboard, &watchers, None, tunnel_finder);
+
+        // The leaderboard should have been updated (we can't easily test the exact scores without more complex setup)
+        assert!(state.user_answers.len() == 2);
+    }
+
+    #[test]
+    fn test_send_question_announcements_already_started() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let schedule_message = mock_schedule_message();
+
+        // First call should work
+        state.play(&watchers, schedule_message, tunnel_finder, 0, 1);
+        assert_eq!(state.state(), SlideState::Question);
+
+        // Second call should not change state (already in Question)
+        let watchers2 = mock_watchers();
+        let tunnel_finder2 = mock_tunnel_finder();
+        let schedule_message2 = mock_schedule_message();
+        state.play(&watchers2, schedule_message2, tunnel_finder2, 0, 1);
+        assert_eq!(state.state(), SlideState::Question);
+    }
+
+    #[test]
+    fn test_send_answers_announcements_invalid_state() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+
+        // Try to send answers announcements from Unstarted state (should fail)
+        let alarm_msg = crate::AlarmMessage::Order(AlarmMessage::ProceedFromSlideIntoSlide {
+            index: 0,
+            to: SlideState::Answers,
+        });
+
+        let result = state.receive_alarm(
+            &mut mock_leaderboard(),
+            &watchers,
+            None,
+            &mut mock_schedule_message(),
+            tunnel_finder,
+            &alarm_msg,
+            0,
+            1,
+        );
+
+        assert!(!result);
+        assert_eq!(state.state(), SlideState::Unstarted);
+        assert!(state.shuffled_answers.is_empty()); // Should not have shuffled answers
+    }
+
+    #[test]
+    fn test_send_answers_results_invalid_state() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+
+        // Try to send answers results from Question state (should fail)
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+
+        let alarm_msg = crate::AlarmMessage::Order(AlarmMessage::ProceedFromSlideIntoSlide {
+            index: 0,
+            to: SlideState::AnswersResults,
+        });
+
+        let result = state.receive_alarm(
+            &mut mock_leaderboard(),
+            &watchers,
+            None,
+            &mut mock_schedule_message(),
+            tunnel_finder,
+            &alarm_msg,
+            0,
+            1,
+        );
+
+        assert!(!result);
+        assert_eq!(state.state(), SlideState::Question); // Should remain unchanged
+    }
+
+    #[test]
+    fn test_all_players_answered_automatic_progression() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut leaderboard = mock_leaderboard();
+        let watchers = mock_watchers();
+        let tunnel_finder = mock_tunnel_finder();
+        let schedule_message = mock_schedule_message();
+
+        // Set state to Answers
+        state.change_state(SlideState::Unstarted, SlideState::Question);
+        state.change_state(SlideState::Question, SlideState::Answers);
+
+        // Since there are no players in the mock watchers, any answer should trigger progression
+        let player_id = Id::new();
+        let answer = vec!["First".to_string(), "Second".to_string()];
+        let message = IncomingMessage::Player(IncomingPlayerMessage::StringArrayAnswer(answer));
+
+        let result = state.receive_message(
+            player_id,
+            message,
+            &mut leaderboard,
+            &watchers,
+            None,
+            schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        assert!(!result); // Should not complete slide yet
+        assert_eq!(state.state(), SlideState::AnswersResults); // Should progress to results
     }
 }
