@@ -1073,7 +1073,9 @@ impl State {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
-    use crate::fuiz::config::{Fuiz, TextOrMedia, SlideState as FuizSlideState, SlideConfig as FuizSlideConfig};
+    use crate::fuiz::config::{
+        Fuiz, SlideConfig as FuizSlideConfig, SlideState as FuizSlideState, TextOrMedia,
+    };
     use garde::Validate;
     use std::time::Duration;
 
@@ -1104,9 +1106,7 @@ mod tests {
     fn create_test_fuiz() -> Fuiz {
         Fuiz {
             title: "Test Quiz".to_string(),
-            slides: vec![FuizSlideConfig::MultipleChoice(
-                create_test_slide_config(),
-            )],
+            slides: vec![FuizSlideConfig::MultipleChoice(create_test_slide_config())],
         }
     }
 
@@ -1221,11 +1221,10 @@ mod tests {
     #[test]
     fn test_fuiz_too_many_slides() {
         let mut fuiz = create_test_fuiz();
-        fuiz.slides =
-            vec![
-                FuizSlideConfig::MultipleChoice(create_test_slide_config());
-                crate::constants::fuiz::MAX_SLIDES_COUNT + 1
-            ];
+        fuiz.slides = vec![
+            FuizSlideConfig::MultipleChoice(create_test_slide_config());
+            crate::constants::fuiz::MAX_SLIDES_COUNT + 1
+        ];
         assert!(fuiz.validate().is_err());
     }
 
@@ -1616,12 +1615,11 @@ mod tests {
         state.state = initial_state;
 
         // Test with SlideState::Unstarted (should hit the catch-all case at line 1064)
-        let alarm_message = crate::AlarmMessage::MultipleChoice(
-            AlarmMessage::ProceedFromSlideIntoSlide {
+        let alarm_message =
+            crate::AlarmMessage::MultipleChoice(AlarmMessage::ProceedFromSlideIntoSlide {
                 index: 0,
                 to: SlideState::Unstarted,
-            }
-        );
+            });
 
         let result = state.receive_alarm(
             &mut leaderboard,
@@ -1652,12 +1650,11 @@ mod tests {
         state.state = initial_state;
 
         // Test with SlideState::Question (should hit the catch-all case at line 1064)
-        let alarm_message = crate::AlarmMessage::MultipleChoice(
-            AlarmMessage::ProceedFromSlideIntoSlide {
+        let alarm_message =
+            crate::AlarmMessage::MultipleChoice(AlarmMessage::ProceedFromSlideIntoSlide {
                 index: 0,
                 to: SlideState::Question,
-            }
-        );
+            });
 
         let result = state.receive_alarm(
             &mut leaderboard,
@@ -2179,7 +2176,7 @@ mod tests {
         };
 
         // Finalize teams and add players
-        team_manager.finalize(&mut watchers, &mut names, &tunnel_finder);
+        team_manager.finalize(&mut watchers, &mut names, tunnel_finder);
         team_manager.add_player(player1_id, &mut watchers);
         team_manager.add_player(player2_id, &mut watchers);
         team_manager.add_player(player3_id, &mut watchers);
@@ -2534,7 +2531,7 @@ mod tests {
         names.set_name(player3_id, "Player3").unwrap();
 
         // Finalize teams (this creates actual teams and assigns players)
-        team_manager.finalize(&mut watchers, &mut names, &tunnel_finder);
+        team_manager.finalize(&mut watchers, &mut names, tunnel_finder);
 
         // Now add the players to teams
         team_manager.add_player(player1_id, &mut watchers);
@@ -2636,7 +2633,7 @@ mod tests {
         };
 
         // Finalize teams and add players
-        team_manager.finalize(&mut watchers, &mut names, &tunnel_finder);
+        team_manager.finalize(&mut watchers, &mut names, tunnel_finder);
         team_manager.add_player(player1_id, &mut watchers);
         team_manager.add_player(player2_id, &mut watchers);
         team_manager.add_player(player3_id, &mut watchers);
@@ -2663,17 +2660,17 @@ mod tests {
         let mut state = config.to_state();
         let mut watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
-        
+
         // Add only unassigned watchers to trigger line 545
         let unassigned_id = Id::new();
         let _ = watchers.add_watcher(unassigned_id, crate::watcher::Value::Unassigned);
-        
+
         // No team manager for simplicity
         let team_manager = None;
-        
+
         // Mock schedule_message function
         let mut schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
-        
+
         // Call send_answers_announcements - should handle unassigned watchers by returning None (line 545)
         state.send_answers_announcements(
             team_manager,
@@ -2682,7 +2679,7 @@ mod tests {
             tunnel_finder,
             0,
         );
-        
+
         // Test passes if no panic occurs and unassigned watchers are handled correctly
     }
 }

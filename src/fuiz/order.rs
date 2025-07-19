@@ -2130,7 +2130,7 @@ mod tests {
                 .add_watcher(
                     player_id,
                     crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
-                        name: format!("Player {}", player_id),
+                        name: format!("Player {player_id}"),
                     }),
                 )
                 .unwrap();

@@ -398,7 +398,8 @@ mod tests {
     fn create_test_multiple_choice_config() -> SlideConfig {
         // Use a valid slide config that can be created through public APIs
         SlideConfig::MultipleChoice(
-            serde_json::from_str(r#"{
+            serde_json::from_str(
+                r#"{
                 "title": "Test Question",
                 "media": null,
                 "introduce_question": 2,
@@ -408,13 +409,16 @@ mod tests {
                     {"correct": true, "content": {"Text": "Answer A"}},
                     {"correct": false, "content": {"Text": "Answer B"}}
                 ]
-            }"#).unwrap()
+            }"#,
+            )
+            .unwrap(),
         )
     }
 
     fn create_test_type_answer_config() -> SlideConfig {
         SlideConfig::TypeAnswer(
-            serde_json::from_str(r#"{
+            serde_json::from_str(
+                r#"{
                 "title": "Test Type Answer",
                 "media": null,
                 "introduce_question": 2,
@@ -422,13 +426,16 @@ mod tests {
                 "points_awarded": 1000,
                 "answers": ["test", "TEST"],
                 "case_sensitive": false
-            }"#).unwrap()
+            }"#,
+            )
+            .unwrap(),
         )
     }
 
     fn create_test_order_config() -> SlideConfig {
         SlideConfig::Order(
-            serde_json::from_str(r#"{
+            serde_json::from_str(
+                r#"{
                 "title": "Test Order",
                 "media": null,
                 "introduce_question": 2,
@@ -436,7 +443,9 @@ mod tests {
                 "points_awarded": 1000,
                 "answers": ["First", "Second", "Third"],
                 "axis_labels": {"from": "Start", "to": "End"}
-            }"#).unwrap()
+            }"#,
+            )
+            .unwrap(),
         )
     }
 
@@ -456,7 +465,7 @@ mod tests {
     fn test_slide_config_to_state_multiple_choice() {
         let mc_config = create_test_multiple_choice_config();
         let state = mc_config.to_state();
-        
+
         match state {
             SlideState::MultipleChoice(_) => {
                 // Successfully created MultipleChoice state
@@ -469,7 +478,7 @@ mod tests {
     fn test_slide_config_to_state_type_answer() {
         let ta_config = create_test_type_answer_config();
         let state = ta_config.to_state();
-        
+
         match state {
             SlideState::TypeAnswer(_) => {
                 // Successfully created TypeAnswer state
@@ -482,7 +491,7 @@ mod tests {
     fn test_slide_config_to_state_order() {
         let order_config = create_test_order_config();
         let state = order_config.to_state();
-        
+
         match state {
             SlideState::Order(_) => {
                 // Successfully created Order state
@@ -638,7 +647,7 @@ mod tests {
         );
 
         match message {
-            SyncMessage::MultipleChoice(_) => {},
+            SyncMessage::MultipleChoice(_) => {}
             _ => panic!("Expected MultipleChoice sync message"),
         }
     }
@@ -661,7 +670,7 @@ mod tests {
         );
 
         match message {
-            SyncMessage::TypeAnswer(_) => {},
+            SyncMessage::TypeAnswer(_) => {}
             _ => panic!("Expected TypeAnswer sync message"),
         }
     }
@@ -684,7 +693,7 @@ mod tests {
         );
 
         match message {
-            SyncMessage::Order(_) => {},
+            SyncMessage::Order(_) => {}
             _ => panic!("Expected Order sync message"),
         }
     }
@@ -729,7 +738,8 @@ mod tests {
         assert!(valid_text.validate().is_ok());
 
         // Text too long
-        let long_text = TextOrMedia::Text("x".repeat(crate::constants::answer_text::MAX_LENGTH + 1));
+        let long_text =
+            TextOrMedia::Text("x".repeat(crate::constants::answer_text::MAX_LENGTH + 1));
         assert!(long_text.validate().is_err());
     }
 
@@ -742,12 +752,11 @@ mod tests {
         let mut leaderboard = create_mock_leaderboard();
         let mut schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {};
 
-        let alarm_message = AlarmMessage::TypeAnswer(
-            type_answer::AlarmMessage::ProceedFromSlideIntoSlide {
+        let alarm_message =
+            AlarmMessage::TypeAnswer(type_answer::AlarmMessage::ProceedFromSlideIntoSlide {
                 index: 0,
                 to: type_answer::SlideState::Question,
-            }
-        );
+            });
 
         let _result = state.receive_alarm(
             &mut leaderboard,
@@ -772,12 +781,10 @@ mod tests {
         let mut leaderboard = create_mock_leaderboard();
         let mut schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {};
 
-        let alarm_message = AlarmMessage::Order(
-            order::AlarmMessage::ProceedFromSlideIntoSlide {
-                index: 0,
-                to: order::SlideState::Question,
-            }
-        );
+        let alarm_message = AlarmMessage::Order(order::AlarmMessage::ProceedFromSlideIntoSlide {
+            index: 0,
+            to: order::SlideState::Question,
+        });
 
         let _result = state.receive_alarm(
             &mut leaderboard,
@@ -806,7 +813,7 @@ mod tests {
             multiple_choice::AlarmMessage::ProceedFromSlideIntoSlide {
                 index: 0,
                 to: multiple_choice::SlideState::Question,
-            }
+            },
         );
 
         let _result = state.receive_alarm(
