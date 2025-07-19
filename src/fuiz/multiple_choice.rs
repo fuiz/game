@@ -1073,7 +1073,7 @@ impl State {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
-    use crate::fuiz::config::{Fuiz, TextOrMedia};
+    use crate::fuiz::config::{Fuiz, TextOrMedia, SlideState as FuizSlideState, SlideConfig as FuizSlideConfig};
     use garde::Validate;
     use std::time::Duration;
 
@@ -1104,10 +1104,14 @@ mod tests {
     fn create_test_fuiz() -> Fuiz {
         Fuiz {
             title: "Test Quiz".to_string(),
-            slides: vec![crate::fuiz::config::SlideConfig::MultipleChoice(
+            slides: vec![FuizSlideConfig::MultipleChoice(
                 create_test_slide_config(),
             )],
         }
+    }
+
+    fn create_test_fuiz_slide_config() -> FuizSlideConfig {
+        FuizSlideConfig::MultipleChoice(create_test_slide_config())
     }
 
     #[test]
@@ -1219,7 +1223,7 @@ mod tests {
         let mut fuiz = create_test_fuiz();
         fuiz.slides =
             vec![
-                crate::fuiz::config::SlideConfig::MultipleChoice(create_test_slide_config());
+                FuizSlideConfig::MultipleChoice(create_test_slide_config());
                 crate::constants::fuiz::MAX_SLIDES_COUNT + 1
             ];
         assert!(fuiz.validate().is_err());
@@ -1390,18 +1394,20 @@ mod tests {
 
     #[test]
     fn test_play_method() {
-        let config = create_test_slide_config();
-        let mut state = config.to_state();
+        let config = create_test_fuiz_slide_config();
+        let mut fuiz_state = config.to_state();
         let watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
         let mut schedule_called = false;
-        let mut schedule_message = |_msg: crate::AlarmMessage, _duration: std::time::Duration| {
+        let schedule_message = |_msg: crate::AlarmMessage, _duration: std::time::Duration| {
             schedule_called = true;
         };
 
-        state.play(None, &watchers, &mut schedule_message, tunnel_finder, 0, 1);
+        fuiz_state.play(None, &watchers, schedule_message, tunnel_finder, 0, 1);
 
-        assert_eq!(state.state(), SlideState::Question);
+        if let FuizSlideState::MultipleChoice(inner_state) = fuiz_state {
+            assert_eq!(inner_state.state(), SlideState::Question);
+        }
         assert!(schedule_called);
     }
 
@@ -1409,17 +1415,20 @@ mod tests {
     fn test_play_method_with_zero_introduce_time() {
         let mut config = create_test_slide_config();
         config.introduce_question = Duration::from_secs(0);
-        let mut state = config.to_state();
+        let fuiz_config = FuizSlideConfig::MultipleChoice(config);
+        let mut fuiz_state = fuiz_config.to_state();
         let watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
         let mut schedule_called = false;
-        let mut schedule_message = |_msg: crate::AlarmMessage, _duration: std::time::Duration| {
+        let schedule_message = |_msg: crate::AlarmMessage, _duration: std::time::Duration| {
             schedule_called = true;
         };
 
-        state.play(None, &watchers, &mut schedule_message, tunnel_finder, 0, 1);
+        fuiz_state.play(None, &watchers, schedule_message, tunnel_finder, 0, 1);
 
-        assert_eq!(state.state(), SlideState::Answers);
+        if let FuizSlideState::MultipleChoice(inner_state) = fuiz_state {
+            assert_eq!(inner_state.state(), SlideState::Answers);
+        }
         assert!(schedule_called);
     }
 
@@ -1494,14 +1503,17 @@ mod tests {
 
     #[test]
     fn test_receive_alarm_method() {
-        let config = create_test_slide_config();
-        let mut state = config.to_state();
+        let config = create_test_fuiz_slide_config();
+        let mut fuiz_state = config.to_state();
         let watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
         let mut leaderboard = create_mock_leaderboard();
         let mut schedule_message = |_msg: crate::AlarmMessage, _duration: web_time::Duration| {};
 
-        state.state = SlideState::Question;
+        // Manually set to Question state for this test - in a real scenario this would happen through play()
+        if let FuizSlideState::MultipleChoice(ref mut inner_state) = fuiz_state {
+            inner_state.state = SlideState::Question;
+        }
 
         let alarm_message =
             crate::AlarmMessage::MultipleChoice(AlarmMessage::ProceedFromSlideIntoSlide {
@@ -1509,7 +1521,7 @@ mod tests {
                 to: SlideState::Answers,
             });
 
-        let result = state.receive_alarm(
+        let result = fuiz_state.receive_alarm(
             &mut leaderboard,
             &watchers,
             None,
@@ -1521,7 +1533,9 @@ mod tests {
         );
 
         assert!(!result);
-        assert_eq!(state.state(), SlideState::Answers);
+        if let FuizSlideState::MultipleChoice(inner_state) = fuiz_state {
+            assert_eq!(inner_state.state(), SlideState::Answers);
+        }
     }
 
     #[test]

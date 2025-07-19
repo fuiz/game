@@ -884,7 +884,9 @@ impl State {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
-    use crate::fuiz::config::{Fuiz, SlideConfig as ConfigSlideConfig};
+    use crate::fuiz::config::{
+        Fuiz, SlideConfig as ConfigSlideConfig, SlideConfig as FuizSlideConfig,
+    };
     use garde::Validate;
     use std::time::Duration;
 
@@ -911,7 +913,7 @@ mod tests {
     fn create_test_fuiz() -> Fuiz {
         Fuiz {
             title: "Test Order Quiz".to_string(),
-            slides: vec![ConfigSlideConfig::Order(create_test_slide_config())],
+            slides: vec![FuizSlideConfig::Order(create_test_slide_config())],
         }
     }
 
