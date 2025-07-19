@@ -1424,6 +1424,75 @@ mod tests {
     }
 
     #[test]
+    fn test_play_method_schedules_alarm_for_non_zero_introduce_time() {
+        let mut config = create_test_slide_config();
+        config.introduce_question = Duration::from_secs(10);
+        let mut state = config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut scheduled_alarm: Option<crate::AlarmMessage> = None;
+        let mut scheduled_duration: Option<std::time::Duration> = None;
+        let mut schedule_message = |msg: crate::AlarmMessage, duration: std::time::Duration| {
+            scheduled_alarm = Some(msg);
+            scheduled_duration = Some(duration);
+        };
+
+        // Verify initial state
+        assert_eq!(state.state(), SlideState::Unstarted);
+        assert!(!config.introduce_question.is_zero());
+
+        state.play(None, &watchers, &mut schedule_message, tunnel_finder, 0, 1);
+
+        // This should hit the else branch at line 468
+        assert_eq!(state.state(), SlideState::Question);
+        assert!(scheduled_alarm.is_some());
+        assert_eq!(scheduled_duration, Some(Duration::from_secs(10)));
+
+        if let Some(crate::AlarmMessage::MultipleChoice(
+            AlarmMessage::ProceedFromSlideIntoSlide { index, to },
+        )) = scheduled_alarm
+        {
+            assert_eq!(index, 0);
+            assert_eq!(to, SlideState::Answers);
+        } else {
+            panic!("Expected MultipleChoice alarm message");
+        }
+    }
+
+    #[test]
+    fn test_send_question_announcements_else_branch_explicitly() {
+        let mut config = create_test_slide_config();
+        config.introduce_question = Duration::from_secs(5);
+        let mut state = config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut else_branch_executed = false;
+        let mut schedule_message = |_msg: crate::AlarmMessage, _duration: std::time::Duration| {
+            else_branch_executed = true;
+        };
+
+        // Verify preconditions for hitting the else branch
+        assert_eq!(state.state(), SlideState::Unstarted);
+        assert!(!config.introduce_question.is_zero());
+
+        // This should execute the else branch (line 458-467, closing at line 468)
+        state.send_question_announcements(
+            None,
+            &watchers,
+            &mut schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        assert_eq!(state.state(), SlideState::Question);
+        assert!(
+            else_branch_executed,
+            "The else branch at line 468 should have been executed"
+        );
+    }
+
+    #[test]
     fn test_receive_alarm_method() {
         let config = create_test_slide_config();
         let mut state = config.to_state();
@@ -1518,6 +1587,78 @@ mod tests {
 
         assert!(!result);
         assert_eq!(state.state(), SlideState::AnswersResults);
+    }
+
+    #[test]
+    fn test_receive_alarm_catch_all_case() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut leaderboard = create_mock_leaderboard();
+        let mut schedule_message = |_msg: crate::AlarmMessage, _duration: web_time::Duration| {};
+
+        let initial_state = SlideState::Question;
+        state.state = initial_state;
+
+        // Test with SlideState::Unstarted (should hit the catch-all case at line 1064)
+        let alarm_message = crate::AlarmMessage::MultipleChoice(
+            AlarmMessage::ProceedFromSlideIntoSlide {
+                index: 0,
+                to: SlideState::Unstarted,
+            }
+        );
+
+        let result = state.receive_alarm(
+            &mut leaderboard,
+            &watchers,
+            None,
+            &mut schedule_message,
+            tunnel_finder,
+            &alarm_message,
+            0,
+            1,
+        );
+
+        assert!(!result);
+        // State should remain unchanged since the catch-all case does nothing
+        assert_eq!(state.state(), initial_state);
+    }
+
+    #[test]
+    fn test_receive_alarm_catch_all_case_with_question() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut leaderboard = create_mock_leaderboard();
+        let mut schedule_message = |_msg: crate::AlarmMessage, _duration: web_time::Duration| {};
+
+        let initial_state = SlideState::Answers;
+        state.state = initial_state;
+
+        // Test with SlideState::Question (should hit the catch-all case at line 1064)
+        let alarm_message = crate::AlarmMessage::MultipleChoice(
+            AlarmMessage::ProceedFromSlideIntoSlide {
+                index: 0,
+                to: SlideState::Question,
+            }
+        );
+
+        let result = state.receive_alarm(
+            &mut leaderboard,
+            &watchers,
+            None,
+            &mut schedule_message,
+            tunnel_finder,
+            &alarm_message,
+            0,
+            1,
+        );
+
+        assert!(!result);
+        // State should remain unchanged since the catch-all case does nothing
+        assert_eq!(state.state(), initial_state);
     }
 
     #[test]
@@ -1725,6 +1866,108 @@ mod tests {
     }
 
     #[test]
+    fn test_receive_message_all_players_answered_triggers_results() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut watchers = create_mock_watchers();
+        let mut leaderboard = create_mock_leaderboard();
+        let mut schedule_message = |_msg: crate::AlarmMessage, _duration: std::time::Duration| {};
+
+        // Create multiple players
+        let player1_id = Id::new();
+        let player2_id = Id::new();
+        let player3_id = Id::new();
+
+        // Add players to watchers
+        watchers
+            .add_watcher(
+                player1_id,
+                crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
+                    name: "Player1".to_string(),
+                }),
+            )
+            .unwrap();
+
+        watchers
+            .add_watcher(
+                player2_id,
+                crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
+                    name: "Player2".to_string(),
+                }),
+            )
+            .unwrap();
+
+        watchers
+            .add_watcher(
+                player3_id,
+                crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
+                    name: "Player3".to_string(),
+                }),
+            )
+            .unwrap();
+
+        // Create tunnel finder that returns tunnels for all players
+        let tunnel_finder = move |id: Id| {
+            if id == player1_id || id == player2_id || id == player3_id {
+                Some(MockTunnel::new())
+            } else {
+                None
+            }
+        };
+
+        state.state = SlideState::Answers;
+        state.start_timer();
+
+        // First two players answer - should NOT trigger results yet
+        let message1 = IncomingMessage::Player(IncomingPlayerMessage::IndexAnswer(0));
+        let result1 = state.receive_message(
+            player1_id,
+            &message1,
+            &mut leaderboard,
+            &watchers,
+            None,
+            &mut schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+        assert!(!result1);
+        assert_eq!(state.state(), SlideState::Answers);
+
+        let message2 = IncomingMessage::Player(IncomingPlayerMessage::IndexAnswer(1));
+        let result2 = state.receive_message(
+            player2_id,
+            &message2,
+            &mut leaderboard,
+            &watchers,
+            None,
+            &mut schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+        assert!(!result2);
+        assert_eq!(state.state(), SlideState::Answers);
+
+        // Third player answers - should trigger results (line 991)
+        let message3 = IncomingMessage::Player(IncomingPlayerMessage::IndexAnswer(2));
+        let result3 = state.receive_message(
+            player3_id,
+            &message3,
+            &mut leaderboard,
+            &watchers,
+            None,
+            &mut schedule_message,
+            tunnel_finder,
+            0,
+            1,
+        );
+        assert!(!result3);
+        // This should have triggered send_answers_results and changed state to AnswersResults
+        assert_eq!(state.state(), SlideState::AnswersResults);
+    }
+
+    #[test]
     fn test_state_message_unstarted() {
         let config = create_test_slide_config();
         let state = config.to_state();
@@ -1866,6 +2109,141 @@ mod tests {
     }
 
     #[test]
+    fn test_state_message_answers_with_team_manager() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut watchers = create_mock_watchers();
+        let mut names = crate::names::Names::default();
+
+        // Create team manager and set up teams
+        let mut team_manager = create_mock_team_manager();
+
+        let player1_id = Id::new();
+        let player2_id = Id::new();
+        let player3_id = Id::new();
+
+        // Add players to watchers
+        watchers
+            .add_watcher(
+                player1_id,
+                crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
+                    name: "Player1".to_string(),
+                }),
+            )
+            .unwrap();
+
+        watchers
+            .add_watcher(
+                player2_id,
+                crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
+                    name: "Player2".to_string(),
+                }),
+            )
+            .unwrap();
+
+        watchers
+            .add_watcher(
+                player3_id,
+                crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
+                    name: "Player3".to_string(),
+                }),
+            )
+            .unwrap();
+
+        // Set up names
+        names.set_name(player1_id, "Player1").unwrap();
+        names.set_name(player2_id, "Player2").unwrap();
+        names.set_name(player3_id, "Player3").unwrap();
+
+        // Create tunnel finder where only player1 and player2 are alive
+        let tunnel_finder = move |id: Id| {
+            if id == player1_id || id == player2_id {
+                Some(MockTunnel::new()) // These players are "alive"
+            } else {
+                None // player3 is "dead"
+            }
+        };
+
+        // Finalize teams and add players
+        team_manager.finalize(&mut watchers, &mut names, &tunnel_finder);
+        team_manager.add_player(player1_id, &mut watchers);
+        team_manager.add_player(player2_id, &mut watchers);
+        team_manager.add_player(player3_id, &mut watchers);
+
+        state.state = SlideState::Answers;
+        state.start_timer();
+
+        // This should test lines 843-851: the team member filtering in state_message
+        let message = state.state_message(
+            player1_id,
+            ValueKind::Player,
+            Some(&team_manager),
+            &watchers,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        match message {
+            SyncMessage::AnswersAnnouncement {
+                index,
+                count,
+                question,
+                answers,
+                ..
+            } => {
+                assert_eq!(index, 0);
+                assert_eq!(count, 1);
+                assert_eq!(question, "Test Question");
+                assert_eq!(answers.len(), 3);
+            }
+            _ => panic!("Expected AnswersAnnouncement"),
+        }
+    }
+
+    #[test]
+    fn test_state_message_answers_with_team_manager_no_team_members() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+
+        // Create team manager but don't assign any players to teams
+        let team_manager = create_mock_team_manager();
+
+        state.state = SlideState::Answers;
+        state.start_timer();
+
+        // This should test the map_or(1, |members| ...) fallback in lines 843-851
+        // When team_members returns None, it should fall back to 1
+        let message = state.state_message(
+            Id::new(),
+            ValueKind::Player,
+            Some(&team_manager),
+            &watchers,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        match message {
+            SyncMessage::AnswersAnnouncement {
+                index,
+                count,
+                question,
+                answers,
+                ..
+            } => {
+                assert_eq!(index, 0);
+                assert_eq!(count, 1);
+                assert_eq!(question, "Test Question");
+                assert_eq!(answers.len(), 3);
+            }
+            _ => panic!("Expected AnswersAnnouncement"),
+        }
+    }
+
+    #[test]
     fn test_get_answers_for_player_host_individual() {
         let config = create_test_slide_config();
         let state = config.to_state();
@@ -1949,5 +2327,348 @@ mod tests {
 
         let score = leaderboard.score(player_id);
         assert!(score.is_some());
+    }
+
+    #[test]
+    fn test_add_scores_with_team_manager() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut watchers = create_mock_watchers();
+        let mut names = crate::names::Names::default();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut leaderboard = create_mock_leaderboard();
+
+        // Create team manager and set up teams
+        let mut team_manager = create_mock_team_manager();
+
+        let player1_id = Id::new();
+        let player2_id = Id::new();
+
+        watchers
+            .add_watcher(
+                player1_id,
+                crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
+                    name: "Player1".to_string(),
+                }),
+            )
+            .unwrap();
+
+        watchers
+            .add_watcher(
+                player2_id,
+                crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
+                    name: "Player2".to_string(),
+                }),
+            )
+            .unwrap();
+
+        names.set_name(player1_id, "Player1").unwrap();
+        names.set_name(player2_id, "Player2").unwrap();
+
+        // Finalize teams and add players
+        team_manager.finalize(&mut watchers, &mut names, &tunnel_finder);
+        team_manager.add_player(player1_id, &mut watchers);
+        team_manager.add_player(player2_id, &mut watchers);
+
+        state.state = SlideState::Answers;
+        state.start_timer();
+
+        // Add answers for both players (using timer to avoid timing issues)
+        let answer_time = state.timer();
+        state.user_answers.insert(player1_id, (0, answer_time));
+        state.user_answers.insert(player2_id, (1, answer_time));
+
+        // This should test line 694: team_manager.get_team(player_id).unwrap_or(player_id)
+        state.add_scores(
+            &mut leaderboard,
+            &watchers,
+            Some(&team_manager),
+            tunnel_finder,
+        );
+
+        // When players are in teams, scores are tracked by team ID
+        // Get the team IDs for both players
+        let team1_id = team_manager.get_team(player1_id).unwrap_or(player1_id);
+        let team2_id = team_manager.get_team(player2_id).unwrap_or(player2_id);
+
+        // Check that scores were added for the team(s)
+        let score1 = leaderboard.score(team1_id);
+        let score2 = leaderboard.score(team2_id);
+
+        // At least one of the teams should have a score
+        assert!(score1.is_some() || score2.is_some());
+    }
+
+    #[test]
+    fn test_add_scores_with_team_manager_no_team_assignment() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut leaderboard = create_mock_leaderboard();
+
+        // Create team manager but don't assign any players to teams
+        let team_manager = create_mock_team_manager();
+
+        let player_id = Id::new();
+
+        state.state = SlideState::Answers;
+        state.start_timer();
+
+        // Add answer using timer to avoid timing issues
+        let answer_time = state.timer();
+        state.user_answers.insert(player_id, (0, answer_time));
+
+        // This should test the unwrap_or(player_id) part of line 694
+        // When get_team returns None, it should fall back to player_id
+        state.add_scores(
+            &mut leaderboard,
+            &watchers,
+            Some(&team_manager),
+            tunnel_finder,
+        );
+
+        let score = leaderboard.score(player_id);
+        assert!(score.is_some());
+    }
+
+    fn create_mock_team_manager() -> TeamManager<crate::names::NameStyle> {
+        TeamManager::new(3, false, crate::names::NameStyle::default())
+    }
+
+    #[test]
+    fn test_send_answers_announcements_with_team_manager() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let team_manager = create_mock_team_manager();
+        let mut schedule_called = false;
+        let mut schedule_message = |_msg: crate::AlarmMessage, _duration: std::time::Duration| {
+            schedule_called = true;
+        };
+
+        state.state = SlideState::Question;
+
+        state.send_answers_announcements(
+            Some(&team_manager),
+            &watchers,
+            &mut schedule_message,
+            tunnel_finder,
+            0,
+        );
+
+        assert_eq!(state.state(), SlideState::Answers);
+        assert!(schedule_called);
+        assert!(state.answer_start.is_some());
+    }
+
+    #[test]
+    fn test_send_answers_announcements_team_members_filtering() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut watchers = create_mock_watchers();
+        let mut names = crate::names::Names::default();
+        let mut schedule_message = |_msg: crate::AlarmMessage, _duration: std::time::Duration| {};
+
+        // Create a team manager and add multiple players
+        let mut team_manager = create_mock_team_manager();
+
+        let player1_id = Id::new();
+        let player2_id = Id::new();
+        let player3_id = Id::new();
+
+        watchers
+            .add_watcher(
+                player1_id,
+                crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
+                    name: "Player1".to_string(),
+                }),
+            )
+            .unwrap();
+
+        watchers
+            .add_watcher(
+                player2_id,
+                crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
+                    name: "Player2".to_string(),
+                }),
+            )
+            .unwrap();
+
+        watchers
+            .add_watcher(
+                player3_id,
+                crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
+                    name: "Player3".to_string(),
+                }),
+            )
+            .unwrap();
+
+        // Create tunnel finder that simulates some players being alive and some not
+        let tunnel_finder = move |id: Id| {
+            if id == player1_id || id == player2_id {
+                Some(MockTunnel::new()) // These players are "alive"
+            } else {
+                None // player3 is "dead" (no tunnel)
+            }
+        };
+
+        // Set up names for the players
+        names.set_name(player1_id, "Player1").unwrap();
+        names.set_name(player2_id, "Player2").unwrap();
+        names.set_name(player3_id, "Player3").unwrap();
+
+        // Finalize teams (this creates actual teams and assigns players)
+        team_manager.finalize(&mut watchers, &mut names, &tunnel_finder);
+
+        // Now add the players to teams
+        team_manager.add_player(player1_id, &mut watchers);
+        team_manager.add_player(player2_id, &mut watchers);
+        team_manager.add_player(player3_id, &mut watchers);
+
+        state.state = SlideState::Question;
+
+        // This should now actually hit the team member filtering logic (lines 516-525)
+        state.send_answers_announcements(
+            Some(&team_manager),
+            &watchers,
+            &mut schedule_message,
+            tunnel_finder,
+            0,
+        );
+
+        assert_eq!(state.state(), SlideState::Answers);
+    }
+
+    #[test]
+    fn test_send_answers_announcements_no_team_members() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let team_manager = create_mock_team_manager();
+        let mut schedule_message = |_msg: crate::AlarmMessage, _duration: std::time::Duration| {};
+
+        state.state = SlideState::Question;
+
+        // This should handle the case where team_members returns None (no team found)
+        state.send_answers_announcements(
+            Some(&team_manager),
+            &watchers,
+            &mut schedule_message,
+            tunnel_finder,
+            0,
+        );
+
+        assert_eq!(state.state(), SlideState::Answers);
+    }
+
+    #[test]
+    fn test_send_answers_announcements_no_team_manager() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut schedule_message = |_msg: crate::AlarmMessage, _duration: std::time::Duration| {};
+
+        state.state = SlideState::Question;
+
+        // This should handle the None case for team_manager (lines 527-528)
+        state.send_answers_announcements(None, &watchers, &mut schedule_message, tunnel_finder, 0);
+
+        assert_eq!(state.state(), SlideState::Answers);
+    }
+
+    #[test]
+    fn test_team_member_filtering_with_dead_members() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut watchers = create_mock_watchers();
+        let mut names = crate::names::Names::default();
+        let mut schedule_message = |_msg: crate::AlarmMessage, _duration: std::time::Duration| {};
+
+        // Create a team manager and add multiple players
+        let mut team_manager = create_mock_team_manager();
+
+        let player1_id = Id::new();
+        let player2_id = Id::new();
+        let player3_id = Id::new();
+        let player4_id = Id::new();
+
+        // Add all players to watchers
+        for (i, &id) in [player1_id, player2_id, player3_id, player4_id]
+            .iter()
+            .enumerate()
+        {
+            watchers
+                .add_watcher(
+                    id,
+                    crate::watcher::Value::Player(crate::watcher::PlayerValue::Individual {
+                        name: format!("Player{}", i + 1),
+                    }),
+                )
+                .unwrap();
+            names.set_name(id, &format!("Player{}", i + 1)).unwrap();
+        }
+
+        // Create tunnel finder where only player1 and player2 are "alive"
+        let tunnel_finder = move |id: Id| {
+            if id == player1_id || id == player2_id {
+                Some(MockTunnel::new()) // These players are "alive"
+            } else {
+                None // player3 and player4 are "dead"
+            }
+        };
+
+        // Finalize teams and add players
+        team_manager.finalize(&mut watchers, &mut names, &tunnel_finder);
+        team_manager.add_player(player1_id, &mut watchers);
+        team_manager.add_player(player2_id, &mut watchers);
+        team_manager.add_player(player3_id, &mut watchers);
+        team_manager.add_player(player4_id, &mut watchers);
+
+        state.state = SlideState::Question;
+
+        // This should exercise the team member filtering logic where some team members are dead
+        // The filtering should count only alive members (player1, player2) and ensure max(count, 1)
+        state.send_answers_announcements(
+            Some(&team_manager),
+            &watchers,
+            &mut schedule_message,
+            tunnel_finder,
+            0,
+        );
+
+        assert_eq!(state.state(), SlideState::Answers);
+    }
+
+    #[test]
+    fn test_send_answers_announcements_unassigned_watcher_handling() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let mut watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        
+        // Add only unassigned watchers to trigger line 545
+        let unassigned_id = Id::new();
+        let _ = watchers.add_watcher(unassigned_id, crate::watcher::Value::Unassigned);
+        
+        // No team manager for simplicity
+        let team_manager = None;
+        
+        // Mock schedule_message function
+        let mut schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
+        
+        // Call send_answers_announcements - should handle unassigned watchers by returning None (line 545)
+        state.send_answers_announcements(
+            team_manager,
+            &watchers,
+            &mut schedule_message,
+            tunnel_finder,
+            0,
+        );
+        
+        // Test passes if no panic occurs and unassigned watchers are handled correctly
     }
 }
