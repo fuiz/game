@@ -2682,4 +2682,73 @@ mod tests {
 
         // Test passes if no panic occurs and unassigned watchers are handled correctly
     }
+
+    #[test]
+    fn test_send_answers_results_coverage() {
+        let config = create_test_slide_config();
+        let mut state = config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+
+        // Set up state for answers results
+        state.state = SlideState::Answers;
+
+        // Add some user answers to test the answer counting logic
+        let player1_id = Id::new();
+        let player2_id = Id::new();
+        state
+            .user_answers
+            .insert(player1_id, (0, SystemTime::now())); // Answer 0
+        state
+            .user_answers
+            .insert(player2_id, (1, SystemTime::now())); // Answer 1
+
+        // This should hit line 640 (the closing brace of the if statement)
+        state.send_answers_results(&watchers, tunnel_finder);
+
+        assert_eq!(state.state(), SlideState::AnswersResults);
+    }
+
+    #[test]
+    fn test_get_answers_for_player_empty_answers() {
+        // Create a config with no answers to test line 759
+        let mut config = create_test_slide_config();
+        config.answers = Vec::new(); // Empty answers list
+
+        let state = config.to_state();
+
+        // This should hit line 759: the empty answers case
+        let answers = state.get_answers_for_player(Id::new(), ValueKind::Player, 2, 0, true);
+
+        assert_eq!(answers.len(), 0);
+        assert!(answers.is_empty());
+    }
+
+    #[test]
+    fn test_get_answers_for_player_unassigned_individual() {
+        let config = create_test_slide_config();
+        let state = config.to_state();
+
+        // Test ValueKind::Unassigned in individual mode (not team mode)
+        let answers = state.get_answers_for_player(Id::new(), ValueKind::Unassigned, 1, 0, false);
+
+        assert_eq!(answers.len(), 3);
+        for answer in answers {
+            assert!(matches!(answer, PossiblyHidden::Visible(_)));
+        }
+    }
+
+    #[test]
+    fn test_get_answers_for_player_unassigned_team() {
+        let config = create_test_slide_config();
+        let state = config.to_state();
+
+        // Test ValueKind::Unassigned in team mode
+        let answers = state.get_answers_for_player(Id::new(), ValueKind::Unassigned, 2, 0, true);
+
+        assert_eq!(answers.len(), 3);
+        for answer in answers {
+            assert!(matches!(answer, PossiblyHidden::Hidden));
+        }
+    }
 }
