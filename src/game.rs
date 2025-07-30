@@ -445,10 +445,10 @@ impl Game {
     ) -> TruncatedVec<String> {
         const LIMIT: usize = 50;
 
-        if let Some(team_manager) = &self.team_manager {
-            if matches!(self.state, State::TeamDisplay) {
-                return team_manager.team_names().unwrap_or_default();
-            }
+        if let Some(team_manager) = &self.team_manager
+            && matches!(self.state, State::TeamDisplay)
+        {
+            return team_manager.team_names().unwrap_or_default();
         }
 
         let player_names = self
@@ -566,30 +566,30 @@ impl Game {
         tunnel_finder: F,
     ) {
         if let Some(slide) = self.fuiz_config.slides.first() {
-            if let Some(team_manager) = &mut self.team_manager {
-                if matches!(self.state, State::WaitingScreen) {
-                    team_manager.finalize(&mut self.watchers, &mut self.names, &tunnel_finder);
-                    self.state = State::TeamDisplay;
-                    self.watchers.announce_with(
-                        |id, kind| {
-                            Some(match kind {
-                                ValueKind::Player => UpdateMessage::FindTeam(
-                                    self.watchers.get_team_name(id).unwrap_or_default(),
-                                )
-                                .into(),
-                                ValueKind::Host => UpdateMessage::TeamDisplay(
-                                    team_manager.team_names().unwrap_or_default(),
-                                )
-                                .into(),
-                                ValueKind::Unassigned => {
-                                    return None;
-                                }
-                            })
-                        },
-                        &tunnel_finder,
-                    );
-                    return;
-                }
+            if let Some(team_manager) = &mut self.team_manager
+                && matches!(self.state, State::WaitingScreen)
+            {
+                team_manager.finalize(&mut self.watchers, &mut self.names, &tunnel_finder);
+                self.state = State::TeamDisplay;
+                self.watchers.announce_with(
+                    |id, kind| {
+                        Some(match kind {
+                            ValueKind::Player => UpdateMessage::FindTeam(
+                                self.watchers.get_team_name(id).unwrap_or_default(),
+                            )
+                            .into(),
+                            ValueKind::Host => UpdateMessage::TeamDisplay(
+                                team_manager.team_names().unwrap_or_default(),
+                            )
+                            .into(),
+                            ValueKind::Unassigned => {
+                                return None;
+                            }
+                        })
+                    },
+                    &tunnel_finder,
+                );
+                return;
             }
 
             let mut current_slide = CurrentSlide {
@@ -892,14 +892,14 @@ impl Game {
         name: &str,
         tunnel_finder: F,
     ) {
-        if let Some(team_manager) = &mut self.team_manager {
-            if let Some(name) = team_manager.add_player(watcher, &mut self.watchers) {
-                Watchers::send_message(
-                    &UpdateMessage::FindTeam(name).into(),
-                    watcher,
-                    &tunnel_finder,
-                );
-            }
+        if let Some(team_manager) = &mut self.team_manager
+            && let Some(name) = team_manager.add_player(watcher, &mut self.watchers)
+        {
+            Watchers::send_message(
+                &UpdateMessage::FindTeam(name).into(),
+                watcher,
+                &tunnel_finder,
+            );
         }
 
         Watchers::send_message(
@@ -913,19 +913,19 @@ impl Game {
         if !name.is_empty() {
             // Announce to others of user joining
             if matches!(self.state, State::WaitingScreen) {
-                if let Some(team_manager) = &self.team_manager {
-                    if !team_manager.is_random_assignments() {
-                        self.watchers.announce_with(
-                            |id, value| match value {
-                                ValueKind::Player => Some(
-                                    self.choose_teammates_message(id, team_manager, &tunnel_finder)
-                                        .into(),
-                                ),
-                                _ => None,
-                            },
-                            &tunnel_finder,
-                        );
-                    }
+                if let Some(team_manager) = &self.team_manager
+                    && !team_manager.is_random_assignments()
+                {
+                    self.watchers.announce_with(
+                        |id, value| match value {
+                            ValueKind::Player => Some(
+                                self.choose_teammates_message(id, team_manager, &tunnel_finder)
+                                    .into(),
+                            ),
+                            _ => None,
+                        },
+                        &tunnel_finder,
+                    );
                 }
 
                 self.watchers.announce_specific(
@@ -1492,8 +1492,8 @@ mod tests {
         assert!(matches!(game.state, State::WaitingScreen));
         assert!(!game.locked);
         assert!(game.team_manager.is_none());
-        assert_eq!(game.options.show_answers, false);
-        assert_eq!(game.options.no_leaderboard, false);
+        assert!(!game.options.show_answers);
+        assert!(!game.options.no_leaderboard);
     }
 
     #[test]
@@ -1516,8 +1516,8 @@ mod tests {
         assert!(matches!(game.state, State::WaitingScreen));
         assert!(!game.locked);
         assert!(game.team_manager.is_some());
-        assert_eq!(game.options.show_answers, true);
-        assert_eq!(game.options.no_leaderboard, true);
+        assert!(game.options.show_answers);
+        assert!(game.options.no_leaderboard);
     }
 
     #[test]
@@ -1590,7 +1590,7 @@ mod tests {
         let host_id = crate::watcher::Id::new();
         let game = Game::new(fuiz, options, host_id);
 
-        let debug_string = format!("{:?}", game);
+        let debug_string = format!("{game:?}");
         assert!(debug_string.contains("Game"));
         assert!(debug_string.contains("fuiz"));
     }
@@ -1599,7 +1599,7 @@ mod tests {
     fn test_leaderboard_message_serialization() {
         let current_data = vec![("Player1".to_string(), 100)];
         let prior_data = vec![("Player1".to_string(), 50)];
-        
+
         let leaderboard_msg = LeaderboardMessage {
             current: crate::TruncatedVec::new(current_data.into_iter(), 10, 1),
             prior: crate::TruncatedVec::new(prior_data.into_iter(), 10, 1),
@@ -1623,10 +1623,6 @@ mod tests {
             Self {
                 messages: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             }
-        }
-
-        fn get_messages(&self) -> Vec<String> {
-            self.messages.lock().unwrap().clone()
         }
     }
 
@@ -1663,7 +1659,7 @@ mod tests {
             }
         };
 
-        game.add_unassigned(unassigned_id, tunnel_finder);
+        assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
 
         // Should have added unassigned watcher
         assert!(game.watchers.has_watcher(unassigned_id));
@@ -1687,7 +1683,7 @@ mod tests {
         };
 
         // Add as unassigned first
-        game.add_unassigned(player_id, tunnel_finder);
+        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
 
         // Update to player with name
         game.update_player_with_name(player_id, "TestPlayer", tunnel_finder);
@@ -1718,7 +1714,8 @@ mod tests {
         assert!(matches!(host_message, IncomingMessage::Host(_)));
 
         let unassigned_message_json = r#"{"Unassigned": {"NameRequest": "Player1"}}"#;
-        let unassigned_message: IncomingMessage = serde_json::from_str(unassigned_message_json).unwrap();
+        let unassigned_message: IncomingMessage =
+            serde_json::from_str(unassigned_message_json).unwrap();
         assert!(matches!(unassigned_message, IncomingMessage::Unassigned(_)));
 
         let player_message_json = r#"{"Player": {"IndexAnswer": 0}}"#;
@@ -1776,13 +1773,13 @@ mod tests {
         let player_id = crate::watcher::Id::new();
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
 
-        let state_msg = game.state_message(
-            player_id,
-            crate::watcher::ValueKind::Player,
-            tunnel_finder,
-        );
+        let state_msg =
+            game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
 
         // Should return waiting screen message for initial state
-        assert!(matches!(state_msg, crate::SyncMessage::Game(SyncMessage::WaitingScreen(_))));
+        assert!(matches!(
+            state_msg,
+            crate::SyncMessage::Game(SyncMessage::WaitingScreen(_))
+        ));
     }
 }
