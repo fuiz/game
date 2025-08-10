@@ -5,6 +5,7 @@
 //! Each question type has its own configuration, state management, and
 //! message handling.
 
+pub mod common;
 pub mod config;
 pub mod media;
 pub mod multiple_choice;

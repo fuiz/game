@@ -25,51 +25,17 @@ use crate::{
 
 use super::{
     super::game::{IncomingHostMessage, IncomingMessage, IncomingPlayerMessage},
+    common::{
+        AnswerHandler, SlideStateManager, SlideTimer, add_scores_to_leaderboard,
+        all_players_answered, get_answered_count, validate_duration,
+    },
     media::Media,
 };
 
-/// Represents the current phase of a type answer slide
-///
-/// Type answer questions progress through phases similar to multiple choice:
-/// first showing the question, then accepting text input from players,
-/// and finally showing results with accepted answers.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[repr(u8)]
-pub enum SlideState {
-    /// Initial state before the slide has started (treated same as Question)
-    #[default]
-    Unstarted,
-    /// Displaying the question without input field
-    Question,
-    /// Accepting text input from players
-    Answers,
-    /// Displaying results with correct answers and statistics
-    AnswersResults,
-}
+// Re-export SlideState publicly so other modules can use it
+pub use super::common::SlideState;
 
 type ValidationResult = garde::Result;
-
-/// Validates that a duration falls within specified bounds
-///
-/// # Arguments
-/// * `field` - Name of the field being validated for error messages
-/// * `val` - Duration to validate
-///
-/// # Returns
-/// * `Ok(())` if the duration is within bounds
-/// * `Err(garde::Error)` if the duration is outside bounds
-fn validate_duration<const MIN_SECONDS: u64, const MAX_SECONDS: u64>(
-    field: &'static str,
-    val: &Duration,
-) -> ValidationResult {
-    if (MIN_SECONDS..=MAX_SECONDS).contains(&val.as_secs()) {
-        Ok(())
-    } else {
-        Err(garde::Error::new(format!(
-            "{field} is outside of the bounds [{MIN_SECONDS},{MAX_SECONDS}]",
-        )))
-    }
-}
 
 /// Validates that a time limit is within acceptable bounds for type answer questions
 fn validate_time_limit(val: &Duration) -> ValidationResult {
@@ -267,6 +233,59 @@ fn clean_answer(answer: &str, case_sensitive: bool) -> String {
     }
 }
 
+impl SlideStateManager for State {
+    fn state(&self) -> SlideState {
+        self.state
+    }
+
+    fn change_state(&mut self, before: SlideState, after: SlideState) -> bool {
+        if self.state == before {
+            self.state = after;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl SlideTimer for State {
+    fn answer_start(&self) -> Option<SystemTime> {
+        self.answer_start
+    }
+
+    fn set_answer_start(&mut self, time: Option<SystemTime>) {
+        self.answer_start = time;
+    }
+}
+
+impl AnswerHandler<String> for State {
+    fn user_answers(&self) -> &HashMap<Id, (String, SystemTime)> {
+        &self.user_answers
+    }
+
+    fn user_answers_mut(&mut self) -> &mut HashMap<Id, (String, SystemTime)> {
+        &mut self.user_answers
+    }
+
+    fn is_correct_answer(&self, answer: &String) -> bool {
+        let cleaned_answers: HashSet<_> = self
+            .config
+            .answers
+            .iter()
+            .map(|a| clean_answer(a, self.config.case_sensitive))
+            .collect();
+        cleaned_answers.contains(&clean_answer(answer, self.config.case_sensitive))
+    }
+
+    fn max_points(&self) -> u64 {
+        self.config.points_awarded
+    }
+
+    fn time_limit(&self) -> Duration {
+        self.config.time_limit
+    }
+}
+
 impl State {
     /// Starts the type answer slide by sending initial question announcements
     ///
@@ -289,40 +308,6 @@ impl State {
         count: usize,
     ) {
         self.send_question_announcements(watchers, schedule_message, tunnel_finder, index, count);
-    }
-
-    /// Calculates the score for a player based on how quickly they answered
-    ///
-    /// Score decreases linearly from full points to half points over the duration.
-    ///
-    /// # Arguments
-    /// * `full_duration` - Total time allowed for the question
-    /// * `taken_duration` - Time taken by the player to answer
-    /// * `full_points_awarded` - Maximum points possible for this question
-    ///
-    /// # Returns
-    /// * Points awarded (between half and full points)
-    fn calculate_score(
-        full_duration: Duration,
-        taken_duration: Duration,
-        full_points_awarded: u64,
-    ) -> u64 {
-        (full_points_awarded as f64
-            * (1. - (taken_duration.as_secs_f64() / full_duration.as_secs_f64() / 2.)))
-            as u64
-    }
-
-    /// Starts the timer for the current phase of the slide
-    fn start_timer(&mut self) {
-        self.answer_start = Some(SystemTime::now());
-    }
-
-    /// Returns the start time of the current phase
-    ///
-    /// # Returns
-    /// * `SystemTime` when the current phase started, or current time if not set
-    fn timer(&self) -> SystemTime {
-        self.answer_start.unwrap_or(SystemTime::now())
     }
 
     /// Sends the initial question announcement to all watchers
@@ -436,29 +421,6 @@ impl State {
         }
     }
 
-    /// Attempts to transition from one slide state to another
-    ///
-    /// # Arguments
-    /// * `before` - Expected current state
-    /// * `after` - Target state
-    ///
-    /// # Returns
-    /// * `true` if transition was successful, `false` if current state didn't match expected state
-    fn change_state(&mut self, before: SlideState, after: SlideState) -> bool {
-        if self.state == before {
-            self.state = after;
-
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Returns the current state of the slide
-    fn state(&self) -> SlideState {
-        self.state
-    }
-
     /// Sends the results showing correct answers and player statistics
     ///
     /// This method handles the transition from Answers to `AnswersResults` state,
@@ -515,64 +477,13 @@ impl State {
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         tunnel_finder: F,
     ) {
-        let starting_instant = self.timer();
-
-        let cleaned_answers: HashSet<_> = self
-            .config
-            .answers
-            .iter()
-            .map(|answer| clean_answer(answer, self.config.case_sensitive))
-            .collect();
-
-        leaderboard.add_scores(
-            &self
-                .user_answers
-                .iter()
-                .map(|(id, (answer, instant))| {
-                    let correct =
-                        cleaned_answers.contains(&clean_answer(answer, self.config.case_sensitive));
-                    (
-                        *id,
-                        if correct {
-                            State::calculate_score(
-                                self.config.time_limit,
-                                instant
-                                    .duration_since(starting_instant)
-                                    .expect("future is past the past"),
-                                self.config.points_awarded,
-                            )
-                        } else {
-                            0
-                        },
-                        instant,
-                    )
-                })
-                .into_grouping_map_by(|(id, _, _)| {
-                    let player_id = *id;
-                    match &team_manager {
-                        Some(team_manager) => team_manager.get_team(player_id).unwrap_or(player_id),
-                        None => player_id,
-                    }
-                })
-                .min_by_key(|_, (_, _, instant)| *instant)
-                .into_iter()
-                .map(|(id, (_, score, _))| (id, score))
-                .chain(
-                    {
-                        match &team_manager {
-                            Some(team_manager) => team_manager.all_ids(),
-                            None => watchers
-                                .specific_vec(ValueKind::Player, tunnel_finder)
-                                .into_iter()
-                                .map(|(x, _, _)| x)
-                                .collect_vec(),
-                        }
-                    }
-                    .into_iter()
-                    .map(|id| (id, 0)),
-                )
-                .unique_by(|(id, _)| *id)
-                .collect_vec(),
+        add_scores_to_leaderboard(
+            self,
+            self,
+            leaderboard,
+            watchers,
+            team_manager,
+            tunnel_finder,
         );
     }
 
@@ -709,19 +620,17 @@ impl State {
             },
             IncomingMessage::Player(IncomingPlayerMessage::StringAnswer(v)) => {
                 self.user_answers.insert(watcher_id, (v, SystemTime::now()));
-                let left_set: HashSet<_> = watchers
-                    .specific_vec(ValueKind::Player, &tunnel_finder)
-                    .iter()
-                    .map(|(w, _, _)| w.to_owned())
-                    .collect();
-                let right_set: HashSet<_> = self.user_answers.keys().copied().collect();
-                if left_set.is_subset(&right_set) {
+                if all_players_answered(self, watchers, &tunnel_finder) {
                     self.send_answers_results(watchers, &tunnel_finder);
                 } else {
                     watchers.announce_specific(
                         ValueKind::Host,
-                        &UpdateMessage::AnswersCount(left_set.intersection(&right_set).count())
-                            .into(),
+                        &UpdateMessage::AnswersCount(get_answered_count(
+                            self,
+                            watchers,
+                            &tunnel_finder,
+                        ))
+                        .into(),
                         &tunnel_finder,
                     );
                 }
@@ -791,8 +700,9 @@ impl State {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
-    use crate::fuiz::config::{
-        Fuiz, SlideConfig as ConfigSlideConfig, SlideConfig as FuizSlideConfig,
+    use crate::fuiz::{
+        common::calculate_slide_score,
+        config::{Fuiz, SlideConfig as ConfigSlideConfig, SlideConfig as FuizSlideConfig},
     };
     use core::panic;
     use garde::Validate;
@@ -969,15 +879,15 @@ mod tests {
 
         // Immediate answer should get full points
         let immediate_score =
-            State::calculate_score(full_duration, Duration::from_secs(0), full_points);
+            calculate_slide_score(full_duration, Duration::from_secs(0), full_points);
         assert_eq!(immediate_score, full_points);
 
         // Answer at the end should get half points
-        let late_score = State::calculate_score(full_duration, full_duration, full_points);
+        let late_score = calculate_slide_score(full_duration, full_duration, full_points);
         assert_eq!(late_score, 500);
 
         // Answer in the middle should get 3/4 points
-        let mid_score = State::calculate_score(full_duration, Duration::from_secs(15), full_points);
+        let mid_score = calculate_slide_score(full_duration, Duration::from_secs(15), full_points);
         assert_eq!(mid_score, 750);
     }
 
