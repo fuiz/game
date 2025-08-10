@@ -233,3 +233,163 @@ where
     let right_set: HashSet<_> = slide.user_answers().keys().copied().collect();
     left_set.intersection(&right_set).count()
 }
+
+/// Common interface for all question types to handle incoming messages
+///
+/// This trait abstracts the message handling logic that is common across
+/// all question types, allowing for uniform treatment of different slide types.
+pub trait QuestionReceiveMessage {
+    /// Handle host "Next" command
+    ///
+    /// This method processes the host's request to advance to the next phase
+    /// or complete the slide.
+    ///
+    /// # Arguments
+    ///
+    /// * `leaderboard` - Mutable reference to the game leaderboard
+    /// * `watchers` - Connection manager for all participants
+    /// * `team_manager` - Optional team manager for team-based games
+    /// * `schedule_message` - Function to schedule delayed messages for timing
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// * `index` - Current slide index in the game
+    /// * `count` - Total number of slides in the game
+    ///
+    /// # Returns
+    ///
+    /// `true` if the slide is complete and should advance to the next slide, `false` otherwise
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
+    /// * `S` - Function type for scheduling alarm messages
+    fn receive_host_next<
+        T: Tunnel,
+        F: Fn(Id) -> Option<T>,
+        S: FnMut(crate::AlarmMessage, Duration),
+    >(
+        &mut self,
+        leaderboard: &mut Leaderboard,
+        watchers: &Watchers,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
+        schedule_message: S,
+        tunnel_finder: F,
+        index: usize,
+        count: usize,
+    ) -> bool;
+
+    /// Handle player messages
+    ///
+    /// This method processes player-specific messages like answer submissions
+    /// and other player interactions.
+    ///
+    /// # Arguments
+    ///
+    /// * `watcher_id` - ID of the player sending the message
+    /// * `message` - The player message to process
+    /// * `leaderboard` - Mutable reference to the game leaderboard
+    /// * `watchers` - Connection manager for all participants
+    /// * `team_manager` - Optional team manager for team-based games
+    /// * `schedule_message` - Function to schedule delayed messages for timing
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// * `index` - Current slide index in the game
+    /// * `count` - Total number of slides in the game
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
+    /// * `S` - Function type for scheduling alarm messages
+    fn receive_player_message<
+        T: Tunnel,
+        F: Fn(Id) -> Option<T>,
+        S: FnMut(crate::AlarmMessage, Duration),
+    >(
+        &mut self,
+        watcher_id: Id,
+        message: crate::game::IncomingPlayerMessage,
+        leaderboard: &mut Leaderboard,
+        watchers: &Watchers,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
+        schedule_message: S,
+        tunnel_finder: F,
+        index: usize,
+        count: usize,
+    );
+
+    /// Combined message handler that delegates to specific handlers
+    ///
+    /// This method provides a unified interface for handling both host and player
+    /// messages by delegating to the appropriate specific handler method.
+    ///
+    /// # Arguments
+    ///
+    /// * `watcher_id` - ID of the participant sending the message
+    /// * `message` - The incoming message to process
+    /// * `leaderboard` - Mutable reference to the game leaderboard
+    /// * `watchers` - Connection manager for all participants
+    /// * `team_manager` - Optional team manager for team-based games
+    /// * `schedule_message` - Function to schedule delayed messages for timing
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// * `index` - Current slide index in the game
+    /// * `count` - Total number of slides in the game
+    ///
+    /// # Returns
+    ///
+    /// `true` if the slide is complete and should advance to the next slide, `false` otherwise
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
+    /// * `S` - Function type for scheduling alarm messages
+    fn receive_message<
+        T: Tunnel,
+        F: Fn(Id) -> Option<T>,
+        S: FnMut(crate::AlarmMessage, Duration),
+    >(
+        &mut self,
+        watcher_id: Id,
+        message: crate::game::IncomingMessage,
+        leaderboard: &mut Leaderboard,
+        watchers: &Watchers,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
+        schedule_message: S,
+        tunnel_finder: F,
+        index: usize,
+        count: usize,
+    ) -> bool {
+        match message {
+            crate::game::IncomingMessage::Host(crate::game::IncomingHostMessage::Next) => self
+                .receive_host_next(
+                    leaderboard,
+                    watchers,
+                    team_manager,
+                    schedule_message,
+                    tunnel_finder,
+                    index,
+                    count,
+                ),
+            crate::game::IncomingMessage::Player(player_message) => {
+                self.receive_player_message(
+                    watcher_id,
+                    player_message,
+                    leaderboard,
+                    watchers,
+                    team_manager,
+                    schedule_message,
+                    tunnel_finder,
+                    index,
+                    count,
+                );
+                false
+            }
+            crate::game::IncomingMessage::Host(
+                crate::game::IncomingHostMessage::Index(_)
+                | crate::game::IncomingHostMessage::Lock(_),
+            )
+            | crate::game::IncomingMessage::Ghost(_)
+            | crate::game::IncomingMessage::Unassigned(_) => false,
+        }
+    }
+}

@@ -10,6 +10,8 @@ use web_time;
 use garde::Validate;
 use serde::{Deserialize, Serialize};
 
+use super::{super::game::IncomingMessage, media::Media, multiple_choice, order, type_answer};
+use crate::fuiz::common::QuestionReceiveMessage;
 use crate::{
     AlarmMessage, SyncMessage,
     leaderboard::Leaderboard,
@@ -17,8 +19,6 @@ use crate::{
     teams::TeamManager,
     watcher::{Id, ValueKind, Watchers},
 };
-
-use super::{super::game::IncomingMessage, media::Media, multiple_choice, order, type_answer};
 
 /// Represents content that can be either text or media
 ///
@@ -211,7 +211,7 @@ impl SlideState {
         match self {
             Self::MultipleChoice(s) => s.receive_message(
                 watcher_id,
-                &message,
+                message,
                 leaderboard,
                 watchers,
                 team_manager,

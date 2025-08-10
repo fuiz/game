@@ -26,10 +26,10 @@ use crate::{
 
 use super::{
     super::constants::order::*,
-    super::game::{IncomingHostMessage, IncomingMessage, IncomingPlayerMessage},
+    super::game::IncomingPlayerMessage,
     common::{
-        AnswerHandler, SlideStateManager, SlideTimer, add_scores_to_leaderboard,
-        all_players_answered, get_answered_count, validate_duration,
+        AnswerHandler, QuestionReceiveMessage, SlideStateManager, SlideTimer,
+        add_scores_to_leaderboard, all_players_answered, get_answered_count, validate_duration,
     },
     media::Media,
 };
@@ -659,42 +659,15 @@ impl State {
 
         false
     }
+}
 
-    /// Handles incoming messages from participants during the order question
-    ///
-    /// This method processes messages from hosts and players, including host commands
-    /// to advance the slide and player arrangement submissions. It manages automatic
-    /// progression when all players have submitted their arrangements.
-    ///
-    /// # Arguments
-    ///
-    /// * `watcher_id` - ID of the participant sending the message
-    /// * `message` - The incoming message to process
-    /// * `leaderboard` - Mutable reference to the game leaderboard
-    /// * `watchers` - Connection manager for all participants
-    /// * `team_manager` - Optional team manager for team-based games
-    /// * `schedule_message` - Function to schedule delayed messages for timing
-    /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// * `index` - Current slide index in the game
-    /// * `count` - Total number of slides in the game
-    ///
-    /// # Returns
-    ///
-    /// `true` if the slide is complete and should advance to the next slide, `false` otherwise
-    ///
-    /// # Type Parameters
-    ///
-    /// * `T` - Type implementing the Tunnel trait for participant communication
-    /// * `F` - Function type for finding tunnels by participant ID
-    /// * `S` - Function type for scheduling alarm messages
-    pub fn receive_message<
+impl QuestionReceiveMessage for State {
+    fn receive_host_next<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
         S: FnMut(crate::AlarmMessage, time::Duration),
     >(
         &mut self,
-        watcher_id: Id,
-        message: IncomingMessage,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
@@ -703,55 +676,70 @@ impl State {
         index: usize,
         count: usize,
     ) -> bool {
-        match message {
-            IncomingMessage::Host(IncomingHostMessage::Next) => match self.state() {
-                SlideState::Unstarted => {
-                    self.send_question_announcements(
-                        watchers,
-                        schedule_message,
-                        tunnel_finder,
-                        index,
-                        count,
-                    );
-                }
-                SlideState::Question => {
-                    self.send_answers_announcements(
-                        watchers,
-                        tunnel_finder,
-                        schedule_message,
-                        index,
-                        count,
-                    );
-                }
-                SlideState::Answers => {
-                    self.send_answers_results(watchers, tunnel_finder);
-                }
-                SlideState::AnswersResults => {
-                    self.add_scores(leaderboard, watchers, team_manager, tunnel_finder);
-                    return true;
-                }
-            },
-            IncomingMessage::Player(IncomingPlayerMessage::StringArrayAnswer(v)) => {
-                self.user_answers.insert(watcher_id, (v, SystemTime::now()));
-                if all_players_answered(self, watchers, &tunnel_finder) {
-                    self.send_answers_results(watchers, &tunnel_finder);
-                } else {
-                    watchers.announce_specific(
-                        ValueKind::Host,
-                        &UpdateMessage::AnswersCount(get_answered_count(
-                            self,
-                            watchers,
-                            &tunnel_finder,
-                        ))
-                        .into(),
-                        &tunnel_finder,
-                    );
-                }
+        match self.state() {
+            SlideState::Unstarted => {
+                self.send_question_announcements(
+                    watchers,
+                    schedule_message,
+                    tunnel_finder,
+                    index,
+                    count,
+                );
             }
-            _ => (),
+            SlideState::Question => {
+                self.send_answers_announcements(
+                    watchers,
+                    tunnel_finder,
+                    schedule_message,
+                    index,
+                    count,
+                );
+            }
+            SlideState::Answers => {
+                self.send_answers_results(watchers, tunnel_finder);
+            }
+            SlideState::AnswersResults => {
+                self.add_scores(leaderboard, watchers, team_manager, tunnel_finder);
+                return true;
+            }
         }
 
         false
+    }
+
+    fn receive_player_message<
+        T: Tunnel,
+        F: Fn(Id) -> Option<T>,
+        S: FnMut(crate::AlarmMessage, time::Duration),
+    >(
+        &mut self,
+        watcher_id: Id,
+        message: IncomingPlayerMessage,
+        _leaderboard: &mut Leaderboard,
+        watchers: &Watchers,
+        _team_manager: Option<&TeamManager<crate::names::NameStyle>>,
+        _schedule_message: S,
+        tunnel_finder: F,
+        _index: usize,
+        _count: usize,
+    ) {
+        if let IncomingPlayerMessage::StringArrayAnswer(v) = message {
+            self.user_answers.insert(watcher_id, (v, SystemTime::now()));
+            if all_players_answered(self, watchers, &tunnel_finder) {
+                self.send_answers_results(watchers, &tunnel_finder);
+            } else {
+                watchers.announce_specific(
+                    ValueKind::Host,
+                    &UpdateMessage::AnswersCount(get_answered_count(
+                        self,
+                        watchers,
+                        &tunnel_finder,
+                    ))
+                    .into(),
+                    &tunnel_finder,
+                );
+            }
+        }
     }
 }
 
@@ -759,9 +747,12 @@ impl State {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
-    use crate::fuiz::{
-        common::calculate_slide_score,
-        config::{Fuiz, SlideConfig as ConfigSlideConfig, SlideConfig as FuizSlideConfig},
+    use crate::{
+        fuiz::{
+            common::calculate_slide_score,
+            config::{Fuiz, SlideConfig as ConfigSlideConfig, SlideConfig as FuizSlideConfig},
+        },
+        game::{IncomingHostMessage, IncomingMessage},
     };
     use garde::Validate;
     use std::time::Duration;

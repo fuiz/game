@@ -25,10 +25,10 @@ use crate::{
 
 use super::{
     super::constants::multiple_choice::*,
-    super::game::{IncomingHostMessage, IncomingMessage, IncomingPlayerMessage},
+    super::game::IncomingPlayerMessage,
     common::{
-        AnswerHandler, SlideStateManager, SlideTimer, add_scores_to_leaderboard,
-        all_players_answered, get_answered_count, validate_duration,
+        AnswerHandler, QuestionReceiveMessage, SlideStateManager, SlideTimer,
+        add_scores_to_leaderboard, all_players_answered, get_answered_count, validate_duration,
     },
     config::TextOrMedia,
     media::Media,
@@ -831,42 +831,15 @@ impl State {
 
         false
     }
+}
 
-    /// Handles incoming messages from participants during the multiple choice question
-    ///
-    /// This method processes messages from hosts and players, including host commands
-    /// to advance the slide and player answer submissions. It manages automatic
-    /// progression when all players have answered.
-    ///
-    /// # Arguments
-    ///
-    /// * `watcher_id` - ID of the participant sending the message
-    /// * `message` - The incoming message to process
-    /// * `leaderboard` - Mutable reference to the game leaderboard
-    /// * `watchers` - Connection manager for all participants
-    /// * `team_manager` - Optional team manager for team-based games
-    /// * `schedule_message` - Function to schedule delayed messages for timing
-    /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// * `index` - Current slide index in the game
-    /// * `count` - Total number of slides in the game
-    ///
-    /// # Returns
-    ///
-    /// `true` if the slide is complete and should advance to the next slide, `false` otherwise
-    ///
-    /// # Type Parameters
-    ///
-    /// * `T` - Type implementing the Tunnel trait for participant communication
-    /// * `F` - Function type for finding tunnels by participant ID
-    /// * `S` - Function type for scheduling alarm messages
-    pub fn receive_message<
+impl QuestionReceiveMessage for State {
+    fn receive_host_next<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
         S: FnMut(crate::AlarmMessage, time::Duration),
     >(
         &mut self,
-        watcher_id: Id,
-        message: &IncomingMessage,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
@@ -875,38 +848,55 @@ impl State {
         index: usize,
         count: usize,
     ) -> bool {
+        match self.state() {
+            SlideState::Unstarted => {
+                self.send_question_announcements(
+                    team_manager,
+                    watchers,
+                    schedule_message,
+                    tunnel_finder,
+                    index,
+                    count,
+                );
+            }
+            SlideState::Question => {
+                self.send_answers_announcements(
+                    team_manager,
+                    watchers,
+                    schedule_message,
+                    tunnel_finder,
+                    index,
+                );
+            }
+            SlideState::Answers => self.send_answers_results(watchers, tunnel_finder),
+            SlideState::AnswersResults => {
+                self.add_scores(leaderboard, watchers, team_manager, tunnel_finder);
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn receive_player_message<
+        T: Tunnel,
+        F: Fn(Id) -> Option<T>,
+        S: FnMut(crate::AlarmMessage, time::Duration),
+    >(
+        &mut self,
+        watcher_id: Id,
+        message: IncomingPlayerMessage,
+        _leaderboard: &mut Leaderboard,
+        watchers: &Watchers,
+        _team_manager: Option<&TeamManager<crate::names::NameStyle>>,
+        _schedule_message: S,
+        tunnel_finder: F,
+        _index: usize,
+        _count: usize,
+    ) {
         match message {
-            IncomingMessage::Host(IncomingHostMessage::Next) => match self.state() {
-                SlideState::Unstarted => {
-                    self.send_question_announcements(
-                        team_manager,
-                        watchers,
-                        schedule_message,
-                        tunnel_finder,
-                        index,
-                        count,
-                    );
-                }
-                SlideState::Question => {
-                    self.send_answers_announcements(
-                        team_manager,
-                        watchers,
-                        schedule_message,
-                        tunnel_finder,
-                        index,
-                    );
-                }
-                SlideState::Answers => self.send_answers_results(watchers, tunnel_finder),
-                SlideState::AnswersResults => {
-                    self.add_scores(leaderboard, watchers, team_manager, tunnel_finder);
-                    return true;
-                }
-            },
-            IncomingMessage::Player(IncomingPlayerMessage::IndexAnswer(v))
-                if *v < self.config.answers.len() =>
-            {
-                self.user_answers
-                    .insert(watcher_id, (*v, SystemTime::now()));
+            IncomingPlayerMessage::IndexAnswer(v) if v < self.config.answers.len() => {
+                self.user_answers.insert(watcher_id, (v, SystemTime::now()));
                 if all_players_answered(self, watchers, &tunnel_finder) {
                     self.send_answers_results(watchers, &tunnel_finder);
                 } else {
@@ -924,8 +914,6 @@ impl State {
             }
             _ => (),
         }
-
-        false
     }
 }
 
@@ -933,9 +921,14 @@ impl State {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
-    use crate::fuiz::{
-        common::calculate_slide_score,
-        config::{Fuiz, SlideConfig as FuizSlideConfig, SlideState as FuizSlideState, TextOrMedia},
+    use crate::{
+        fuiz::{
+            common::calculate_slide_score,
+            config::{
+                Fuiz, SlideConfig as FuizSlideConfig, SlideState as FuizSlideState, TextOrMedia,
+            },
+        },
+        game::{IncomingHostMessage, IncomingMessage},
     };
     use garde::Validate;
     use std::time::Duration;
@@ -1522,7 +1515,7 @@ mod tests {
 
         let result = state.receive_message(
             Id::new(),
-            &message,
+            message,
             &mut leaderboard,
             &watchers,
             None,
@@ -1551,7 +1544,7 @@ mod tests {
 
         let result = state.receive_message(
             Id::new(),
-            &message,
+            message,
             &mut leaderboard,
             &watchers,
             None,
@@ -1580,7 +1573,7 @@ mod tests {
 
         let result = state.receive_message(
             Id::new(),
-            &message,
+            message,
             &mut leaderboard,
             &watchers,
             None,
@@ -1609,7 +1602,7 @@ mod tests {
 
         let result = state.receive_message(
             Id::new(),
-            &message,
+            message,
             &mut leaderboard,
             &watchers,
             None,
@@ -1640,7 +1633,7 @@ mod tests {
 
         let result = state.receive_message(
             player_id,
-            &message,
+            message,
             &mut leaderboard,
             &watchers,
             None,
@@ -1671,7 +1664,7 @@ mod tests {
 
         let result = state.receive_message(
             player_id,
-            &message,
+            message,
             &mut leaderboard,
             &watchers,
             None,
@@ -1699,7 +1692,7 @@ mod tests {
 
         let result = state.receive_message(
             Id::new(),
-            &message,
+            message,
             &mut leaderboard,
             &watchers,
             None,
@@ -1770,7 +1763,7 @@ mod tests {
         let message1 = IncomingMessage::Player(IncomingPlayerMessage::IndexAnswer(0));
         let result1 = state.receive_message(
             player1_id,
-            &message1,
+            message1,
             &mut leaderboard,
             &watchers,
             None,
@@ -1785,7 +1778,7 @@ mod tests {
         let message2 = IncomingMessage::Player(IncomingPlayerMessage::IndexAnswer(1));
         let result2 = state.receive_message(
             player2_id,
-            &message2,
+            message2,
             &mut leaderboard,
             &watchers,
             None,
@@ -1801,7 +1794,7 @@ mod tests {
         let message3 = IncomingMessage::Player(IncomingPlayerMessage::IndexAnswer(2));
         let result3 = state.receive_message(
             player3_id,
-            &message3,
+            message3,
             &mut leaderboard,
             &watchers,
             None,
