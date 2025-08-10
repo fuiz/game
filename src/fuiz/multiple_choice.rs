@@ -680,12 +680,6 @@ impl State {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    ///
-    /// # Panics
-    ///
-    /// Panics if the system clock goes backwards while calculating elapsed time
-    /// if the state is not one of the expected states.
-    ///
     pub fn state_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &self,
         watcher_id: Id,
@@ -703,17 +697,14 @@ impl State {
                 question: self.config.title.clone(),
                 media: self.config.media.clone(),
                 duration: self.config.introduce_question
-                    - self.timer().elapsed().expect("system clock went backwards"),
+                    - self.timer().elapsed().unwrap_or_default(),
             },
             SlideState::Answers => SyncMessage::AnswersAnnouncement {
                 index,
                 count,
                 question: self.config.title.clone(),
                 media: self.config.media.clone(),
-                duration: {
-                    self.config.time_limit
-                        - self.timer().elapsed().expect("system clock went backwards")
-                },
+                duration: { self.config.time_limit - self.elapsed() },
                 answers: self.get_answers_for_player(
                     watcher_id,
                     watcher_kind,

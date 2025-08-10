@@ -97,6 +97,11 @@ pub trait SlideTimer {
     fn timer(&self) -> SystemTime {
         self.answer_start().unwrap_or(SystemTime::now())
     }
+
+    /// Get the elapsed time since the timer started
+    fn elapsed(&self) -> Duration {
+        self.timer().elapsed().unwrap_or_default()
+    }
 }
 
 /// Calculate score based on timing - shared function used by all slide types
@@ -128,9 +133,6 @@ pub trait AnswerHandler<AnswerType> {
 }
 
 /// Helper function to add scores to leaderboard (common across all slide types)
-///
-/// # Panics
-/// Panics if the system time goes backwards during score calculation
 pub fn add_scores_to_leaderboard<T, F, AnswerType>(
     slide: &impl AnswerHandler<AnswerType>,
     timer: &impl SlideTimer,
@@ -156,9 +158,7 @@ pub fn add_scores_to_leaderboard<T, F, AnswerType>(
                     if correct {
                         calculate_slide_score(
                             slide.time_limit(),
-                            instant
-                                .duration_since(starting_instant)
-                                .expect("future is past the past"),
+                            instant.duration_since(starting_instant).unwrap_or_default(),
                             slide.max_points(),
                         )
                     } else {

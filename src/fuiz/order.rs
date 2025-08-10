@@ -564,7 +564,7 @@ impl State {
                 duration: self
                     .config
                     .introduce_question
-                    .saturating_sub(self.timer().elapsed().unwrap_or(Duration::ZERO)),
+                    .saturating_sub(self.elapsed()),
             },
             SlideState::Answers => SyncMessage::AnswersAnnouncement {
                 index,
@@ -573,10 +573,7 @@ impl State {
                 axis_labels: self.config.axis_labels.clone(),
                 media: self.config.media.clone(),
                 answers: self.shuffled_answers.clone(),
-                duration: self
-                    .config
-                    .time_limit
-                    .saturating_sub(self.timer().elapsed().unwrap_or(Duration::ZERO)),
+                duration: self.config.time_limit.saturating_sub(self.elapsed()),
             },
             SlideState::AnswersResults => SyncMessage::AnswersResults {
                 index,

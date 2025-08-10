@@ -483,12 +483,6 @@ impl State {
     ///
     /// # Returns
     /// * Appropriate sync message based on current slide state
-    ///
-    /// # Panics
-    ///
-    /// Panics if the system clock goes backwards while calculating elapsed time
-    /// if the state is not one of the expected states.
-    ///
     pub fn state_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &self,
         _watcher_id: Id,
@@ -505,8 +499,7 @@ impl State {
                 count,
                 question: self.config.title.clone(),
                 media: self.config.media.clone(),
-                duration: self.config.introduce_question
-                    - self.timer().elapsed().expect("system clock went backwards"),
+                duration: self.config.introduce_question - self.elapsed(),
                 accept_answers: false,
             },
             SlideState::Answers => SyncMessage::QuestionAnnouncement {
@@ -514,8 +507,7 @@ impl State {
                 count,
                 question: self.config.title.clone(),
                 media: self.config.media.clone(),
-                duration: self.config.time_limit
-                    - self.timer().elapsed().expect("system clock went backwards"),
+                duration: self.config.time_limit - self.elapsed(),
                 accept_answers: true,
             },
             SlideState::AnswersResults => SyncMessage::AnswersResults {
