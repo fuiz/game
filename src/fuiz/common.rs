@@ -38,29 +38,34 @@ pub enum SlideState {
 /// Validation result type for duration validation
 type ValidationResult = garde::Result;
 
-/// Validates that a duration falls within specified bounds
+/// Validates that a duration falls within specified bounds.
 ///
-/// This helper function ensures that timing parameters for questions
-/// fall within acceptable ranges as defined by the game constants.
+/// This is a custom validation function for use with the `garde` crate.
+/// It checks if the duration in seconds is within the inclusive range
+/// defined by `MIN_SECONDS` and `MAX_SECONDS`.
 ///
 /// # Arguments
-/// * `field` - Name of the field being validated (for error messages)
-/// * `val` - The duration value to validate
 ///
-/// # Returns
-/// `Ok(())` if the duration is valid, `Err` with descriptive message if not
+/// * `val` - The `Duration` to validate.
+/// * `_ctx` - The validation context (unused).
+///
+/// # Generics
+///
+/// * `MIN_SECONDS` - The minimum allowed duration in seconds (inclusive).
+/// * `MAX_SECONDS` - The maximum allowed duration in seconds (inclusive).
 ///
 /// # Errors
-/// Returns a `garde::Error` if the duration is outside the specified bounds
+///
+/// Returns a `garde::Error` if the duration is outside the specified bounds.
 pub fn validate_duration<const MIN_SECONDS: u64, const MAX_SECONDS: u64>(
-    field: &'static str,
     val: &Duration,
+    _ctx: &(),
 ) -> ValidationResult {
     if (MIN_SECONDS..=MAX_SECONDS).contains(&val.as_secs()) {
         Ok(())
     } else {
         Err(garde::Error::new(format!(
-            "{field} is outside of the bounds [{MIN_SECONDS},{MAX_SECONDS}]",
+            "outside of bounds [{MIN_SECONDS},{MAX_SECONDS}]",
         )))
     }
 }

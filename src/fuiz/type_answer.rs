@@ -24,6 +24,7 @@ use crate::{
 };
 
 use super::{
+    super::constants::type_answer::*,
     super::game::{IncomingHostMessage, IncomingMessage, IncomingPlayerMessage},
     common::{
         AnswerHandler, SlideStateManager, SlideTimer, add_scores_to_leaderboard,
@@ -35,24 +36,6 @@ use super::{
 // Re-export SlideState publicly so other modules can use it
 pub use super::common::SlideState;
 
-type ValidationResult = garde::Result;
-
-/// Validates that a time limit is within acceptable bounds for type answer questions
-fn validate_time_limit(val: &Duration) -> ValidationResult {
-    validate_duration::<
-        { crate::constants::type_answer::MIN_TIME_LIMIT },
-        { crate::constants::type_answer::MAX_TIME_LIMIT },
-    >("time_limit", val)
-}
-
-/// Validates that the question introduction duration is within acceptable bounds
-fn validate_introduce_question(val: &Duration) -> ValidationResult {
-    validate_duration::<
-        { crate::constants::type_answer::MIN_INTRODUCE_QUESTION },
-        { crate::constants::type_answer::MAX_INTRODUCE_QUESTION },
-    >("introduce_question", val)
-}
-
 #[serde_with::serde_as]
 #[skip_serializing_none]
 /// Configuration for a type answer slide
@@ -62,25 +45,25 @@ fn validate_introduce_question(val: &Duration) -> ValidationResult {
 #[derive(Debug, Clone, Serialize, serde::Deserialize, Validate)]
 pub struct SlideConfig {
     /// The question title, represents what's being asked
-    #[garde(length(chars, min = crate::constants::type_answer::MIN_TITLE_LENGTH, max = crate::constants::type_answer::MAX_TITLE_LENGTH))]
+    #[garde(length(chars, min = MIN_TITLE_LENGTH, max = MAX_TITLE_LENGTH))]
     title: String,
     /// Accompanying media
     #[garde(dive)]
     media: Option<Media>,
     /// Time before the answers are displayed
-    #[garde(custom(|v, _| validate_introduce_question(v)))]
+    #[garde(custom(validate_duration::<MIN_INTRODUCE_QUESTION, MAX_INTRODUCE_QUESTION>))]
     #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
     #[serde(default)]
     introduce_question: Duration,
     /// Time where players can answer the question
-    #[garde(custom(|v, _| validate_time_limit(v)))]
+    #[garde(custom(validate_duration::<MIN_TIME_LIMIT, MAX_TIME_LIMIT>))]
     #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
     time_limit: Duration,
     /// Maximum number of points awarded the question, decreases linearly to half the amount by the end of the slide
     #[garde(skip)]
     points_awarded: u64,
     /// List of acceptable text answers for this question
-    #[garde(length(max = crate::constants::type_answer::MAX_ANSWER_COUNT),
+    #[garde(length(max = MAX_ANSWER_COUNT),
         inner(length(chars, max = crate::constants::answer_text::MAX_LENGTH))
     )]
     answers: Vec<String>,
@@ -760,7 +743,7 @@ mod tests {
     #[test]
     fn test_slide_config_title_too_long() {
         let mut config = create_test_slide_config();
-        config.title = "a".repeat(crate::constants::type_answer::MAX_TITLE_LENGTH + 1);
+        config.title = "a".repeat(MAX_TITLE_LENGTH + 1);
         assert!(config.validate().is_err());
     }
 
@@ -775,30 +758,28 @@ mod tests {
     #[test]
     fn test_slide_config_introduce_question_too_long() {
         let mut config = create_test_slide_config();
-        config.introduce_question =
-            Duration::from_secs(crate::constants::type_answer::MAX_INTRODUCE_QUESTION + 1);
+        config.introduce_question = Duration::from_secs(MAX_INTRODUCE_QUESTION + 1);
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_slide_config_time_limit_too_short() {
         let mut config = create_test_slide_config();
-        config.time_limit = Duration::from_secs(crate::constants::type_answer::MIN_TIME_LIMIT - 1);
+        config.time_limit = Duration::from_secs(MIN_TIME_LIMIT - 1);
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_slide_config_time_limit_too_long() {
         let mut config = create_test_slide_config();
-        config.time_limit = Duration::from_secs(crate::constants::type_answer::MAX_TIME_LIMIT + 1);
+        config.time_limit = Duration::from_secs(MAX_TIME_LIMIT + 1);
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_slide_config_too_many_answers() {
         let mut config = create_test_slide_config();
-        config.answers =
-            vec!["Answer".to_string(); crate::constants::type_answer::MAX_ANSWER_COUNT + 1];
+        config.answers = vec!["Answer".to_string(); MAX_ANSWER_COUNT + 1];
         assert!(config.validate().is_err());
     }
 
@@ -911,26 +892,6 @@ mod tests {
     fn test_slide_state_default() {
         let state: SlideState = SlideState::default();
         assert_eq!(state, SlideState::Unstarted);
-    }
-
-    #[test]
-    fn test_validate_duration_functions() {
-        // Test introduce_question validation
-        let valid_introduce =
-            Duration::from_secs(crate::constants::type_answer::MIN_INTRODUCE_QUESTION);
-        assert!(validate_introduce_question(&valid_introduce).is_ok());
-
-        // MIN_INTRODUCE_QUESTION is 0, so we can't test too short. Test at minimum boundary.
-        let invalid_introduce = Duration::from_secs(0);
-        assert!(validate_introduce_question(&invalid_introduce).is_ok());
-
-        // Test time_limit validation
-        let valid_time_limit = Duration::from_secs(crate::constants::type_answer::MIN_TIME_LIMIT);
-        assert!(validate_time_limit(&valid_time_limit).is_ok());
-
-        let invalid_time_limit =
-            Duration::from_secs(crate::constants::type_answer::MIN_TIME_LIMIT - 1);
-        assert!(validate_time_limit(&invalid_time_limit).is_err());
     }
 
     #[test]

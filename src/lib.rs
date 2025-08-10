@@ -17,7 +17,7 @@
 #![allow(clippy::ignored_unit_patterns)]
 #![allow(clippy::struct_field_names)]
 #![allow(clippy::doc_markdown)]
-
+#![allow(clippy::wildcard_imports)]
 use derive_where::derive_where;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
