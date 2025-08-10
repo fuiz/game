@@ -768,6 +768,70 @@ impl State {
         }
     }
 
+    /// Handles scheduled alarm messages for timed state transitions
+    ///
+    /// This method processes alarm messages that trigger automatic transitions
+    /// between slide states at predetermined times, such as moving from question
+    /// display to answer selection or from answers to results.
+    ///
+    /// # Arguments
+    ///
+    /// * `_leaderboard` - Mutable reference to the game leaderboard (unused)
+    /// * `watchers` - Connection manager for all participants
+    /// * `team_manager` - Optional team manager for team-based games
+    /// * `schedule_message` - Function to schedule delayed messages for timing
+    /// * `tunnel_finder` - Function to find communication tunnels for participants
+    /// * `message` - The alarm message to process
+    /// * `index` - Current slide index in the game
+    /// * `_count` - Total number of slides in the game (unused)
+    ///
+    /// # Returns
+    ///
+    /// `true` if the slide is complete and should advance to the next slide, `false` otherwise
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - Type implementing the Tunnel trait for participant communication
+    /// * `F` - Function type for finding tunnels by participant ID
+    /// * `S` - Function type for scheduling alarm messages
+    pub fn receive_alarm<
+        T: Tunnel,
+        F: Fn(Id) -> Option<T>,
+        S: FnMut(crate::AlarmMessage, web_time::Duration),
+    >(
+        &mut self,
+        _leaderboard: &mut Leaderboard,
+        watchers: &Watchers,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
+        schedule_message: &mut S,
+        tunnel_finder: F,
+        message: &crate::AlarmMessage,
+        index: usize,
+        _count: usize,
+    ) -> bool {
+        if let crate::AlarmMessage::MultipleChoice(AlarmMessage::ProceedFromSlideIntoSlide {
+            index: _,
+            to,
+        }) = message
+        {
+            match to {
+                SlideState::Answers => {
+                    self.send_answers_announcements(
+                        team_manager,
+                        watchers,
+                        schedule_message,
+                        tunnel_finder,
+                        index,
+                    );
+                }
+                SlideState::AnswersResults => self.send_answers_results(watchers, tunnel_finder),
+                _ => (),
+            }
+        }
+
+        false
+    }
+
     /// Handles incoming messages from participants during the multiple choice question
     ///
     /// This method processes messages from hosts and players, including host commands
@@ -859,70 +923,6 @@ impl State {
                 }
             }
             _ => (),
-        }
-
-        false
-    }
-
-    /// Handles scheduled alarm messages for timed state transitions
-    ///
-    /// This method processes alarm messages that trigger automatic transitions
-    /// between slide states at predetermined times, such as moving from question
-    /// display to answer selection or from answers to results.
-    ///
-    /// # Arguments
-    ///
-    /// * `_leaderboard` - Mutable reference to the game leaderboard (unused)
-    /// * `watchers` - Connection manager for all participants
-    /// * `team_manager` - Optional team manager for team-based games
-    /// * `schedule_message` - Function to schedule delayed messages for timing
-    /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// * `message` - The alarm message to process
-    /// * `index` - Current slide index in the game
-    /// * `_count` - Total number of slides in the game (unused)
-    ///
-    /// # Returns
-    ///
-    /// `true` if the slide is complete and should advance to the next slide, `false` otherwise
-    ///
-    /// # Type Parameters
-    ///
-    /// * `T` - Type implementing the Tunnel trait for participant communication
-    /// * `F` - Function type for finding tunnels by participant ID
-    /// * `S` - Function type for scheduling alarm messages
-    pub fn receive_alarm<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnMut(crate::AlarmMessage, web_time::Duration),
-    >(
-        &mut self,
-        _leaderboard: &mut Leaderboard,
-        watchers: &Watchers,
-        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
-        schedule_message: &mut S,
-        tunnel_finder: F,
-        message: &crate::AlarmMessage,
-        index: usize,
-        _count: usize,
-    ) -> bool {
-        if let crate::AlarmMessage::MultipleChoice(AlarmMessage::ProceedFromSlideIntoSlide {
-            index: _,
-            to,
-        }) = message
-        {
-            match to {
-                SlideState::Answers => {
-                    self.send_answers_announcements(
-                        team_manager,
-                        watchers,
-                        schedule_message,
-                        tunnel_finder,
-                        index,
-                    );
-                }
-                SlideState::AnswersResults => self.send_answers_results(watchers, tunnel_finder),
-                _ => (),
-            }
         }
 
         false

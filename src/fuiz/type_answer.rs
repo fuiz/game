@@ -534,6 +534,60 @@ impl State {
         }
     }
 
+    /// Handles scheduled alarm messages for state transitions
+    ///
+    /// # Arguments
+    /// * `_leaderboard` - Mutable reference to the game leaderboard
+    /// * `watchers` - Connection manager
+    /// * `_team_manager` - Optional team manager for team-based games
+    /// * `schedule_message` - Function to schedule delayed messages
+    /// * `tunnel_finder` - Function to find communication tunnels
+    /// * `message` - The alarm message to handle
+    /// * `index` - Current slide index
+    /// * `count` - Total number of slides
+    ///
+    /// # Returns
+    /// * `true` if the slide is complete and should advance, `false` otherwise
+    pub fn receive_alarm<
+        T: Tunnel,
+        F: Fn(Id) -> Option<T>,
+        S: FnMut(crate::AlarmMessage, web_time::Duration),
+    >(
+        &mut self,
+        _leaderboard: &mut Leaderboard,
+        watchers: &Watchers,
+        _team_manager: Option<&TeamManager<crate::names::NameStyle>>,
+        schedule_message: &mut S,
+        tunnel_finder: F,
+        message: &crate::AlarmMessage,
+        index: usize,
+        count: usize,
+    ) -> bool {
+        if let crate::AlarmMessage::TypeAnswer(AlarmMessage::ProceedFromSlideIntoSlide {
+            index: _,
+            to,
+        }) = message
+        {
+            match to {
+                SlideState::Answers => {
+                    self.send_accepting_answers(
+                        watchers,
+                        schedule_message,
+                        tunnel_finder,
+                        index,
+                        count,
+                    );
+                }
+                SlideState::AnswersResults => {
+                    self.send_answers_results(watchers, tunnel_finder);
+                }
+                _ => (),
+            }
+        }
+
+        false
+    }
+
     /// Handles incoming messages from players and hosts
     ///
     /// # Arguments
@@ -611,60 +665,6 @@ impl State {
                 }
             }
             _ => (),
-        }
-
-        false
-    }
-
-    /// Handles scheduled alarm messages for state transitions
-    ///
-    /// # Arguments
-    /// * `_leaderboard` - Mutable reference to the game leaderboard
-    /// * `watchers` - Connection manager
-    /// * `_team_manager` - Optional team manager for team-based games
-    /// * `schedule_message` - Function to schedule delayed messages
-    /// * `tunnel_finder` - Function to find communication tunnels
-    /// * `message` - The alarm message to handle
-    /// * `index` - Current slide index
-    /// * `count` - Total number of slides
-    ///
-    /// # Returns
-    /// * `true` if the slide is complete and should advance, `false` otherwise
-    pub fn receive_alarm<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnMut(crate::AlarmMessage, web_time::Duration),
-    >(
-        &mut self,
-        _leaderboard: &mut Leaderboard,
-        watchers: &Watchers,
-        _team_manager: Option<&TeamManager<crate::names::NameStyle>>,
-        schedule_message: &mut S,
-        tunnel_finder: F,
-        message: &crate::AlarmMessage,
-        index: usize,
-        count: usize,
-    ) -> bool {
-        if let crate::AlarmMessage::TypeAnswer(AlarmMessage::ProceedFromSlideIntoSlide {
-            index: _,
-            to,
-        }) = message
-        {
-            match to {
-                SlideState::Answers => {
-                    self.send_accepting_answers(
-                        watchers,
-                        schedule_message,
-                        tunnel_finder,
-                        index,
-                        count,
-                    );
-                }
-                SlideState::AnswersResults => {
-                    self.send_answers_results(watchers, tunnel_finder);
-                }
-                _ => (),
-            }
         }
 
         false
