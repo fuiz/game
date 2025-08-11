@@ -91,6 +91,8 @@ pub struct State {
     answer_start: Option<SystemTime>,
     /// Current phase of the slide presentation
     state: SlideState,
+    /// The set of cleaned player answers
+    cleaned_answers: HashSet<String>,
 }
 
 impl SlideConfig {
@@ -108,6 +110,11 @@ impl SlideConfig {
             user_answers: HashMap::default(),
             answer_start: Option::default(),
             state: SlideState::default(),
+            cleaned_answers: self
+                .answers
+                .iter()
+                .map(|a| clean_answer(a, self.case_sensitive))
+                .collect(),
         }
     }
 }
@@ -255,13 +262,7 @@ impl AnswerHandler<String> for State {
     }
 
     fn is_correct_answer(&self, answer: &String) -> bool {
-        let cleaned_answers: HashSet<_> = self
-            .config
-            .answers
-            .iter()
-            .map(|a| clean_answer(a, self.config.case_sensitive))
-            .collect();
-        cleaned_answers.contains(answer)
+        self.cleaned_answers.contains(answer)
     }
 
     fn max_points(&self) -> u64 {
@@ -424,12 +425,7 @@ impl State {
         if self.change_state(SlideState::Answers, SlideState::AnswersResults) {
             watchers.announce(
                 &UpdateMessage::AnswersResults {
-                    answers: self
-                        .config
-                        .answers
-                        .iter()
-                        .map(|answer| clean_answer(answer, self.config.case_sensitive))
-                        .collect_vec(),
+                    answers: self.cleaned_answers.iter().cloned().collect_vec(),
                     results: self.answer_counts().into_iter().collect_vec(),
                     case_sensitive: self.config.case_sensitive,
                 }
@@ -512,12 +508,7 @@ impl State {
                 count,
                 question: self.config.title.clone(),
                 media: self.config.media.clone(),
-                answers: self
-                    .config
-                    .answers
-                    .iter()
-                    .map(|answer| clean_answer(answer, self.config.case_sensitive))
-                    .collect_vec(),
+                answers: self.cleaned_answers.iter().cloned().collect_vec(),
                 results: self.answer_counts().into_iter().collect_vec(),
                 case_sensitive: self.config.case_sensitive,
             },
