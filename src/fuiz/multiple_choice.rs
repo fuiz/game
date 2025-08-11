@@ -878,41 +878,31 @@ impl QuestionReceiveMessage for State {
         false
     }
 
-    fn receive_player_message<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnMut(crate::AlarmMessage, time::Duration),
-    >(
+    fn receive_player_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &mut self,
         watcher_id: Id,
         message: IncomingPlayerMessage,
-        _leaderboard: &mut Leaderboard,
         watchers: &Watchers,
-        _team_manager: Option<&TeamManager<crate::names::NameStyle>>,
-        _schedule_message: S,
         tunnel_finder: F,
-        _index: usize,
-        _count: usize,
     ) {
-        match message {
-            IncomingPlayerMessage::IndexAnswer(v) if v < self.config.answers.len() => {
-                self.user_answers.insert(watcher_id, (v, SystemTime::now()));
-                if all_players_answered(self, watchers, &tunnel_finder) {
-                    self.send_answers_results(watchers, &tunnel_finder);
-                } else {
-                    watchers.announce_specific(
-                        ValueKind::Host,
-                        &UpdateMessage::AnswersCount(get_answered_count(
-                            self,
-                            watchers,
-                            &tunnel_finder,
-                        ))
-                        .into(),
+        if let IncomingPlayerMessage::IndexAnswer(v) = message
+            && v < self.config.answers.len()
+        {
+            self.user_answers.insert(watcher_id, (v, SystemTime::now()));
+            if all_players_answered(self, watchers, &tunnel_finder) {
+                self.send_answers_results(watchers, &tunnel_finder);
+            } else {
+                watchers.announce_specific(
+                    ValueKind::Host,
+                    &UpdateMessage::AnswersCount(get_answered_count(
+                        self,
+                        watchers,
                         &tunnel_finder,
-                    );
-                }
+                    ))
+                    .into(),
+                    &tunnel_finder,
+                );
             }
-            _ => (),
         }
     }
 }

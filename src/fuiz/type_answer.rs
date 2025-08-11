@@ -635,21 +635,12 @@ impl QuestionReceiveMessage for State {
         false
     }
 
-    fn receive_player_message<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnMut(crate::AlarmMessage, time::Duration),
-    >(
+    fn receive_player_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &mut self,
         watcher_id: Id,
         message: IncomingPlayerMessage,
-        _leaderboard: &mut Leaderboard,
         watchers: &Watchers,
-        _team_manager: Option<&TeamManager<crate::names::NameStyle>>,
-        _schedule_message: S,
         tunnel_finder: F,
-        _index: usize,
-        _count: usize,
     ) {
         if let IncomingPlayerMessage::StringAnswer(v) = message {
             self.user_answers.insert(watcher_id, (v, SystemTime::now()));

@@ -287,34 +287,19 @@ pub trait QuestionReceiveMessage {
     ///
     /// * `watcher_id` - ID of the player sending the message
     /// * `message` - The player message to process
-    /// * `leaderboard` - Mutable reference to the game leaderboard
     /// * `watchers` - Connection manager for all participants
-    /// * `team_manager` - Optional team manager for team-based games
-    /// * `schedule_message` - Function to schedule delayed messages for timing
     /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// * `index` - Current slide index in the game
-    /// * `count` - Total number of slides in the game
     ///
     /// # Type Parameters
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    /// * `S` - Function type for scheduling alarm messages
-    fn receive_player_message<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnMut(crate::AlarmMessage, Duration),
-    >(
+    fn receive_player_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &mut self,
         watcher_id: Id,
         message: crate::game::IncomingPlayerMessage,
-        leaderboard: &mut Leaderboard,
         watchers: &Watchers,
-        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
-        schedule_message: S,
         tunnel_finder: F,
-        index: usize,
-        count: usize,
     );
 
     /// Combined message handler that delegates to specific handlers
@@ -371,17 +356,7 @@ pub trait QuestionReceiveMessage {
                     count,
                 ),
             crate::game::IncomingMessage::Player(player_message) => {
-                self.receive_player_message(
-                    watcher_id,
-                    player_message,
-                    leaderboard,
-                    watchers,
-                    team_manager,
-                    schedule_message,
-                    tunnel_finder,
-                    index,
-                    count,
-                );
+                self.receive_player_message(watcher_id, player_message, watchers, tunnel_finder);
                 false
             }
             crate::game::IncomingMessage::Host(
