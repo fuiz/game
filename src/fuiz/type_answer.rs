@@ -435,34 +435,6 @@ impl State {
         }
     }
 
-    /// Calculates and adds scores to the leaderboard based on player answers
-    ///
-    /// This method evaluates all player answers against the correct answers,
-    /// calculates scores based on correctness and timing, and updates the leaderboard.
-    /// In team mode, it takes the best answer time for each team.
-    ///
-    /// # Arguments
-    /// * `leaderboard` - Mutable reference to the game leaderboard
-    /// * `watchers` - Connection manager for players and hosts
-    /// * `team_manager` - Optional team manager for team-based games
-    /// * `tunnel_finder` - Function to find communication tunnels
-    fn add_scores<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &self,
-        leaderboard: &mut Leaderboard,
-        watchers: &Watchers,
-        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
-        tunnel_finder: F,
-    ) {
-        add_scores_to_leaderboard(
-            self,
-            self,
-            leaderboard,
-            watchers,
-            team_manager,
-            tunnel_finder,
-        );
-    }
-
     /// Generates a synchronization message for a newly connected watcher
     ///
     /// # Arguments
@@ -608,7 +580,14 @@ impl QuestionReceiveMessage for State {
                 self.send_answers_results(watchers, tunnel_finder);
             }
             SlideState::AnswersResults => {
-                self.add_scores(leaderboard, watchers, team_manager, tunnel_finder);
+                add_scores_to_leaderboard(
+                    self,
+                    self,
+                    leaderboard,
+                    watchers,
+                    team_manager,
+                    tunnel_finder,
+                );
                 return true;
             }
         }

@@ -558,40 +558,6 @@ impl State {
         }
     }
 
-    /// Calculates and adds scores to the leaderboard based on player answers
-    ///
-    /// This method evaluates all player answers, calculates scores based on
-    /// correctness and response time, and updates the leaderboard. In team mode,
-    /// it uses the fastest correct answer from team members.
-    ///
-    /// # Arguments
-    ///
-    /// * `leaderboard` - Mutable reference to the game leaderboard
-    /// * `watchers` - Connection manager for all participants
-    /// * `team_manager` - Optional team manager for team-based games
-    /// * `tunnel_finder` - Function to find communication tunnels for participants
-    ///
-    /// # Type Parameters
-    ///
-    /// * `T` - Type implementing the Tunnel trait for participant communication
-    /// * `F` - Function type for finding tunnels by participant ID
-    fn add_scores<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &self,
-        leaderboard: &mut Leaderboard,
-        watchers: &Watchers,
-        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
-        tunnel_finder: F,
-    ) {
-        add_scores_to_leaderboard(
-            self,
-            self,
-            leaderboard,
-            watchers,
-            team_manager,
-            tunnel_finder,
-        );
-    }
-
     /// Determines which answer options should be visible to a specific participant
     ///
     /// In individual games, players see all answer options. In team games, answer
@@ -862,7 +828,14 @@ impl QuestionReceiveMessage for State {
             }
             SlideState::Answers => self.send_answers_results(watchers, tunnel_finder),
             SlideState::AnswersResults => {
-                self.add_scores(leaderboard, watchers, team_manager, tunnel_finder);
+                add_scores_to_leaderboard(
+                    self,
+                    self,
+                    leaderboard,
+                    watchers,
+                    team_manager,
+                    tunnel_finder,
+                );
                 return true;
             }
         }
