@@ -5,7 +5,8 @@
 //! code duplication and providing consistent behavior.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Keys},
+    iter::Copied,
     time::Duration,
 };
 
@@ -119,8 +120,44 @@ pub trait AnswerHandler<AnswerType> {
     /// Get user answers with timestamps
     fn user_answers(&self) -> &HashMap<Id, (AnswerType, SystemTime)>;
 
-    /// Get mutable user answers
+    /// Get mutable access to user answers with timestamps
     fn user_answers_mut(&mut self) -> &mut HashMap<Id, (AnswerType, SystemTime)>;
+
+    /// Get the IDs of players who have answered
+    fn ids_of_who_answered(&self) -> Copied<Keys<'_, Id, (AnswerType, SystemTime)>> {
+        self.user_answers().keys().copied()
+    }
+
+    /// Records a player's answer with the current timestamp
+    fn record_answer(&mut self, id: Id, answer: AnswerType) {
+        let transformed_answer = self.transform_answer(answer);
+        self.user_answers_mut()
+            .insert(id, (transformed_answer, SystemTime::now()));
+    }
+
+    /// Transforms the player's answer before recording it
+    fn transform_answer(&self, answer: AnswerType) -> AnswerType {
+        answer
+    }
+
+    /// Get the counts of each unique answer
+    fn answer_counts(&self) -> HashMap<AnswerType, usize>
+    where
+        AnswerType: Clone + Eq + std::hash::Hash,
+    {
+        self.user_answers()
+            .iter()
+            .map(|(_, (answer, _))| answer.to_owned())
+            .counts()
+    }
+
+    /// Get the count of correct answers
+    fn correct_count(&self) -> usize {
+        self.user_answers()
+            .iter()
+            .filter(|(_, (answer, _))| self.is_correct_answer(answer))
+            .count()
+    }
 
     /// Check if an answer is correct
     fn is_correct_answer(&self, answer: &AnswerType) -> bool;
@@ -211,7 +248,7 @@ where
         .iter()
         .map(|(w, _, _)| w.to_owned())
         .collect();
-    let right_set: HashSet<_> = slide.user_answers().keys().copied().collect();
+    let right_set: HashSet<_> = slide.ids_of_who_answered().collect();
     left_set.is_subset(&right_set)
 }
 
@@ -230,7 +267,7 @@ where
         .iter()
         .map(|(w, _, _)| w.to_owned())
         .collect();
-    let right_set: HashSet<_> = slide.user_answers().keys().copied().collect();
+    let right_set: HashSet<_> = slide.ids_of_who_answered().collect();
     left_set.intersection(&right_set).count()
 }
 
