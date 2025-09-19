@@ -302,6 +302,10 @@ pub enum SummaryMessage {
         stats: Vec<(usize, usize)>,
         /// Total number of players who participated
         player_count: usize,
+        /// Final results: (name, score) for all players
+        results: Vec<(String, u64)>,
+        /// Team composition mapping: (team_name, [player_names])
+        team_mapping: Vec<(String, Vec<String>)>,
         /// The game configuration that was played
         config: Fuiz,
         /// Game options that were used
@@ -480,7 +484,7 @@ impl Game {
     fn leaderboard_message(&self) -> LeaderboardMessage {
         let [current, prior] = self.leaderboard.last_two_scores_descending();
 
-        let id_map = |i| self.names.get_name(&i).unwrap_or("Unknown".to_owned());
+        let id_map = |i| self.names.get_name_or_unknown(&i);
 
         let id_score_map = |(id, s)| (id_map(id), s);
 
@@ -705,12 +709,30 @@ impl Game {
             |id, vk| match vk {
                 ValueKind::Host => Some(
                     UpdateMessage::Summary({
-                        let (player_count, stats) =
+                        let (player_count, mapping, stats) =
                             self.leaderboard.host_summary(!self.options.no_leaderboard);
 
                         SummaryMessage::Host {
                             stats,
                             player_count,
+                            results: mapping
+                                .iter()
+                                .map(|(id, points)| (self.names.get_name_or_unknown(id), *points))
+                                .collect(),
+                            team_mapping: self.team_manager.as_ref().map_or(vec![], |tm| {
+                                tm.team_to_players
+                                    .iter()
+                                    .map(|(team_id, players)| {
+                                        (
+                                            self.names.get_name_or_unknown(team_id),
+                                            players
+                                                .iter()
+                                                .map(|p| self.names.get_name_or_unknown(p))
+                                                .collect(),
+                                        )
+                                    })
+                                    .collect()
+                            }),
                             config: self.fuiz_config.clone(),
                             options: self.options,
                         }
@@ -1252,11 +1274,29 @@ impl Game {
             ),
             State::Done => match watcher_kind {
                 ValueKind::Host => SyncMessage::Summary({
-                    let (player_count, stats) =
+                    let (player_count, mapping, stats) =
                         self.leaderboard.host_summary(!self.options.no_leaderboard);
                     SummaryMessage::Host {
                         stats,
                         player_count,
+                        results: mapping
+                            .iter()
+                            .map(|(id, points)| (self.names.get_name_or_unknown(id), *points))
+                            .collect(),
+                        team_mapping: self.team_manager.as_ref().map_or(vec![], |tm| {
+                            tm.team_to_players
+                                .iter()
+                                .map(|(team_id, players)| {
+                                    (
+                                        self.names.get_name_or_unknown(team_id),
+                                        players
+                                            .iter()
+                                            .map(|p| self.names.get_name_or_unknown(p))
+                                            .collect(),
+                                    )
+                                })
+                                .collect()
+                        }),
                         config: self.fuiz_config.clone(),
                         options: self.options,
                     }
@@ -2408,6 +2448,8 @@ mod tests {
         let host_summary = SummaryMessage::Host {
             stats: vec![(5, 10), (3, 8)],
             player_count: 15,
+            results: vec![],
+            team_mapping: vec![],
             config: create_test_fuiz(),
             options: Options::default(),
         };

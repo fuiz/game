@@ -132,6 +132,8 @@ pub struct ScoreMessage {
     pub position: usize,
 }
 
+type CorrectnessSlideSummary = (usize, usize);
+
 impl Leaderboard {
     /// Adds new scores for a round and updates leaderboard standings
     ///
@@ -301,12 +303,25 @@ impl Leaderboard {
     ///
     /// # Returns
     ///
-    /// A tuple of (total_player_count, per_question_stats) where per_question_stats
-    /// is a vector of (players_who_earned_points, players_who_didn't) for each question
-    pub fn host_summary(&self, show_real_score: bool) -> (usize, Vec<(usize, usize)>) {
+    /// A tuple containing:
+    /// - Total number of players
+    /// - A vector of (player_id, total_points) for each player
+    /// - A vector of (players_earned, players_didnt) for each question
+    pub fn host_summary(
+        &self,
+        show_real_score: bool,
+    ) -> (usize, Vec<(Id, u64)>, Vec<CorrectnessSlideSummary>) {
         let final_summary = self.final_summary(show_real_score);
 
-        (final_summary.mapping.len(), final_summary.stats.clone())
+        (
+            final_summary.mapping.len(),
+            final_summary
+                .mapping
+                .iter()
+                .map(|(id, points)| (*id, points.iter().sum()))
+                .collect(),
+            final_summary.stats.clone(),
+        )
     }
 
     /// Generates detailed score breakdown for a specific player
@@ -476,9 +491,16 @@ mod tests {
         // Round 2: All 3 players earn points
         leaderboard.add_scores(&[(id1, 75), (id2, 25), (id3, 10)]);
 
-        let (player_count, stats) = leaderboard.host_summary(true);
+        let (player_count, mapping, stats) = leaderboard.host_summary(true);
 
         assert_eq!(player_count, 3);
+        assert_eq!(
+            mapping.iter().sorted().collect_vec(),
+            vec![(id3, 10), (id2, 75), (id1, 175)]
+                .iter()
+                .sorted()
+                .collect_vec()
+        );
         assert_eq!(stats.len(), 2); // Two rounds
 
         // Round 1: 2 earned points, 1 didn't
@@ -497,9 +519,13 @@ mod tests {
         // Add scores with different values
         leaderboard.add_scores(&[(id1, 100), (id2, 0)]);
 
-        let (player_count, stats) = leaderboard.host_summary(false);
+        let (player_count, mapping, stats) = leaderboard.host_summary(false);
 
         assert_eq!(player_count, 2);
+        assert_eq!(
+            mapping.iter().sorted().collect_vec(),
+            vec![(id1, 1), (id2, 0)].iter().sorted().collect_vec()
+        ); // Binary scoring
         assert_eq!(stats[0], (1, 1)); // Only one player earned points (binary)
     }
 

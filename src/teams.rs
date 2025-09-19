@@ -41,7 +41,7 @@ pub struct TeamManager<N: names::NamingScheme> {
     next_team_to_receive_player: usize,
 
     /// Mapping from team ID to list of player IDs in that team
-    team_to_players: HashMap<Id, Vec<Id>>,
+    pub team_to_players: HashMap<Id, Vec<Id>>,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]

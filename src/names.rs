@@ -154,6 +154,19 @@ impl Names {
         self.mapping.get(id).map(std::borrow::ToOwned::to_owned)
     }
 
+    /// Retrieves the name associated with a player ID, or "Unknown" if not found
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The player ID to look up
+    ///
+    /// # Returns
+    ///
+    /// The player's name if they have one assigned, otherwise "Unknown"
+    pub fn get_name_or_unknown(&self, id: &Id) -> String {
+        self.get_name(id).unwrap_or("Unknown".to_owned())
+    }
+
     /// Assigns a name to a player after validation
     ///
     /// This method performs comprehensive validation including length limits,
