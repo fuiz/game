@@ -496,7 +496,7 @@ mod tests {
         assert_eq!(player_count, 3);
         assert_eq!(
             mapping.iter().sorted().collect_vec(),
-            vec![(id3, 10), (id2, 75), (id1, 175)]
+            [(id3, 10), (id2, 75), (id1, 175)]
                 .iter()
                 .sorted()
                 .collect_vec()
@@ -524,7 +524,7 @@ mod tests {
         assert_eq!(player_count, 2);
         assert_eq!(
             mapping.iter().sorted().collect_vec(),
-            vec![(id1, 1), (id2, 0)].iter().sorted().collect_vec()
+            [(id1, 1), (id2, 0)].iter().sorted().collect_vec()
         ); // Binary scoring
         assert_eq!(stats[0], (1, 1)); // Only one player earned points (binary)
     }

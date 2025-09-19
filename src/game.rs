@@ -719,20 +719,10 @@ impl Game {
                                 .iter()
                                 .map(|(id, points)| (self.names.get_name_or_unknown(id), *points))
                                 .collect(),
-                            team_mapping: self.team_manager.as_ref().map_or(vec![], |tm| {
-                                tm.team_to_players
-                                    .iter()
-                                    .map(|(team_id, players)| {
-                                        (
-                                            self.names.get_name_or_unknown(team_id),
-                                            players
-                                                .iter()
-                                                .map(|p| self.names.get_name_or_unknown(p))
-                                                .collect(),
-                                        )
-                                    })
-                                    .collect()
-                            }),
+                            team_mapping: self
+                                .team_manager
+                                .as_ref()
+                                .map_or(vec![], |tm| tm.team_assignments(&self.names)),
                             config: self.fuiz_config.clone(),
                             options: self.options,
                         }
@@ -1283,20 +1273,10 @@ impl Game {
                             .iter()
                             .map(|(id, points)| (self.names.get_name_or_unknown(id), *points))
                             .collect(),
-                        team_mapping: self.team_manager.as_ref().map_or(vec![], |tm| {
-                            tm.team_to_players
-                                .iter()
-                                .map(|(team_id, players)| {
-                                    (
-                                        self.names.get_name_or_unknown(team_id),
-                                        players
-                                            .iter()
-                                            .map(|p| self.names.get_name_or_unknown(p))
-                                            .collect(),
-                                    )
-                                })
-                                .collect()
-                        }),
+                        team_mapping: self
+                            .team_manager
+                            .as_ref()
+                            .map_or(vec![], |tm| tm.team_assignments(&self.names)),
                         config: self.fuiz_config.clone(),
                         options: self.options,
                     }

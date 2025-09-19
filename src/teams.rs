@@ -41,7 +41,7 @@ pub struct TeamManager<N: names::NamingScheme> {
     next_team_to_receive_player: usize,
 
     /// Mapping from team ID to list of player IDs in that team
-    pub team_to_players: HashMap<Id, Vec<Id>>,
+    team_to_players: HashMap<Id, Vec<Id>>,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -283,6 +283,33 @@ impl<N: names::NamingScheme> TeamManager<N> {
                 return unique_name;
             }
         }
+    }
+
+    /// Gets the current team assignments
+    ///
+    /// Returns a list of tuples where each tuple contains a team name and
+    /// a list of player names in that team. This is useful for displaying
+    /// the team composition to participants.
+    ///
+    /// # Arguments
+    ///
+    /// * `names` - The names manager for resolving player and team names
+    ///
+    /// # Returns
+    ///
+    /// A vector of tuples, each containing a team name and a vector of player names
+    pub fn team_assignments(&self, names: &names::Names) -> Vec<(String, Vec<String>)> {
+        self.team_to_players
+            .iter()
+            .map(|(team_id, players)| {
+                let team_name = names.get_name_or_unknown(team_id);
+                let player_names = players
+                    .iter()
+                    .map(|player_id| names.get_name_or_unknown(player_id))
+                    .collect_vec();
+                (team_name, player_names)
+            })
+            .collect()
     }
 
     fn assign_players_to_team(
