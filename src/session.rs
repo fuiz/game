@@ -7,11 +7,6 @@
 
 use super::{SyncMessage, UpdateMessage};
 
-// pub enum Message {
-//     Outgoing(OutgoingMessage),
-//     State(StateMessage),
-// }
-
 /// Trait for sending messages through a communication tunnel
 ///
 /// This trait abstracts the communication mechanism used to send messages

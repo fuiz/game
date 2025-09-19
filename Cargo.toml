@@ -46,3 +46,6 @@ petname = "2"       # Pet-style name generation (adjective + animal)
 romanname = "0.1.1" # Roman-style name generation
 heck = "0.5"        # String case conversion
 pluralizer = "0.5"  # String pluralization utilities
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }

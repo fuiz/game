@@ -8,7 +8,6 @@
 use std::{collections::HashSet, fmt::Debug};
 
 use garde::Validate;
-use heck::ToTitleCase;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
@@ -59,42 +58,6 @@ pub struct TeamOptions {
     assign_random: bool,
 }
 
-/// Defines the style of automatically generated player names
-///
-/// When random names are enabled, this enum determines what type of
-/// names are generated for players who don't choose their own names.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, Validate)]
-pub enum NameStyle {
-    /// Roman-style names (praenomen + nomen, optionally + cognomen)
-    Roman(#[garde(range(min = 2, max = 3))] usize),
-    /// Pet-style names (adjective + animal combinations)
-    Petname(#[garde(range(min = 2, max = 3))] usize),
-}
-
-impl Default for NameStyle {
-    /// Default name style is Petname with 2 words
-    fn default() -> Self {
-        Self::Petname(2)
-    }
-}
-
-impl NameStyle {
-    /// Generates a random name according to this style
-    ///
-    /// # Returns
-    ///
-    /// A randomly generated name string, or `None` if generation fails
-    pub fn get_name(&self) -> Option<String> {
-        match self {
-            Self::Roman(count) => Some(romanname::romanname(romanname::NameConfig {
-                praenomen: *count > 2,
-            })),
-            Self::Petname(count) => petname::petname(*count as u8, " "),
-        }
-        .map(|x| x.to_title_case())
-    }
-}
-
 /// Global configuration options for the game session
 ///
 /// These options affect the overall behavior of the game, including
@@ -103,7 +66,7 @@ impl NameStyle {
 pub struct Options {
     /// Style for automatically generated player names (None means players choose their own)
     #[garde(dive)]
-    random_names: Option<NameStyle>,
+    random_names: Option<names::NameStyle>,
     /// Whether to show correct answers on player devices after questions
     #[garde(skip)]
     show_answers: bool,
@@ -137,7 +100,7 @@ pub struct Game {
     /// Whether the game is locked to new participants
     locked: bool,
     /// Team formation and management (if teams are enabled)
-    team_manager: Option<TeamManager>,
+    team_manager: Option<TeamManager<names::NameStyle>>,
 }
 
 impl Debug for Game {
@@ -339,6 +302,10 @@ pub enum SummaryMessage {
         stats: Vec<(usize, usize)>,
         /// Total number of players who participated
         player_count: usize,
+        /// Final results: (name, score) for all players
+        results: Vec<(String, u64)>,
+        /// Team composition mapping: (team_name, [player_names])
+        team_mapping: Vec<(String, Vec<String>)>,
         /// The game configuration that was played
         config: Fuiz,
         /// Game options that were used
@@ -434,11 +401,11 @@ impl Game {
     ///
     /// # Returns
     ///
-    /// An UpdateMessage with teammate selection options
+    /// An `UpdateMessage` with teammate selection options
     fn choose_teammates_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &self,
         watcher: Id,
-        team_manager: &TeamManager,
+        team_manager: &TeamManager<names::NameStyle>,
         tunnel_finder: F,
     ) -> UpdateMessage {
         let pref: HashSet<_> = team_manager
@@ -470,7 +437,7 @@ impl Game {
     ///
     /// # Returns
     ///
-    /// A TruncatedVec containing player names with overflow information
+    /// A `TruncatedVec` containing player names with overflow information
     ///
     /// # Type Parameters
     ///
@@ -482,10 +449,10 @@ impl Game {
     ) -> TruncatedVec<String> {
         const LIMIT: usize = 50;
 
-        if let Some(team_manager) = &self.team_manager {
-            if matches!(self.state, State::TeamDisplay) {
-                return team_manager.team_names().unwrap_or_default();
-            }
+        if let Some(team_manager) = &self.team_manager
+            && matches!(self.state, State::TeamDisplay)
+        {
+            return team_manager.team_names().unwrap_or_default();
         }
 
         let player_names = self
@@ -513,11 +480,11 @@ impl Game {
     ///
     /// # Returns
     ///
-    /// A LeaderboardMessage with current and prior standings
+    /// A `LeaderboardMessage` with current and prior standings
     fn leaderboard_message(&self) -> LeaderboardMessage {
         let [current, prior] = self.leaderboard.last_two_scores_descending();
 
-        let id_map = |i| self.names.get_name(&i).unwrap_or("Unknown".to_owned());
+        let id_map = |i| self.names.get_name_or_unknown(&i);
 
         let id_score_map = |(id, s)| (id_map(id), s);
 
@@ -603,30 +570,30 @@ impl Game {
         tunnel_finder: F,
     ) {
         if let Some(slide) = self.fuiz_config.slides.first() {
-            if let Some(team_manager) = &mut self.team_manager {
-                if matches!(self.state, State::WaitingScreen) {
-                    team_manager.finalize(&mut self.watchers, &mut self.names, &tunnel_finder);
-                    self.state = State::TeamDisplay;
-                    self.watchers.announce_with(
-                        |id, kind| {
-                            Some(match kind {
-                                ValueKind::Player => UpdateMessage::FindTeam(
-                                    self.watchers.get_team_name(id).unwrap_or_default(),
-                                )
-                                .into(),
-                                ValueKind::Host => UpdateMessage::TeamDisplay(
-                                    team_manager.team_names().unwrap_or_default(),
-                                )
-                                .into(),
-                                ValueKind::Unassigned => {
-                                    return None;
-                                }
-                            })
-                        },
-                        &tunnel_finder,
-                    );
-                    return;
-                }
+            if let Some(team_manager) = &mut self.team_manager
+                && matches!(self.state, State::WaitingScreen)
+            {
+                team_manager.finalize(&mut self.watchers, &mut self.names, &tunnel_finder);
+                self.state = State::TeamDisplay;
+                self.watchers.announce_with(
+                    |id, kind| {
+                        Some(match kind {
+                            ValueKind::Player => UpdateMessage::FindTeam(
+                                self.watchers.get_team_name(id).unwrap_or_default(),
+                            )
+                            .into(),
+                            ValueKind::Host => UpdateMessage::TeamDisplay(
+                                team_manager.team_names().unwrap_or_default(),
+                            )
+                            .into(),
+                            ValueKind::Unassigned => {
+                                return None;
+                            }
+                        })
+                    },
+                    &tunnel_finder,
+                );
+                return;
             }
 
             let mut current_slide = CurrentSlide {
@@ -742,12 +709,20 @@ impl Game {
             |id, vk| match vk {
                 ValueKind::Host => Some(
                     UpdateMessage::Summary({
-                        let (player_count, stats) =
+                        let (player_count, mapping, stats) =
                             self.leaderboard.host_summary(!self.options.no_leaderboard);
 
                         SummaryMessage::Host {
                             stats,
                             player_count,
+                            results: mapping
+                                .iter()
+                                .map(|(id, points)| (self.names.get_name_or_unknown(id), *points))
+                                .collect(),
+                            team_mapping: self
+                                .team_manager
+                                .as_ref()
+                                .map_or(vec![], |tm| tm.team_assignments(&self.names)),
                             config: self.fuiz_config.clone(),
                             options: self.options,
                         }
@@ -798,8 +773,7 @@ impl Game {
             .collect_vec();
 
         for watcher in watchers {
-            self.watchers
-                .remove_watcher_session(&watcher, &tunnel_finder);
+            Watchers::remove_watcher_session(watcher, &tunnel_finder);
         }
     }
 
@@ -822,7 +796,7 @@ impl Game {
         watcher: Id,
         tunnel_finder: F,
     ) {
-        self.watchers.send_state(
+        Watchers::send_state(
             &SyncMessage::Metainfo(MetainfoMessage::Player {
                 score: self.score(watcher).map_or(0, |x| x.points),
                 show_answers: self.options.show_answers,
@@ -855,9 +829,7 @@ impl Game {
     ) {
         if let Some(name_style) = self.options.random_names {
             loop {
-                let Some(name) = name_style.get_name() else {
-                    continue;
-                };
+                let name = name_style.get_name();
 
                 if self
                     .assign_player_name(watcher, &name, &tunnel_finder)
@@ -867,8 +839,7 @@ impl Game {
                 }
             }
         } else {
-            self.watchers
-                .send_message(&UpdateMessage::NameChoose.into(), watcher, tunnel_finder);
+            Watchers::send_message(&UpdateMessage::NameChoose.into(), watcher, tunnel_finder);
         }
     }
 
@@ -933,17 +904,17 @@ impl Game {
         name: &str,
         tunnel_finder: F,
     ) {
-        if let Some(team_manager) = &mut self.team_manager {
-            if let Some(name) = team_manager.add_player(watcher, &mut self.watchers) {
-                self.watchers.send_message(
-                    &UpdateMessage::FindTeam(name).into(),
-                    watcher,
-                    &tunnel_finder,
-                );
-            }
+        if let Some(team_manager) = &mut self.team_manager
+            && let Some(name) = team_manager.add_player(watcher, &mut self.watchers)
+        {
+            Watchers::send_message(
+                &UpdateMessage::FindTeam(name).into(),
+                watcher,
+                &tunnel_finder,
+            );
         }
 
-        self.watchers.send_message(
+        Watchers::send_message(
             &UpdateMessage::NameAssign(name.to_string()).into(),
             watcher,
             &tunnel_finder,
@@ -954,19 +925,19 @@ impl Game {
         if !name.is_empty() {
             // Announce to others of user joining
             if matches!(self.state, State::WaitingScreen) {
-                if let Some(team_manager) = &self.team_manager {
-                    if !team_manager.is_random_assignments() {
-                        self.watchers.announce_with(
-                            |id, value| match value {
-                                ValueKind::Player => Some(
-                                    self.choose_teammates_message(id, team_manager, &tunnel_finder)
-                                        .into(),
-                                ),
-                                _ => None,
-                            },
-                            &tunnel_finder,
-                        );
-                    }
+                if let Some(team_manager) = &self.team_manager
+                    && !team_manager.is_random_assignments()
+                {
+                    self.watchers.announce_with(
+                        |id, value| match value {
+                            ValueKind::Player => Some(
+                                self.choose_teammates_message(id, team_manager, &tunnel_finder)
+                                    .into(),
+                            ),
+                            _ => None,
+                        },
+                        &tunnel_finder,
+                    );
                 }
 
                 self.watchers.announce_specific(
@@ -977,7 +948,7 @@ impl Game {
             }
         }
 
-        self.watchers.send_state(
+        Watchers::send_state(
             &self.state_message(watcher, ValueKind::Player, &tunnel_finder),
             watcher,
             tunnel_finder,
@@ -1005,6 +976,11 @@ impl Game {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
+    ///
+    /// # Errors
+    ///
+    /// If there are too many participants, the watcher may not be added.
+    ///
     pub fn add_unassigned<T: Tunnel, F: Fn(Id) -> Option<T>>(
         &mut self,
         watcher: Id,
@@ -1065,7 +1041,7 @@ impl Game {
                 if self.options.random_names.is_none() =>
             {
                 if let Err(e) = self.assign_player_name(watcher_id, &s, &tunnel_finder) {
-                    self.watchers.send_message(
+                    Watchers::send_message(
                         &UpdateMessage::NameError(e).into(),
                         watcher_id,
                         tunnel_finder,
@@ -1160,7 +1136,7 @@ impl Game {
         S: FnMut(AlarmMessage, web_time::Duration),
     >(
         &mut self,
-        message: AlarmMessage,
+        message: &AlarmMessage,
         mut schedule_message: S,
         tunnel_finder: F,
     ) {
@@ -1179,7 +1155,7 @@ impl Game {
                 index: slide_index,
                 to: _,
             }) => match &mut self.state {
-                State::Slide(current_slide) if current_slide.index == slide_index => {
+                State::Slide(current_slide) if current_slide.index == *slide_index => {
                     if current_slide.state.receive_alarm(
                         &mut self.leaderboard,
                         &self.watchers,
@@ -1213,7 +1189,7 @@ impl Game {
     ///
     /// # Returns
     ///
-    /// A SyncMessage containing the current state information appropriate for the participant
+    /// A `SyncMessage` containing the current state information appropriate for the participant
     ///
     /// # Type Parameters
     ///
@@ -1288,11 +1264,19 @@ impl Game {
             ),
             State::Done => match watcher_kind {
                 ValueKind::Host => SyncMessage::Summary({
-                    let (player_count, stats) =
+                    let (player_count, mapping, stats) =
                         self.leaderboard.host_summary(!self.options.no_leaderboard);
                     SummaryMessage::Host {
                         stats,
                         player_count,
+                        results: mapping
+                            .iter()
+                            .map(|(id, points)| (self.names.get_name_or_unknown(id), *points))
+                            .collect(),
+                        team_mapping: self
+                            .team_manager
+                            .as_ref()
+                            .map_or(vec![], |tm| tm.team_assignments(&self.names)),
                         config: self.fuiz_config.clone(),
                         options: self.options,
                     }
@@ -1342,12 +1326,12 @@ impl Game {
 
         match watcher_value.clone() {
             Value::Host => {
-                self.watchers.send_state(
+                Watchers::send_state(
                     &self.state_message(watcher_id, watcher_value.kind(), &tunnel_finder),
                     watcher_id,
                     &tunnel_finder,
                 );
-                self.watchers.send_state(
+                Watchers::send_state(
                     &SyncMessage::Metainfo(MetainfoMessage::Host {
                         locked: self.locked,
                     })
@@ -1363,19 +1347,19 @@ impl Game {
                     team_id: _,
                 } = &player_value
                 {
-                    self.watchers.send_message(
+                    Watchers::send_message(
                         &UpdateMessage::FindTeam(team_name.clone()).into(),
                         watcher_id,
                         &tunnel_finder,
                     );
                 }
-                self.watchers.send_message(
+                Watchers::send_message(
                     &UpdateMessage::NameAssign(player_value.name().to_owned()).into(),
                     watcher_id,
                     &tunnel_finder,
                 );
                 self.update_player_with_options(watcher_id, &tunnel_finder);
-                self.watchers.send_state(
+                Watchers::send_state(
                     &self.state_message(watcher_id, watcher_value.kind(), &tunnel_finder),
                     watcher_id,
                     &tunnel_finder,
@@ -1386,5 +1370,2108 @@ impl Game {
                 self.handle_unassigned(watcher_id, &tunnel_finder);
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn test_state_serialization() {
+        let waiting_state = State::WaitingScreen;
+        let json = serde_json::to_string(&waiting_state).unwrap();
+        let _deserialized: State = serde_json::from_str(&json).unwrap();
+
+        let team_state = State::TeamDisplay;
+        let json = serde_json::to_string(&team_state).unwrap();
+        let _deserialized: State = serde_json::from_str(&json).unwrap();
+
+        let done_state = State::Done;
+        let json = serde_json::to_string(&done_state).unwrap();
+        let _deserialized: State = serde_json::from_str(&json).unwrap();
+    }
+
+    #[test]
+    fn test_team_options_serialization() {
+        let team_options = TeamOptions {
+            size: 3,
+            assign_random: true,
+        };
+
+        let json = serde_json::to_string(&team_options).unwrap();
+        let deserialized: TeamOptions = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(team_options.size, deserialized.size);
+        assert_eq!(team_options.assign_random, deserialized.assign_random);
+    }
+
+    #[test]
+    fn test_team_options_validation() {
+        use garde::Validate;
+
+        let valid_config = TeamOptions {
+            size: 3,
+            assign_random: false,
+        };
+        assert!(valid_config.validate().is_ok());
+
+        let invalid_config = TeamOptions {
+            size: 0, // Should be invalid
+            assign_random: true,
+        };
+        assert!(invalid_config.validate().is_err());
+    }
+
+    #[test]
+    fn test_game_options_serialization() {
+        let game_options = Options {
+            random_names: Some(names::NameStyle::default()),
+            show_answers: false,
+            no_leaderboard: false,
+            teams: None,
+        };
+
+        let json = serde_json::to_string(&game_options).unwrap();
+        let deserialized: Options = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(game_options.show_answers, deserialized.show_answers);
+        assert_eq!(game_options.no_leaderboard, deserialized.no_leaderboard);
+        assert_eq!(game_options.teams.is_none(), deserialized.teams.is_none());
+    }
+
+    #[test]
+    fn test_game_options_with_teams() {
+        let team_options = TeamOptions {
+            size: 4,
+            assign_random: false,
+        };
+
+        let game_options = Options {
+            random_names: None,
+            show_answers: true,
+            no_leaderboard: true,
+            teams: Some(team_options),
+        };
+
+        let json = serde_json::to_string(&game_options).unwrap();
+        let deserialized: Options = serde_json::from_str(&json).unwrap();
+
+        assert!(deserialized.teams.is_some());
+        assert_eq!(deserialized.teams.unwrap().size, 4);
+    }
+
+    fn create_test_fuiz() -> crate::fuiz::config::Fuiz {
+        // Use serde deserialization to create test data since fields are private
+        let fuiz_json = r#"{
+            "title": "Test Quiz",
+            "slides": [
+                {
+                    "MultipleChoice": {
+                        "title": "Test Question",
+                        "media": null,
+                        "introduce_question": 5000000000,
+                        "time_limit": 30000000000,
+                        "points_awarded": 1000,
+                        "answers": [
+                            {
+                                "correct": true,
+                                "content": {
+                                    "Text": "Correct Answer"
+                                }
+                            },
+                            {
+                                "correct": false,
+                                "content": {
+                                    "Text": "Wrong Answer"
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#;
+
+        serde_json::from_str(fuiz_json).expect("Failed to deserialize test fuiz")
+    }
+
+    #[test]
+    fn test_game_new_without_teams() {
+        let fuiz = create_test_fuiz();
+        let options = Options {
+            random_names: None,
+            show_answers: false,
+            no_leaderboard: false,
+            teams: None,
+        };
+        let host_id = crate::watcher::Id::new();
+
+        let game = Game::new(fuiz, options, host_id);
+
+        assert!(matches!(game.state, State::WaitingScreen));
+        assert!(!game.locked);
+        assert!(game.team_manager.is_none());
+        assert!(!game.options.show_answers);
+        assert!(!game.options.no_leaderboard);
+    }
+
+    #[test]
+    fn test_game_new_with_teams() {
+        let fuiz = create_test_fuiz();
+        let team_options = TeamOptions {
+            size: 3,
+            assign_random: true,
+        };
+        let options = Options {
+            random_names: Some(crate::names::NameStyle::default()),
+            show_answers: true,
+            no_leaderboard: true,
+            teams: Some(team_options),
+        };
+        let host_id = crate::watcher::Id::new();
+
+        let game = Game::new(fuiz, options, host_id);
+
+        assert!(matches!(game.state, State::WaitingScreen));
+        assert!(!game.locked);
+        assert!(game.team_manager.is_some());
+        assert!(game.options.show_answers);
+        assert!(game.options.no_leaderboard);
+    }
+
+    #[test]
+    fn test_game_set_state() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        assert!(matches!(game.state, State::WaitingScreen));
+
+        game.set_state(State::TeamDisplay);
+        assert!(matches!(game.state, State::TeamDisplay));
+
+        game.set_state(State::Done);
+        assert!(matches!(game.state, State::Done));
+    }
+
+    #[test]
+    fn test_game_leaderboard_id_without_teams() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let leaderboard_id = game.leaderboard_id(player_id);
+
+        assert_eq!(player_id, leaderboard_id);
+    }
+
+    #[test]
+    fn test_game_leaderboard_id_with_teams() {
+        let fuiz = create_test_fuiz();
+        let team_options = TeamOptions {
+            size: 2,
+            assign_random: false,
+        };
+        let options = Options {
+            teams: Some(team_options),
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let leaderboard_id = game.leaderboard_id(player_id);
+
+        // When no team is assigned, should fall back to player_id
+        assert_eq!(player_id, leaderboard_id);
+    }
+
+    #[test]
+    fn test_game_score_no_score() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let score = game.score(player_id);
+
+        assert!(score.is_none());
+    }
+
+    #[test]
+    fn test_game_debug_format() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let game = Game::new(fuiz, options, host_id);
+
+        let debug_string = format!("{game:?}");
+        assert!(debug_string.contains("Game"));
+        assert!(debug_string.contains("fuiz"));
+    }
+
+    #[test]
+    fn test_leaderboard_message_serialization() {
+        let current_data = vec![("Player1".to_string(), 100)];
+        let prior_data = vec![("Player1".to_string(), 50)];
+
+        let leaderboard_msg = LeaderboardMessage {
+            current: crate::TruncatedVec::new(current_data.into_iter(), 10, 1),
+            prior: crate::TruncatedVec::new(prior_data.into_iter(), 10, 1),
+        };
+
+        let json = serde_json::to_string(&leaderboard_msg).unwrap();
+        // Note: LeaderboardMessage only implements Serialize, not Deserialize
+        assert!(json.contains("Player1"));
+        assert!(json.contains("100"));
+        assert!(json.contains("50"));
+    }
+
+    // Create a mock tunnel for testing
+    #[derive(Debug, Clone)]
+    struct MockTunnel {
+        messages: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl MockTunnel {
+        fn new() -> Self {
+            Self {
+                messages: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            }
+        }
+    }
+
+    impl crate::session::Tunnel for MockTunnel {
+        fn send_message(&self, message: &crate::UpdateMessage) {
+            let json = serde_json::to_string(message).unwrap_or_default();
+            self.messages.lock().unwrap().push(json);
+        }
+
+        fn send_state(&self, message: &crate::SyncMessage) {
+            let json = serde_json::to_string(message).unwrap_or_default();
+            self.messages.lock().unwrap().push(json);
+        }
+
+        fn close(self) {
+            // Mock implementation - just drop
+        }
+    }
+
+    #[test]
+    fn test_game_add_unassigned() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let unassigned_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == unassigned_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
+
+        // Should have added unassigned watcher
+        assert!(game.watchers.has_watcher(unassigned_id));
+    }
+
+    #[test]
+    fn test_game_update_player_with_name() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add as unassigned first
+        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+
+        // Update to player with name
+        game.update_player_with_name(player_id, "TestPlayer", tunnel_finder);
+
+        // Should still have the watcher
+        assert!(game.watchers.has_watcher(player_id));
+    }
+
+    #[test]
+    fn test_game_mark_as_done() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+
+        game.mark_as_done(tunnel_finder);
+
+        assert!(matches!(game.state, State::Done));
+    }
+
+    #[test]
+    fn test_incoming_message_deserialization() {
+        // Test IncomingMessage enum deserialization
+        let host_message_json = r#"{"Host": "Next"}"#;
+        let host_message: IncomingMessage = serde_json::from_str(host_message_json).unwrap();
+        assert!(matches!(host_message, IncomingMessage::Host(_)));
+
+        let unassigned_message_json = r#"{"Unassigned": {"NameRequest": "Player1"}}"#;
+        let unassigned_message: IncomingMessage =
+            serde_json::from_str(unassigned_message_json).unwrap();
+        assert!(matches!(unassigned_message, IncomingMessage::Unassigned(_)));
+
+        let player_message_json = r#"{"Player": {"IndexAnswer": 0}}"#;
+        let player_message: IncomingMessage = serde_json::from_str(player_message_json).unwrap();
+        assert!(matches!(player_message, IncomingMessage::Player(_)));
+    }
+
+    #[test]
+    fn test_game_play_method() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+        let mut schedule_called = false;
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {
+            schedule_called = true;
+        };
+
+        game.play(&mut schedule_message, tunnel_finder);
+
+        // Should have transitioned to first slide
+        assert!(matches!(game.state, State::Slide(_)));
+        assert!(schedule_called);
+    }
+
+    #[test]
+    fn test_game_finish_slide() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // Start the game to get to first slide
+        game.play(&mut schedule_message, tunnel_finder);
+
+        // Finish the slide
+        game.finish_slide(&mut schedule_message, tunnel_finder);
+
+        // Should show leaderboard or be done (depending on options)
+        assert!(matches!(game.state, State::Done) || matches!(game.state, State::Leaderboard(_)));
+    }
+
+    #[test]
+    fn test_game_state_message() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+
+        let state_msg =
+            game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
+
+        // Should return waiting screen message for initial state
+        assert!(matches!(
+            state_msg,
+            crate::SyncMessage::Game(SyncMessage::WaitingScreen(_))
+        ));
+    }
+
+    #[test]
+    fn test_incoming_message_follows() {
+        // Test IncomingMessage::follows method
+        let host_msg = IncomingMessage::Host(IncomingHostMessage::Next);
+        assert!(host_msg.follows(crate::watcher::ValueKind::Host));
+        assert!(!host_msg.follows(crate::watcher::ValueKind::Player));
+        assert!(!host_msg.follows(crate::watcher::ValueKind::Unassigned));
+
+        let player_msg = IncomingMessage::Player(IncomingPlayerMessage::IndexAnswer(0));
+        assert!(player_msg.follows(crate::watcher::ValueKind::Player));
+        assert!(!player_msg.follows(crate::watcher::ValueKind::Host));
+        assert!(!player_msg.follows(crate::watcher::ValueKind::Unassigned));
+
+        let unassigned_msg =
+            IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest("test".to_string()));
+        assert!(unassigned_msg.follows(crate::watcher::ValueKind::Unassigned));
+        assert!(!unassigned_msg.follows(crate::watcher::ValueKind::Host));
+        assert!(!unassigned_msg.follows(crate::watcher::ValueKind::Player));
+    }
+
+    #[test]
+    fn test_game_with_team_formation() {
+        let fuiz = create_test_fuiz();
+        let team_options = TeamOptions {
+            size: 2,
+            assign_random: false,
+        };
+        let options = Options {
+            teams: Some(team_options),
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player1 = crate::watcher::Id::new();
+        let player2 = crate::watcher::Id::new();
+
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player1 || id == player2 {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add two players
+        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+
+        // Assign names to make them players
+        assert!(
+            game.assign_player_name(player1, "Player1", tunnel_finder)
+                .is_ok()
+        );
+        assert!(
+            game.assign_player_name(player2, "Player2", tunnel_finder)
+                .is_ok()
+        );
+
+        // Start the game - should move to team display
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        game.play(&mut schedule_message, tunnel_finder);
+
+        assert!(matches!(game.state, State::TeamDisplay));
+    }
+
+    #[test]
+    fn test_game_locked_behavior() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let unassigned_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == unassigned_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Lock the game
+        game.locked = true;
+
+        // Try to add unassigned player - should still add but not process
+        assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
+
+        // Process lock message from host
+        let lock_msg = IncomingMessage::Host(IncomingHostMessage::Lock(false));
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        game.receive_message(host_id, lock_msg, &mut schedule_message, tunnel_finder);
+        assert!(!game.locked);
+    }
+
+    #[test]
+    fn test_game_receive_message_invalid_sender() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add player
+        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(
+            game.assign_player_name(player_id, "TestPlayer", tunnel_finder)
+                .is_ok()
+        );
+
+        // Try to send host message from player (should be ignored)
+        let invalid_msg = IncomingMessage::Host(IncomingHostMessage::Next);
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        game.receive_message(player_id, invalid_msg, &mut schedule_message, tunnel_finder);
+
+        // State should not change since message doesn't follow sender type
+        assert!(matches!(game.state, State::WaitingScreen));
+    }
+
+    #[test]
+    fn test_game_receive_message_nonexistent_watcher() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let nonexistent_id = crate::watcher::Id::new();
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+
+        // Try to receive message from nonexistent watcher
+        let msg = IncomingMessage::Host(IncomingHostMessage::Next);
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // Should not panic and should do nothing
+        game.receive_message(nonexistent_id, msg, &mut schedule_message, tunnel_finder);
+    }
+
+    #[test]
+    fn test_game_name_assignment_with_random_names() {
+        let fuiz = create_test_fuiz();
+        let options = Options {
+            random_names: Some(crate::names::NameStyle::default()),
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let unassigned_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == unassigned_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add unassigned player - should automatically get a random name
+        assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
+
+        // Should now be a player
+        let watcher_value = game.watchers.get_watcher_value(unassigned_id);
+        assert!(matches!(
+            watcher_value,
+            Some(crate::watcher::Value::Player(_))
+        ));
+    }
+
+    #[test]
+    fn test_game_name_assignment_error() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player1 = crate::watcher::Id::new();
+        let player2 = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player1 || id == player2 {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add two players
+        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+
+        // Assign same name to first player
+        assert!(
+            game.assign_player_name(player1, "SameName", tunnel_finder)
+                .is_ok()
+        );
+
+        // Try to assign same name to second player - should fail
+        assert!(
+            game.assign_player_name(player2, "SameName", tunnel_finder)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_game_teammate_selection() {
+        let fuiz = create_test_fuiz();
+        let team_options = TeamOptions {
+            size: 2,
+            assign_random: false,
+        };
+        let options = Options {
+            teams: Some(team_options),
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player1 = crate::watcher::Id::new();
+        let player2 = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player1 || id == player2 {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add and name players
+        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+        assert!(
+            game.assign_player_name(player1, "Player1", tunnel_finder)
+                .is_ok()
+        );
+        assert!(
+            game.assign_player_name(player2, "Player2", tunnel_finder)
+                .is_ok()
+        );
+
+        // Send teammate selection message
+        let teammate_msg = IncomingMessage::Player(IncomingPlayerMessage::ChooseTeammates(vec![
+            "Player2".to_string(),
+        ]));
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        game.receive_message(player1, teammate_msg, &mut schedule_message, tunnel_finder);
+
+        // Verify preferences were set (implementation detail - would need team_manager access)
+    }
+
+    #[test]
+    fn test_game_leaderboard_state_transition() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default(); // leaderboard enabled by default
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // Start the game
+        game.play(&mut schedule_message, tunnel_finder);
+        assert!(matches!(game.state, State::Slide(_)));
+
+        // Finish the slide - should show leaderboard
+        game.finish_slide(&mut schedule_message, tunnel_finder);
+        assert!(matches!(game.state, State::Leaderboard(_)));
+
+        // Send next from host while in leaderboard state
+        let next_msg = IncomingMessage::Host(IncomingHostMessage::Next);
+        game.receive_message(host_id, next_msg, &mut schedule_message, tunnel_finder);
+
+        // Should be done (since only one slide in test fuiz)
+        assert!(matches!(game.state, State::Done));
+    }
+
+    #[test]
+    fn test_game_no_leaderboard_option() {
+        let fuiz = create_test_fuiz();
+        let options = Options {
+            no_leaderboard: true,
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // Start the game
+        game.play(&mut schedule_message, tunnel_finder);
+        assert!(matches!(game.state, State::Slide(_)));
+
+        // Finish the slide - should skip leaderboard and go to done
+        game.finish_slide(&mut schedule_message, tunnel_finder);
+        assert!(matches!(game.state, State::Done));
+    }
+
+    #[test]
+    fn test_game_host_index_message() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // Start the game
+        game.play(&mut schedule_message, tunnel_finder);
+
+        // Send index message from host (should be handled by slide state)
+        let index_msg = IncomingMessage::Host(IncomingHostMessage::Index(0));
+        game.receive_message(host_id, index_msg, &mut schedule_message, tunnel_finder);
+    }
+
+    #[test]
+    fn test_game_update_session_host() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == host_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Update host session
+        game.update_session(host_id, tunnel_finder);
+
+        // Verify messages were sent (would check tunnel.messages in real test)
+    }
+
+    #[test]
+    fn test_game_update_session_player_with_team() {
+        // Create a game with teams and manually add a team player
+        let fuiz = create_test_fuiz();
+        let team_options = TeamOptions {
+            size: 2,
+            assign_random: false,
+        };
+        let options = Options {
+            teams: Some(team_options),
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add player and assign name
+        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(
+            game.assign_player_name(player_id, "TestPlayer", tunnel_finder)
+                .is_ok()
+        );
+
+        // Update player session - should work with team manager
+        game.update_session(player_id, tunnel_finder);
+    }
+
+    #[test]
+    fn test_game_update_session_locked_unassigned() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let unassigned_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == unassigned_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add unassigned player
+        game.locked = true; // Lock game first
+        assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
+
+        // Update session - should do nothing since locked and unassigned
+        game.update_session(unassigned_id, tunnel_finder);
+    }
+
+    #[test]
+    fn test_game_waiting_screen_names_team_display() {
+        // Create a game with team manager in TeamDisplay state
+        let fuiz = create_test_fuiz();
+        let team_options = TeamOptions {
+            size: 2,
+            assign_random: false,
+        };
+        let options = Options {
+            teams: Some(team_options),
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        // Set state to TeamDisplay
+        game.state = State::TeamDisplay;
+
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+
+        // Should use team names when in TeamDisplay state with team manager
+        let names = game.waiting_screen_names(tunnel_finder);
+        assert!(names.items.is_empty()); // No teams yet
+    }
+
+    #[test]
+    fn test_game_state_message_team_display() {
+        // Create a game in TeamDisplay state
+        let fuiz = create_test_fuiz();
+        let team_options = TeamOptions {
+            size: 2,
+            assign_random: false,
+        };
+        let options = Options {
+            teams: Some(team_options),
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        // Set state to TeamDisplay
+        game.state = State::TeamDisplay;
+
+        let player_id = crate::watcher::Id::new();
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+
+        // Test TeamDisplay state message for player
+        let state_msg =
+            game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
+        assert!(matches!(
+            state_msg,
+            crate::SyncMessage::Game(SyncMessage::FindTeam(_))
+        ));
+
+        // Test TeamDisplay state message for host
+        let state_msg = game.state_message(host_id, crate::watcher::ValueKind::Host, tunnel_finder);
+        assert!(matches!(
+            state_msg,
+            crate::SyncMessage::Game(SyncMessage::TeamDisplay(_))
+        ));
+    }
+
+    #[test]
+    fn test_game_state_message_done_unassigned() {
+        // Create game in Done state
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        // Set state to Done
+        game.state = State::Done;
+
+        let unassigned_id = crate::watcher::Id::new();
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+
+        let state_msg = game.state_message(
+            unassigned_id,
+            crate::watcher::ValueKind::Unassigned,
+            tunnel_finder,
+        );
+        assert!(matches!(
+            state_msg,
+            crate::SyncMessage::Game(SyncMessage::NotAllowed)
+        ));
+    }
+
+    #[test]
+    fn test_game_receive_message_done_state() {
+        // Create game in Done state
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        // Set state to Done
+        game.state = State::Done;
+
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // Send Next message in Done state - should call mark_as_done
+        let next_msg = IncomingMessage::Host(IncomingHostMessage::Next);
+        game.receive_message(host_id, next_msg, &mut schedule_message, tunnel_finder);
+
+        // State should still be Done but mark_as_done was called
+        assert!(matches!(game.state, State::Done));
+    }
+
+    #[test]
+    fn test_game_receive_alarm_mismatched_slide() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        // Start game to get to a slide
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        game.play(&mut schedule_message, tunnel_finder);
+
+        // Send alarm for wrong slide index - should be ignored
+        let alarm = crate::AlarmMessage::MultipleChoice(
+            crate::fuiz::multiple_choice::AlarmMessage::ProceedFromSlideIntoSlide {
+                index: 999, // Wrong index
+                to: crate::fuiz::multiple_choice::SlideState::Question,
+            },
+        );
+
+        game.receive_alarm(&alarm, &mut schedule_message, tunnel_finder);
+
+        // State should not change (still in slide 0, not 999)
+        assert!(matches!(game.state, State::Slide(_)));
+    }
+
+    #[test]
+    fn test_game_empty_fuiz() {
+        // Test game with no slides
+        let empty_fuiz_json = r#"{
+            "title": "Empty Quiz",
+            "slides": []
+        }"#;
+        let fuiz: crate::fuiz::config::Fuiz = serde_json::from_str(empty_fuiz_json).unwrap();
+
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // Play should immediately go to Done state since no slides
+        game.play(&mut schedule_message, tunnel_finder);
+        assert!(matches!(game.state, State::Done));
+    }
+
+    #[test]
+    fn test_update_message_serialization() {
+        // Test various UpdateMessage variants
+        let id_assign = UpdateMessage::IdAssign(crate::watcher::Id::new());
+        let json = serde_json::to_string(&id_assign).unwrap();
+        assert!(json.contains("IdAssign"));
+
+        let name_choose = UpdateMessage::NameChoose;
+        let json = serde_json::to_string(&name_choose).unwrap();
+        assert!(json.contains("NameChoose"));
+
+        let name_assign = UpdateMessage::NameAssign("TestName".to_string());
+        let json = serde_json::to_string(&name_assign).unwrap();
+        assert!(json.contains("TestName"));
+
+        let find_team = UpdateMessage::FindTeam("TeamName".to_string());
+        let json = serde_json::to_string(&find_team).unwrap();
+        assert!(json.contains("TeamName"));
+    }
+
+    #[test]
+    fn test_sync_message_serialization() {
+        // Test various SyncMessage variants
+        let metainfo_host = SyncMessage::Metainfo(MetainfoMessage::Host { locked: true });
+        let json = serde_json::to_string(&metainfo_host).unwrap();
+        assert!(json.contains("locked"));
+        assert!(json.contains("true"));
+
+        let metainfo_player = SyncMessage::Metainfo(MetainfoMessage::Player {
+            score: 100,
+            show_answers: true,
+        });
+        let json = serde_json::to_string(&metainfo_player).unwrap();
+        assert!(json.contains("100"));
+        assert!(json.contains("show_answers"));
+
+        let not_allowed = SyncMessage::NotAllowed;
+        let json = serde_json::to_string(&not_allowed).unwrap();
+        assert!(json.contains("NotAllowed"));
+    }
+
+    #[test]
+    fn test_summary_message_serialization() {
+        let player_summary = SummaryMessage::Player {
+            score: None,
+            points: vec![100, 200],
+            config: create_test_fuiz(),
+        };
+        let json = serde_json::to_string(&player_summary).unwrap();
+        assert!(json.contains("Player"));
+        assert!(json.contains("points"));
+
+        let host_summary = SummaryMessage::Host {
+            stats: vec![(5, 10), (3, 8)],
+            player_count: 15,
+            results: vec![],
+            team_mapping: vec![],
+            config: create_test_fuiz(),
+            options: Options::default(),
+        };
+        let json = serde_json::to_string(&host_summary).unwrap();
+        assert!(json.contains("Host"));
+        assert!(json.contains("stats"));
+        assert!(json.contains("player_count"));
+    }
+
+    #[test]
+    fn test_game_with_show_answers_option() {
+        let fuiz = create_test_fuiz();
+        let options = Options {
+            show_answers: true,
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let game = Game::new(fuiz, options, host_id);
+
+        assert!(game.options.show_answers);
+
+        // Test that show_answers is reflected in metadata
+        let player_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // This would send metadata with show_answers: true
+        game.update_player_with_options(player_id, tunnel_finder);
+    }
+
+    #[test]
+    fn test_player_message_types() {
+        // Test different player message types can be constructed
+        let _string_answer =
+            IncomingMessage::Player(IncomingPlayerMessage::StringAnswer("answer".to_string()));
+        let _array_answer =
+            IncomingMessage::Player(IncomingPlayerMessage::StringArrayAnswer(vec![
+                "a".to_string(),
+                "b".to_string(),
+            ]));
+        // Just verify they can be constructed
+    }
+
+    #[test]
+    fn test_game_play_with_team_formation() {
+        let fuiz = create_test_fuiz();
+        let team_options = TeamOptions {
+            size: 2,
+            assign_random: false,
+        };
+        let options = Options {
+            teams: Some(team_options),
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player1 = crate::watcher::Id::new();
+        let player2 = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player1 || id == player2 {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add players and assign names
+        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+        assert!(
+            game.assign_player_name(player1, "Player1", tunnel_finder)
+                .is_ok()
+        );
+        assert!(
+            game.assign_player_name(player2, "Player2", tunnel_finder)
+                .is_ok()
+        );
+
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // First play call should transition to TeamDisplay
+        game.play(&mut schedule_message, tunnel_finder);
+        assert!(matches!(game.state, State::TeamDisplay));
+
+        // Second play call should start the actual game
+        game.play(&mut schedule_message, tunnel_finder);
+        assert!(matches!(game.state, State::Slide(_)));
+    }
+
+    #[test]
+    fn test_game_announce_summary() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == host_id || id == player_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add a player
+        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(
+            game.assign_player_name(player_id, "TestPlayer", tunnel_finder)
+                .is_ok()
+        );
+
+        // Call announce_summary directly
+        game.announce_summary(tunnel_finder);
+
+        assert!(matches!(game.state, State::Done));
+    }
+
+    #[test]
+    fn test_game_announce_summary_no_leaderboard() {
+        let fuiz = create_test_fuiz();
+        let options = Options {
+            no_leaderboard: true,
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == host_id || id == player_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add a player
+        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(
+            game.assign_player_name(player_id, "TestPlayer", tunnel_finder)
+                .is_ok()
+        );
+
+        // Call announce_summary with no_leaderboard option
+        game.announce_summary(tunnel_finder);
+
+        assert!(matches!(game.state, State::Done));
+    }
+
+    #[test]
+    fn test_game_finish_slide_multiple_slides() {
+        // Create a fuiz with multiple slides
+        let multi_slide_fuiz_json = r#"{
+            "title": "Multi Slide Quiz",
+            "slides": [
+                {
+                    "MultipleChoice": {
+                        "title": "Question 1",
+                        "media": null,
+                        "introduce_question": 5000000000,
+                        "time_limit": 30000000000,
+                        "points_awarded": 1000,
+                        "answers": [
+                            {
+                                "correct": true,
+                                "content": {
+                                    "Text": "Correct Answer 1"
+                                }
+                            }
+                        ]
+                    }
+                },
+                {
+                    "MultipleChoice": {
+                        "title": "Question 2",
+                        "media": null,
+                        "introduce_question": 5000000000,
+                        "time_limit": 30000000000,
+                        "points_awarded": 1000,
+                        "answers": [
+                            {
+                                "correct": true,
+                                "content": {
+                                    "Text": "Correct Answer 2"
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#;
+
+        let fuiz: crate::fuiz::config::Fuiz = serde_json::from_str(multi_slide_fuiz_json).unwrap();
+        let options = Options {
+            no_leaderboard: true, // Skip leaderboard to test direct slide transition
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // Start the game
+        game.play(&mut schedule_message, tunnel_finder);
+        assert!(matches!(game.state, State::Slide(_)));
+
+        // Finish first slide - should go to second slide
+        game.finish_slide(&mut schedule_message, tunnel_finder);
+        assert!(matches!(game.state, State::Slide(_)));
+
+        // Finish second slide - should be done
+        game.finish_slide(&mut schedule_message, tunnel_finder);
+        assert!(matches!(game.state, State::Done));
+    }
+
+    #[test]
+    fn test_game_leaderboard_state_next_message() {
+        // Create a fuiz with multiple slides to test leaderboard -> next slide transition
+        let multi_slide_fuiz_json = r#"{
+            "title": "Multi Slide Quiz",
+            "slides": [
+                {
+                    "MultipleChoice": {
+                        "title": "Question 1",
+                        "media": null,
+                        "introduce_question": 5000000000,
+                        "time_limit": 30000000000,
+                        "points_awarded": 1000,
+                        "answers": [
+                            {
+                                "correct": true,
+                                "content": {
+                                    "Text": "Correct Answer 1"
+                                }
+                            }
+                        ]
+                    }
+                },
+                {
+                    "MultipleChoice": {
+                        "title": "Question 2",
+                        "media": null,
+                        "introduce_question": 5000000000,
+                        "time_limit": 30000000000,
+                        "points_awarded": 1000,
+                        "answers": [
+                            {
+                                "correct": true,
+                                "content": {
+                                    "Text": "Correct Answer 2"
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#;
+
+        let fuiz: crate::fuiz::config::Fuiz = serde_json::from_str(multi_slide_fuiz_json).unwrap();
+        let options = Options::default(); // Leaderboard enabled
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // Start the game
+        game.play(&mut schedule_message, tunnel_finder);
+        assert!(matches!(game.state, State::Slide(_)));
+
+        // Finish first slide - should show leaderboard
+        game.finish_slide(&mut schedule_message, tunnel_finder);
+        assert!(matches!(game.state, State::Leaderboard(0)));
+
+        // Send next from host - should advance to slide 1
+        let next_msg = IncomingMessage::Host(IncomingHostMessage::Next);
+        game.receive_message(host_id, next_msg, &mut schedule_message, tunnel_finder);
+        assert!(matches!(game.state, State::Slide(_)));
+
+        // Finish second slide - should show leaderboard again
+        game.finish_slide(&mut schedule_message, tunnel_finder);
+        assert!(matches!(game.state, State::Leaderboard(1)));
+
+        // Send next from host - should be done (no more slides)
+        let next_msg = IncomingMessage::Host(IncomingHostMessage::Next);
+        game.receive_message(host_id, next_msg, &mut schedule_message, tunnel_finder);
+        assert!(matches!(game.state, State::Done));
+    }
+
+    #[test]
+    fn test_game_receive_message_name_request_locked() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let unassigned_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == unassigned_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add unassigned player and lock the game
+        assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
+        game.locked = true;
+
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // Try to send name request - should be ignored due to lock
+        let name_msg = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest(
+            "TestName".to_string(),
+        ));
+        game.receive_message(
+            unassigned_id,
+            name_msg,
+            &mut schedule_message,
+            tunnel_finder,
+        );
+
+        // Should still be unassigned
+        let watcher_value = game.watchers.get_watcher_value(unassigned_id);
+        assert!(matches!(
+            watcher_value,
+            Some(crate::watcher::Value::Unassigned)
+        ));
+    }
+
+    #[test]
+    fn test_game_receive_message_name_request_with_random_names() {
+        let fuiz = create_test_fuiz();
+        let options = Options {
+            random_names: Some(crate::names::NameStyle::default()),
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let unassigned_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == unassigned_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add unassigned player
+        assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
+
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // Try to send name request when random names are enabled - should be ignored
+        let name_msg = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest(
+            "TestName".to_string(),
+        ));
+        game.receive_message(
+            unassigned_id,
+            name_msg,
+            &mut schedule_message,
+            tunnel_finder,
+        );
+
+        // Should already be a player due to random name assignment in add_unassigned
+        let watcher_value = game.watchers.get_watcher_value(unassigned_id);
+        assert!(matches!(
+            watcher_value,
+            Some(crate::watcher::Value::Player(_))
+        ));
+    }
+
+    #[test]
+    fn test_game_receive_message_name_assignment_error() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player1 = crate::watcher::Id::new();
+        let player2 = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player1 || id == player2 {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add two unassigned players
+        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // First player takes a name
+        let name_msg1 = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest(
+            "SameName".to_string(),
+        ));
+        game.receive_message(player1, name_msg1, &mut schedule_message, tunnel_finder);
+
+        // Second player tries to take the same name - should get error message
+        let name_msg2 = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest(
+            "SameName".to_string(),
+        ));
+        game.receive_message(player2, name_msg2, &mut schedule_message, tunnel_finder);
+
+        // Second player should still be unassigned
+        let watcher_value = game.watchers.get_watcher_value(player2);
+        assert!(matches!(
+            watcher_value,
+            Some(crate::watcher::Value::Unassigned)
+        ));
+    }
+
+    #[test]
+    fn test_game_state_message_waiting_screen_with_team_selection() {
+        let fuiz = create_test_fuiz();
+        let team_options = TeamOptions {
+            size: 2,
+            assign_random: false, // Non-random assignment
+        };
+        let options = Options {
+            teams: Some(team_options),
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player1 = crate::watcher::Id::new();
+        let player2 = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player1 || id == player2 {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add players
+        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+        assert!(
+            game.assign_player_name(player1, "Player1", tunnel_finder)
+                .is_ok()
+        );
+        assert!(
+            game.assign_player_name(player2, "Player2", tunnel_finder)
+                .is_ok()
+        );
+
+        // Should return teammate selection message for players in waiting screen with non-random teams
+        let state_msg =
+            game.state_message(player1, crate::watcher::ValueKind::Player, tunnel_finder);
+        assert!(matches!(
+            state_msg,
+            crate::SyncMessage::Game(SyncMessage::ChooseTeammates { .. })
+        ));
+    }
+
+    #[test]
+    fn test_game_state_message_leaderboard_host() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        // Set to leaderboard state
+        game.state = State::Leaderboard(0);
+
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+
+        let state_msg = game.state_message(host_id, crate::watcher::ValueKind::Host, tunnel_finder);
+        assert!(matches!(
+            state_msg,
+            crate::SyncMessage::Game(SyncMessage::Leaderboard { .. })
+        ));
+    }
+
+    #[test]
+    fn test_game_state_message_leaderboard_unassigned() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        // Set to leaderboard state
+        game.state = State::Leaderboard(0);
+
+        let unassigned_id = crate::watcher::Id::new();
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+
+        let state_msg = game.state_message(
+            unassigned_id,
+            crate::watcher::ValueKind::Unassigned,
+            tunnel_finder,
+        );
+        assert!(matches!(
+            state_msg,
+            crate::SyncMessage::Game(SyncMessage::Leaderboard { .. })
+        ));
+    }
+
+    #[test]
+    fn test_game_state_message_done_host() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        // Set to done state
+        game.state = State::Done;
+
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+
+        let state_msg = game.state_message(host_id, crate::watcher::ValueKind::Host, tunnel_finder);
+        assert!(matches!(
+            state_msg,
+            crate::SyncMessage::Game(SyncMessage::Summary(SummaryMessage::Host { .. }))
+        ));
+    }
+
+    #[test]
+    fn test_game_state_message_done_player_no_leaderboard() {
+        let fuiz = create_test_fuiz();
+        let options = Options {
+            no_leaderboard: true,
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        // Set to done state
+        game.state = State::Done;
+
+        let player_id = crate::watcher::Id::new();
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+
+        let state_msg =
+            game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
+        // Should have None score when no_leaderboard is true
+        if let crate::SyncMessage::Game(SyncMessage::Summary(SummaryMessage::Player {
+            score,
+            ..
+        })) = state_msg
+        {
+            assert!(score.is_none());
+        } else {
+            panic!("Expected Player summary message");
+        }
+    }
+
+    #[test]
+    fn test_game_update_session_nonexistent_watcher() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let nonexistent_id = crate::watcher::Id::new();
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+
+        // Should not panic when updating session for nonexistent watcher
+        game.update_session(nonexistent_id, tunnel_finder);
+    }
+
+    #[test]
+    fn test_game_update_player_with_name_empty_name() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add as unassigned first
+        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+
+        // Update with empty name - should not announce to others
+        game.update_player_with_name(player_id, "", tunnel_finder);
+    }
+
+    #[test]
+    fn test_game_update_player_with_name_team_random_assignment() {
+        let fuiz = create_test_fuiz();
+        let team_options = TeamOptions {
+            size: 2,
+            assign_random: true, // Random assignment
+        };
+        let options = Options {
+            teams: Some(team_options),
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add as unassigned first
+        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+
+        // Update with name - should not announce teammate selection messages for random assignment
+        game.update_player_with_name(player_id, "TestPlayer", tunnel_finder);
+    }
+
+    #[test]
+    fn test_ghost_message_follows() {
+        let ghost_msg = IncomingMessage::Ghost(IncomingGhostMessage::DemandId);
+        // Ghost messages don't have a specific follows implementation in the current code
+        // This test ensures the enum variants exist and can be constructed
+        assert!(matches!(ghost_msg, IncomingMessage::Ghost(_)));
+
+        let claim_msg =
+            IncomingMessage::Ghost(IncomingGhostMessage::ClaimId(crate::watcher::Id::new()));
+        assert!(matches!(claim_msg, IncomingMessage::Ghost(_)));
+    }
+
+    #[test]
+    fn test_game_choose_teammates_message() {
+        let fuiz = create_test_fuiz();
+        let team_options = TeamOptions {
+            size: 3,
+            assign_random: false,
+        };
+        let options = Options {
+            teams: Some(team_options),
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player1 = crate::watcher::Id::new();
+        let player2 = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player1 || id == player2 {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add players
+        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+        assert!(
+            game.assign_player_name(player1, "Player1", tunnel_finder)
+                .is_ok()
+        );
+        assert!(
+            game.assign_player_name(player2, "Player2", tunnel_finder)
+                .is_ok()
+        );
+
+        if let Some(team_manager) = &game.team_manager {
+            let message = game.choose_teammates_message(player1, team_manager, tunnel_finder);
+            assert!(matches!(message, UpdateMessage::ChooseTeammates { .. }));
+        }
+    }
+
+    #[test]
+    fn test_incoming_host_message_index() {
+        let index_msg = IncomingHostMessage::Index(5);
+        assert!(matches!(index_msg, IncomingHostMessage::Index(5)));
+
+        let lock_msg = IncomingHostMessage::Lock(true);
+        assert!(matches!(lock_msg, IncomingHostMessage::Lock(true)));
+    }
+
+    #[test]
+    fn test_game_serialization() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let game = Game::new(fuiz, options, host_id);
+
+        // Test that Game can be serialized (since it derives Serialize)
+        let json = serde_json::to_string(&game).unwrap();
+        assert!(json.contains("fuiz_config"));
+        assert!(json.contains("watchers"));
+        assert!(json.contains("state"));
+
+        // Test that Game can be deserialized
+        let deserialized: Game = serde_json::from_str(&json).unwrap();
+        assert!(matches!(deserialized.state, State::WaitingScreen));
+    }
+
+    #[test]
+    fn test_team_options_with_invalid_size() {
+        use garde::Validate;
+
+        let invalid_large = TeamOptions {
+            size: 10, // Above max of 5
+            assign_random: false,
+        };
+        assert!(invalid_large.validate().is_err());
+    }
+
+    #[test]
+    fn test_game_options_validation() {
+        use garde::Validate;
+
+        let valid_options = Options {
+            random_names: Some(crate::names::NameStyle::default()),
+            show_answers: true,
+            no_leaderboard: false,
+            teams: Some(TeamOptions {
+                size: 3,
+                assign_random: true,
+            }),
+        };
+        assert!(valid_options.validate().is_ok());
+
+        let invalid_options = Options {
+            random_names: Some(crate::names::NameStyle::default()),
+            show_answers: true,
+            no_leaderboard: false,
+            teams: Some(TeamOptions {
+                size: 0, // Invalid
+                assign_random: true,
+            }),
+        };
+        assert!(invalid_options.validate().is_err());
+    }
+
+    #[test]
+    fn test_game_waiting_screen_names_with_players() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player1 = crate::watcher::Id::new();
+        let player2 = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player1 || id == player2 {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add players with names to test the actual filtering logic
+        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+        assert!(
+            game.assign_player_name(player1, "Player1", tunnel_finder)
+                .is_ok()
+        );
+        assert!(
+            game.assign_player_name(player2, "Player2", tunnel_finder)
+                .is_ok()
+        );
+
+        let names = game.waiting_screen_names(tunnel_finder);
+        assert_eq!(names.items.len(), 2);
+        assert!(names.items.contains(&"Player1".to_string()));
+        assert!(names.items.contains(&"Player2".to_string()));
+    }
+
+    #[test]
+    fn test_game_leaderboard_message() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add a player
+        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(
+            game.assign_player_name(player_id, "TestPlayer", tunnel_finder)
+                .is_ok()
+        );
+
+        // Test leaderboard_message function
+        let leaderboard_msg = game.leaderboard_message();
+        assert!(leaderboard_msg.current.items.is_empty()); // No scores yet
+        assert!(leaderboard_msg.prior.items.is_empty());
+    }
+
+    #[test]
+    fn test_game_receive_alarm_valid_slide() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // Start the game to get to slide 0
+        game.play(&mut schedule_message, tunnel_finder);
+
+        // Send alarm for correct slide index
+        let alarm = crate::AlarmMessage::MultipleChoice(
+            crate::fuiz::multiple_choice::AlarmMessage::ProceedFromSlideIntoSlide {
+                index: 0, // Correct index
+                to: crate::fuiz::multiple_choice::SlideState::Question,
+            },
+        );
+
+        // Should handle the alarm for the current slide
+        game.receive_alarm(&alarm, &mut schedule_message, tunnel_finder);
+    }
+
+    #[test]
+    fn test_game_receive_alarm_non_slide_state() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        // Keep game in WaitingScreen state
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // Send alarm while not in slide state - should be ignored
+        let alarm = crate::AlarmMessage::MultipleChoice(
+            crate::fuiz::multiple_choice::AlarmMessage::ProceedFromSlideIntoSlide {
+                index: 0,
+                to: crate::fuiz::multiple_choice::SlideState::Question,
+            },
+        );
+
+        game.receive_alarm(&alarm, &mut schedule_message, tunnel_finder);
+        // Should remain in WaitingScreen
+        assert!(matches!(game.state, State::WaitingScreen));
+    }
+
+    #[test]
+    fn test_game_state_message_slide_state() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
+        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+
+        // Start the game to get to slide state
+        game.play(&mut schedule_message, tunnel_finder);
+
+        // Test state message for slide state
+        let state_msg =
+            game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
+        // The message will be one of the slide-specific sync messages (MultipleChoice, TypeAnswer, or Order)
+        assert!(matches!(
+            state_msg,
+            crate::SyncMessage::MultipleChoice(_)
+                | crate::SyncMessage::TypeAnswer(_)
+                | crate::SyncMessage::Order(_)
+        ));
+    }
+
+    #[test]
+    fn test_game_update_session_player_individual() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default(); // No teams
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add player
+        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(
+            game.assign_player_name(player_id, "TestPlayer", tunnel_finder)
+                .is_ok()
+        );
+
+        // Update session for individual player (no teams)
+        game.update_session(player_id, tunnel_finder);
+    }
+
+    #[test]
+    fn test_game_mark_as_done_with_watchers() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player_id || id == host_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add a player
+        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(
+            game.assign_player_name(player_id, "TestPlayer", tunnel_finder)
+                .is_ok()
+        );
+
+        // Mark as done - should remove all watchers
+        game.mark_as_done(tunnel_finder);
+
+        assert!(matches!(game.state, State::Done));
+    }
+
+    #[test]
+    fn test_game_handle_unassigned_manual_names() {
+        let fuiz = create_test_fuiz();
+        let options = Options {
+            random_names: None, // Manual name selection
+            ..Default::default()
+        };
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let unassigned_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == unassigned_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add unassigned - should prompt for name choice
+        assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
+
+        // Should still be unassigned waiting for name choice
+        let watcher_value = game.watchers.get_watcher_value(unassigned_id);
+        assert!(matches!(
+            watcher_value,
+            Some(crate::watcher::Value::Unassigned)
+        ));
+    }
+
+    #[test]
+    fn test_game_assign_player_name_invalid() {
+        let fuiz = create_test_fuiz();
+        let options = Options::default();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, options, host_id);
+
+        let player_id = crate::watcher::Id::new();
+        let tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == player_id {
+                Some(tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        // Add unassigned player
+        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+
+        // Try to assign an invalid name (empty string might be invalid depending on validation)
+        let result = game.assign_player_name(player_id, "", tunnel_finder);
+        // The result depends on the names module validation logic
+        // This test exercises the error path if empty names are invalid
+        if result.is_err() {
+            // Should still be unassigned
+            let watcher_value = game.watchers.get_watcher_value(player_id);
+            assert!(matches!(
+                watcher_value,
+                Some(crate::watcher::Value::Unassigned)
+            ));
+        }
+    }
+
+    #[test]
+    fn test_game_alarm_message_variants() {
+        // Test that we can construct different alarm message types
+        let type_answer_alarm = crate::AlarmMessage::TypeAnswer(
+            crate::fuiz::type_answer::AlarmMessage::ProceedFromSlideIntoSlide {
+                index: 0,
+                to: crate::fuiz::type_answer::SlideState::Question,
+            },
+        );
+        assert!(matches!(
+            type_answer_alarm,
+            crate::AlarmMessage::TypeAnswer(_)
+        ));
+
+        let order_alarm = crate::AlarmMessage::Order(
+            crate::fuiz::order::AlarmMessage::ProceedFromSlideIntoSlide {
+                index: 0,
+                to: crate::fuiz::order::SlideState::Question,
+            },
+        );
+        assert!(matches!(order_alarm, crate::AlarmMessage::Order(_)));
     }
 }

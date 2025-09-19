@@ -5,8 +5,12 @@
 //! Each question type has its own configuration, state management, and
 //! message handling.
 
+pub mod common;
 pub mod config;
 pub mod media;
 pub mod multiple_choice;
 pub mod order;
 pub mod type_answer;
+
+// Re-export the common trait for convenience
+pub use common::QuestionReceiveMessage;

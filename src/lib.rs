@@ -4,10 +4,20 @@
 //! It handles game sessions, player management, different question types,
 //! leaderboards, and real-time synchronization between players and hosts.
 
-#![allow(clippy::too_many_arguments)]
+#![cfg_attr(all(coverage_nightly, test), feature(coverage_attribute))]
 #![deny(missing_docs)]
 #![deny(rustdoc::missing_crate_level_docs)]
-
+#![warn(clippy::pedantic)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::similar_names)]
+#![allow(clippy::must_use_candidate)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::ignored_unit_patterns)]
+#![allow(clippy::struct_field_names)]
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::wildcard_imports)]
 use derive_where::derive_where;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -119,7 +129,7 @@ impl<T: Clone> TruncatedVec<T> {
     /// # Returns
     ///
     /// A new `TruncatedVec` containing up to `limit` items from the iterator
-    fn new<I: Iterator<Item = T>>(list: I, limit: usize, exact_count: usize) -> Self {
+    pub fn new<I: Iterator<Item = T>>(list: I, limit: usize, exact_count: usize) -> Self {
         let items = list.take(limit).collect_vec();
         Self { exact_count, items }
     }
@@ -133,7 +143,7 @@ impl<T: Clone> TruncatedVec<T> {
     /// # Returns
     ///
     /// A new `TruncatedVec` with the function applied to each item
-    fn map<F, U>(self, f: F) -> TruncatedVec<U>
+    pub fn map<F, U>(self, f: F) -> TruncatedVec<U>
     where
         F: Fn(T) -> U,
     {
@@ -141,5 +151,94 @@ impl<T: Clone> TruncatedVec<T> {
             exact_count: self.exact_count,
             items: self.items.into_iter().map(f).collect_vec(),
         }
+    }
+
+    /// Returns the exact count of items
+    pub fn exact_count(&self) -> usize {
+        self.exact_count
+    }
+
+    /// Returns the truncated items
+    pub fn items(&self) -> &[T] {
+        &self.items
+    }
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncated_vec_new() {
+        let data = vec![1, 2, 3, 4, 5];
+        let truncated = TruncatedVec::new(data.into_iter(), 3, 5);
+
+        assert_eq!(truncated.exact_count(), 5);
+        assert_eq!(truncated.items(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_truncated_vec_new_limit_larger_than_items() {
+        let data = vec![1, 2, 3];
+        let truncated = TruncatedVec::new(data.into_iter(), 5, 3);
+
+        assert_eq!(truncated.exact_count(), 3);
+        assert_eq!(truncated.items(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_truncated_vec_new_empty() {
+        let data: Vec<i32> = vec![];
+        let truncated = TruncatedVec::new(data.into_iter(), 5, 0);
+
+        assert_eq!(truncated.exact_count(), 0);
+        let empty: &[i32] = &[];
+        assert_eq!(truncated.items(), empty);
+    }
+
+    #[test]
+    fn test_truncated_vec_map() {
+        let data = vec![1, 2, 3];
+        let truncated = TruncatedVec::new(data.into_iter(), 3, 5);
+        let mapped = truncated.map(|x| x * 2);
+
+        assert_eq!(mapped.exact_count(), 5);
+        assert_eq!(mapped.items(), &[2, 4, 6]);
+    }
+
+    #[test]
+    fn test_truncated_vec_map_string() {
+        let data = vec![1, 2, 3];
+        let truncated = TruncatedVec::new(data.into_iter(), 2, 3);
+        let mapped = truncated.map(|x| format!("item_{x}"));
+
+        assert_eq!(mapped.exact_count(), 3);
+        assert_eq!(mapped.items(), &["item_1", "item_2"]);
+    }
+
+    #[test]
+    fn test_sync_message_to_message() {
+        let players = TruncatedVec::new(
+            vec!["Player1".to_string(), "Player2".to_string()].into_iter(),
+            10,
+            2,
+        );
+        let sync_msg = SyncMessage::Game(crate::game::SyncMessage::WaitingScreen(players));
+        let json_str = sync_msg.to_message();
+
+        assert!(json_str.contains("Game"));
+        assert!(json_str.contains("WaitingScreen"));
+    }
+
+    #[test]
+    fn test_update_message_to_message() {
+        let players = TruncatedVec::new(vec!["Player1".to_string()].into_iter(), 10, 1);
+        let update_msg = UpdateMessage::Game(crate::game::UpdateMessage::WaitingScreen(players));
+        let json_str = update_msg.to_message();
+
+        assert!(json_str.contains("Game"));
+        assert!(json_str.contains("WaitingScreen"));
+        assert!(json_str.contains("Player1"));
     }
 }

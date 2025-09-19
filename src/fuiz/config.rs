@@ -10,6 +10,8 @@ use web_time;
 use garde::Validate;
 use serde::{Deserialize, Serialize};
 
+use super::{super::game::IncomingMessage, media::Media, multiple_choice, order, type_answer};
+use crate::fuiz::common::QuestionReceiveMessage;
 use crate::{
     AlarmMessage, SyncMessage,
     leaderboard::Leaderboard,
@@ -17,8 +19,6 @@ use crate::{
     teams::TeamManager,
     watcher::{Id, ValueKind, Watchers},
 };
-
-use super::{super::game::IncomingMessage, media::Media, multiple_choice, order, type_answer};
 
 /// Represents content that can be either text or media
 ///
@@ -40,7 +40,7 @@ pub enum TextOrMedia {
 pub struct Fuiz {
     /// The title of the Fuiz game (currently unused in gameplay)
     #[garde(length(max = crate::constants::fuiz::MAX_TITLE_LENGTH))]
-    title: String,
+    pub title: String,
 
     /// The collection of slides/questions in the game
     #[garde(length(max = crate::constants::fuiz::MAX_SLIDES_COUNT), dive)]
@@ -144,7 +144,7 @@ impl SlideState {
     /// * `count` - The total number of slides
     pub fn play<T: Tunnel, F: Fn(Id) -> Option<T>, S: FnMut(AlarmMessage, web_time::Duration)>(
         &mut self,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         schedule_message: S,
         tunnel_finder: F,
@@ -200,7 +200,7 @@ impl SlideState {
         &mut self,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: S,
         watcher_id: Id,
         tunnel_finder: F,
@@ -268,7 +268,7 @@ impl SlideState {
         &self,
         watcher_id: Id,
         watcher_kind: ValueKind,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         tunnel_finder: F,
         index: usize,
@@ -334,10 +334,10 @@ impl SlideState {
         &mut self,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: &mut S,
         tunnel_finder: F,
-        message: AlarmMessage,
+        message: &AlarmMessage,
         index: usize,
         count: usize,
     ) -> bool {
@@ -373,5 +373,460 @@ impl SlideState {
                 count,
             ),
         }
+    }
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use super::*;
+    use crate::{
+        game::{IncomingHostMessage, IncomingMessage},
+        leaderboard::Leaderboard,
+        watcher::{Id, ValueKind, Watchers},
+    };
+
+    // Mock tunnel for testing
+    struct MockTunnel;
+    impl crate::session::Tunnel for MockTunnel {
+        fn send_message(&self, _message: &crate::UpdateMessage) {}
+        fn send_state(&self, _state: &crate::SyncMessage) {}
+        fn close(self) {}
+    }
+
+    // Create a simple test config using Default if available, otherwise minimal valid config
+    fn create_test_multiple_choice_config() -> SlideConfig {
+        // Use a valid slide config that can be created through public APIs
+        SlideConfig::MultipleChoice(
+            serde_json::from_str(
+                r#"{
+                "title": "Test Question",
+                "media": null,
+                "introduce_question": 2,
+                "time_limit": 30,
+                "points_awarded": 1000,
+                "answers": [
+                    {"correct": true, "content": {"Text": "Answer A"}},
+                    {"correct": false, "content": {"Text": "Answer B"}}
+                ]
+            }"#,
+            )
+            .unwrap(),
+        )
+    }
+
+    fn create_test_type_answer_config() -> SlideConfig {
+        SlideConfig::TypeAnswer(
+            serde_json::from_str(
+                r#"{
+                "title": "Test Type Answer",
+                "media": null,
+                "introduce_question": 2,
+                "time_limit": 30,
+                "points_awarded": 1000,
+                "answers": ["test", "TEST"],
+                "case_sensitive": false
+            }"#,
+            )
+            .unwrap(),
+        )
+    }
+
+    fn create_test_order_config() -> SlideConfig {
+        SlideConfig::Order(
+            serde_json::from_str(
+                r#"{
+                "title": "Test Order",
+                "media": null,
+                "introduce_question": 2,
+                "time_limit": 30,
+                "points_awarded": 1000,
+                "answers": ["First", "Second", "Third"],
+                "axis_labels": {"from": "Start", "to": "End"}
+            }"#,
+            )
+            .unwrap(),
+        )
+    }
+
+    fn create_mock_watchers() -> Watchers {
+        Watchers::default()
+    }
+
+    fn create_mock_tunnel_finder() -> impl Fn(Id) -> Option<MockTunnel> {
+        |_id: Id| Some(MockTunnel)
+    }
+
+    fn create_mock_leaderboard() -> Leaderboard {
+        Leaderboard::default()
+    }
+
+    #[test]
+    fn test_slide_config_to_state_multiple_choice() {
+        let mc_config = create_test_multiple_choice_config();
+        let state = mc_config.to_state();
+
+        match state {
+            SlideState::MultipleChoice(_) => {
+                // Successfully created MultipleChoice state
+            }
+            _ => panic!("Expected MultipleChoice state"),
+        }
+    }
+
+    #[test]
+    fn test_slide_config_to_state_type_answer() {
+        let ta_config = create_test_type_answer_config();
+        let state = ta_config.to_state();
+
+        match state {
+            SlideState::TypeAnswer(_) => {
+                // Successfully created TypeAnswer state
+            }
+            _ => panic!("Expected TypeAnswer state"),
+        }
+    }
+
+    #[test]
+    fn test_slide_config_to_state_order() {
+        let order_config = create_test_order_config();
+        let state = order_config.to_state();
+
+        match state {
+            SlideState::Order(_) => {
+                // Successfully created Order state
+            }
+            _ => panic!("Expected Order state"),
+        }
+    }
+
+    #[test]
+    fn test_slide_state_play_multiple_choice() {
+        let mc_config = create_test_multiple_choice_config();
+        let mut state = mc_config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut schedule_called = false;
+        let schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {
+            schedule_called = true;
+        };
+
+        state.play(None, &watchers, schedule_message, tunnel_finder, 0, 1);
+
+        // Verify play was called successfully (schedule message was triggered)
+        assert!(schedule_called);
+    }
+
+    #[test]
+    fn test_slide_state_play_type_answer() {
+        let ta_config = create_test_type_answer_config();
+        let mut state = ta_config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut schedule_called = false;
+        let schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {
+            schedule_called = true;
+        };
+
+        state.play(None, &watchers, schedule_message, tunnel_finder, 0, 1);
+
+        // Verify play was called successfully (schedule message was triggered)
+        assert!(schedule_called);
+    }
+
+    #[test]
+    fn test_slide_state_play_order() {
+        let order_config = create_test_order_config();
+        let mut state = order_config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut schedule_called = false;
+        let schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {
+            schedule_called = true;
+        };
+
+        state.play(None, &watchers, schedule_message, tunnel_finder, 0, 1);
+
+        // Verify play was called successfully (schedule message was triggered)
+        assert!(schedule_called);
+    }
+
+    #[test]
+    fn test_slide_state_receive_message_multiple_choice() {
+        let mc_config = create_test_multiple_choice_config();
+        let mut state = mc_config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut leaderboard = create_mock_leaderboard();
+        let schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {};
+        let message = IncomingMessage::Host(IncomingHostMessage::Next);
+
+        let _result = state.receive_message(
+            &mut leaderboard,
+            &watchers,
+            None,
+            schedule_message,
+            Id::new(),
+            tunnel_finder,
+            message,
+            0,
+            1,
+        );
+
+        // Verify the message was processed (result may be true or false depending on message processing)
+        // The important thing is that the method was called without panicking
+    }
+
+    #[test]
+    fn test_slide_state_receive_message_type_answer() {
+        let ta_config = create_test_type_answer_config();
+        let mut state = ta_config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut leaderboard = create_mock_leaderboard();
+        let schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {};
+        let message = IncomingMessage::Host(IncomingHostMessage::Next);
+
+        let _result = state.receive_message(
+            &mut leaderboard,
+            &watchers,
+            None,
+            schedule_message,
+            Id::new(),
+            tunnel_finder,
+            message,
+            0,
+            1,
+        );
+
+        // Verify the message was processed (result may be true or false depending on message processing)
+        // The important thing is that the method was called without panicking
+    }
+
+    #[test]
+    fn test_slide_state_receive_message_order() {
+        let order_config = create_test_order_config();
+        let mut state = order_config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut leaderboard = create_mock_leaderboard();
+        let schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {};
+        let message = IncomingMessage::Host(IncomingHostMessage::Next);
+
+        let _result = state.receive_message(
+            &mut leaderboard,
+            &watchers,
+            None,
+            schedule_message,
+            Id::new(),
+            tunnel_finder,
+            message,
+            0,
+            1,
+        );
+
+        // Verify the message was processed (result may be true or false depending on message processing)
+        // The important thing is that the method was called without panicking
+    }
+
+    #[test]
+    fn test_slide_state_state_message_multiple_choice() {
+        let mc_config = create_test_multiple_choice_config();
+        let state = mc_config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+
+        let message = state.state_message(
+            Id::new(),
+            ValueKind::Player,
+            None,
+            &watchers,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        match message {
+            SyncMessage::MultipleChoice(_) => {}
+            _ => panic!("Expected MultipleChoice sync message"),
+        }
+    }
+
+    #[test]
+    fn test_slide_state_state_message_type_answer() {
+        let ta_config = create_test_type_answer_config();
+        let state = ta_config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+
+        let message = state.state_message(
+            Id::new(),
+            ValueKind::Player,
+            None,
+            &watchers,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        match message {
+            SyncMessage::TypeAnswer(_) => {}
+            _ => panic!("Expected TypeAnswer sync message"),
+        }
+    }
+
+    #[test]
+    fn test_slide_state_state_message_order() {
+        let order_config = create_test_order_config();
+        let state = order_config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+
+        let message = state.state_message(
+            Id::new(),
+            ValueKind::Player,
+            None,
+            &watchers,
+            tunnel_finder,
+            0,
+            1,
+        );
+
+        match message {
+            SyncMessage::Order(_) => {}
+            _ => panic!("Expected Order sync message"),
+        }
+    }
+
+    #[test]
+    fn test_fuiz_len_and_is_empty() {
+        let empty_fuiz = Fuiz {
+            title: "Empty".to_string(),
+            slides: vec![],
+        };
+        assert_eq!(empty_fuiz.len(), 0);
+        assert!(empty_fuiz.is_empty());
+
+        let fuiz_with_slides = Fuiz {
+            title: "With Slides".to_string(),
+            slides: vec![
+                create_test_multiple_choice_config(),
+                create_test_type_answer_config(),
+            ],
+        };
+        assert_eq!(fuiz_with_slides.len(), 2);
+        assert!(!fuiz_with_slides.is_empty());
+    }
+
+    #[test]
+    fn test_current_slide_serialization() {
+        let mc_config = create_test_multiple_choice_config();
+        let slide_state = mc_config.to_state();
+        let current_slide = CurrentSlide {
+            index: 0,
+            state: slide_state,
+        };
+
+        // Test serialization doesn't panic
+        let _serialized = serde_json::to_string(&current_slide).unwrap();
+    }
+
+    #[test]
+    fn test_text_or_media_validation() {
+        // Valid text
+        let valid_text = TextOrMedia::Text("Valid text".to_string());
+        assert!(valid_text.validate().is_ok());
+
+        // Text too long
+        let long_text =
+            TextOrMedia::Text("x".repeat(crate::constants::answer_text::MAX_LENGTH + 1));
+        assert!(long_text.validate().is_err());
+    }
+
+    #[test]
+    fn test_slide_state_receive_alarm_type_answer() {
+        let ta_config = create_test_type_answer_config();
+        let mut state = ta_config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut leaderboard = create_mock_leaderboard();
+        let mut schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {};
+
+        let alarm_message =
+            AlarmMessage::TypeAnswer(type_answer::AlarmMessage::ProceedFromSlideIntoSlide {
+                index: 0,
+                to: type_answer::SlideState::Question,
+            });
+
+        let _result = state.receive_alarm(
+            &mut leaderboard,
+            &watchers,
+            None,
+            &mut schedule_message,
+            tunnel_finder,
+            &alarm_message,
+            0,
+            1,
+        );
+
+        // Test completed successfully - receive_alarm was called on TypeAnswer variant
+    }
+
+    #[test]
+    fn test_slide_state_receive_alarm_order() {
+        let order_config = create_test_order_config();
+        let mut state = order_config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut leaderboard = create_mock_leaderboard();
+        let mut schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {};
+
+        let alarm_message = AlarmMessage::Order(order::AlarmMessage::ProceedFromSlideIntoSlide {
+            index: 0,
+            to: order::SlideState::Question,
+        });
+
+        let _result = state.receive_alarm(
+            &mut leaderboard,
+            &watchers,
+            None,
+            &mut schedule_message,
+            tunnel_finder,
+            &alarm_message,
+            0,
+            1,
+        );
+
+        // Test completed successfully - receive_alarm was called on Order variant
+    }
+
+    #[test]
+    fn test_slide_state_receive_alarm_multiple_choice() {
+        let mc_config = create_test_multiple_choice_config();
+        let mut state = mc_config.to_state();
+        let watchers = create_mock_watchers();
+        let tunnel_finder = create_mock_tunnel_finder();
+        let mut leaderboard = create_mock_leaderboard();
+        let mut schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {};
+
+        let alarm_message = AlarmMessage::MultipleChoice(
+            multiple_choice::AlarmMessage::ProceedFromSlideIntoSlide {
+                index: 0,
+                to: multiple_choice::SlideState::Question,
+            },
+        );
+
+        let _result = state.receive_alarm(
+            &mut leaderboard,
+            &watchers,
+            None,
+            &mut schedule_message,
+            tunnel_finder,
+            &alarm_message,
+            0,
+            1,
+        );
+
+        // Test completed successfully - receive_alarm was called on MultipleChoice variant
     }
 }

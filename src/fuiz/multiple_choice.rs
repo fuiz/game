@@ -6,7 +6,7 @@
 //! timing, scoring, answer validation, and result presentation.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     time::{self, Duration},
 };
 
@@ -24,73 +24,18 @@ use crate::{
 };
 
 use super::{
-    super::game::{IncomingHostMessage, IncomingMessage, IncomingPlayerMessage},
+    super::constants::multiple_choice::*,
+    super::game::IncomingPlayerMessage,
+    common::{
+        AnswerHandler, QuestionReceiveMessage, SlideStateManager, SlideTimer,
+        add_scores_to_leaderboard, all_players_answered, get_answered_count, validate_duration,
+    },
     config::TextOrMedia,
     media::Media,
 };
 
-/// Represents the current phase of a multiple choice slide
-///
-/// Multiple choice questions progress through distinct phases:
-/// first showing just the question, then revealing answer options,
-/// and finally showing results with statistics.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[repr(u8)]
-pub enum SlideState {
-    /// Initial state before the slide has started (treated same as Question)
-    #[default]
-    Unstarted,
-    /// Displaying the question without answer options
-    Question,
-    /// Displaying the question with answer options for player selection
-    Answers,
-    /// Displaying the results with correct answers and statistics
-    AnswersResults,
-}
-
-type ValidationResult = garde::Result;
-
-/// Validates that a duration falls within specified bounds
-///
-/// This helper function ensures that timing parameters for questions
-/// fall within acceptable ranges as defined by the game constants.
-///
-/// # Arguments
-///
-/// * `field` - Name of the field being validated (for error messages)
-/// * `val` - The duration value to validate
-///
-/// # Returns
-///
-/// `Ok(())` if the duration is valid, `Err` with descriptive message if not
-fn validate_duration<const MIN_SECONDS: u64, const MAX_SECONDS: u64>(
-    field: &'static str,
-    val: &Duration,
-) -> ValidationResult {
-    if (MIN_SECONDS..=MAX_SECONDS).contains(&val.as_secs()) {
-        Ok(())
-    } else {
-        Err(garde::Error::new(format!(
-            "{field} is outside of the bounds [{MIN_SECONDS},{MAX_SECONDS}]",
-        )))
-    }
-}
-
-/// Validates the duration for introducing a question before showing answers
-fn validate_introduce_question(val: &Duration) -> ValidationResult {
-    validate_duration::<
-        { crate::constants::multiple_choice::MIN_INTRODUCE_QUESTION },
-        { crate::constants::multiple_choice::MAX_INTRODUCE_QUESTION },
-    >("introduce_question", val)
-}
-
-/// Validates the time limit for answering a multiple choice question
-fn validate_time_limit(val: &Duration) -> ValidationResult {
-    validate_duration::<
-        { crate::constants::multiple_choice::MIN_TIME_LIMIT },
-        { crate::constants::multiple_choice::MAX_TIME_LIMIT },
-    >("time_limit", val)
-}
+// Re-export SlideState publicly from slide_traits
+pub use super::common::SlideState;
 
 /// Configuration for a multiple choice question slide
 ///
@@ -102,24 +47,24 @@ fn validate_time_limit(val: &Duration) -> ValidationResult {
 #[derive(Debug, Clone, Serialize, serde::Deserialize, Validate)]
 pub struct SlideConfig {
     /// The question text that will be displayed to players
-    #[garde(length(min = crate::constants::multiple_choice::MIN_TITLE_LENGTH, max = crate::constants::multiple_choice::MAX_TITLE_LENGTH))]
+    #[garde(length(min = MIN_TITLE_LENGTH, max = MAX_TITLE_LENGTH))]
     title: String,
     /// Optional media content (images, etc.) to accompany the question
     #[garde(dive)]
     media: Option<Media>,
     /// Duration to display the question before revealing answer options
-    #[garde(custom(|v, _| validate_introduce_question(v)))]
+    #[garde(custom(validate_duration::<MIN_INTRODUCE_QUESTION, MAX_INTRODUCE_QUESTION>))]
     #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
     introduce_question: Duration,
     /// Duration players have to select their answer once options are revealed
-    #[garde(custom(|v, _| validate_time_limit(v)))]
+    #[garde(custom(validate_duration::<MIN_TIME_LIMIT, MAX_TIME_LIMIT>))]
     #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
     time_limit: Duration,
     /// Maximum points awarded for a correct answer (decreases linearly over time)
     #[garde(skip)]
     points_awarded: u64,
     /// The available answer choices for this question
-    #[garde(length(max = crate::constants::multiple_choice::MAX_ANSWER_COUNT))]
+    #[garde(length(max = MAX_ANSWER_COUNT))]
     answers: Vec<AnswerChoice>,
 }
 
@@ -318,6 +263,53 @@ pub struct AnswerChoiceResult {
     count: usize,
 }
 
+impl SlideStateManager for State {
+    fn state(&self) -> SlideState {
+        self.state
+    }
+
+    fn change_state(&mut self, before: SlideState, after: SlideState) -> bool {
+        if self.state == before {
+            self.state = after;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl SlideTimer for State {
+    fn answer_start(&self) -> Option<SystemTime> {
+        self.answer_start
+    }
+
+    fn set_answer_start(&mut self, time: Option<SystemTime>) {
+        self.answer_start = time;
+    }
+}
+
+impl AnswerHandler<usize> for State {
+    fn user_answers(&self) -> &HashMap<Id, (usize, SystemTime)> {
+        &self.user_answers
+    }
+
+    fn user_answers_mut(&mut self) -> &mut HashMap<Id, (usize, SystemTime)> {
+        &mut self.user_answers
+    }
+
+    fn is_correct_answer(&self, answer: &usize) -> bool {
+        self.config.answers.get(*answer).is_some_and(|x| x.correct)
+    }
+
+    fn max_points(&self) -> u64 {
+        self.config.points_awarded
+    }
+
+    fn time_limit(&self) -> Duration {
+        self.config.time_limit
+    }
+}
+
 impl State {
     /// Starts the multiple choice slide by sending initial question announcements
     ///
@@ -345,7 +337,7 @@ impl State {
         S: FnMut(crate::AlarmMessage, time::Duration),
     >(
         &mut self,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         schedule_message: S,
         tunnel_finder: F,
@@ -360,44 +352,6 @@ impl State {
             index,
             count,
         );
-    }
-
-    /// Calculates the score for a player based on how quickly they answered
-    ///
-    /// The scoring system awards full points for immediate answers and
-    /// decreases linearly to half points at the end of the time limit.
-    ///
-    /// # Arguments
-    ///
-    /// * `full_duration` - Total time allowed for answering
-    /// * `taken_duration` - Time taken by the player to submit their answer
-    /// * `full_points_awarded` - Maximum points possible for this question
-    ///
-    /// # Returns
-    ///
-    /// The calculated score (between half and full points)
-    fn calculate_score(
-        full_duration: Duration,
-        taken_duration: Duration,
-        full_points_awarded: u64,
-    ) -> u64 {
-        (full_points_awarded as f64
-            * (1. - (taken_duration.as_secs_f64() / full_duration.as_secs_f64() / 2.)))
-            as u64
-    }
-
-    /// Records the current time as the start of the answer phase
-    fn start_timer(&mut self) {
-        self.answer_start = Some(SystemTime::now());
-    }
-
-    /// Returns the start time of the current phase
-    ///
-    /// # Returns
-    ///
-    /// The SystemTime when the current phase started, or current time if not set
-    fn timer(&self) -> SystemTime {
-        self.answer_start.unwrap_or(SystemTime::now())
     }
 
     /// Sends the initial question announcement to all participants
@@ -427,7 +381,7 @@ impl State {
         S: FnMut(crate::AlarmMessage, time::Duration),
     >(
         &mut self,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         mut schedule_message: S,
         tunnel_finder: F,
@@ -463,7 +417,7 @@ impl State {
                     }
                     .into(),
                     self.config.introduce_question,
-                )
+                );
             }
         }
     }
@@ -494,7 +448,7 @@ impl State {
         S: FnMut(crate::AlarmMessage, time::Duration),
     >(
         &mut self,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         mut schedule_message: S,
         tunnel_finder: F,
@@ -518,7 +472,7 @@ impl State {
                                                 members
                                                     .into_iter()
                                                     .filter(|id| {
-                                                        watchers.is_alive(*id, &tunnel_finder)
+                                                        Watchers::is_alive(*id, &tunnel_finder)
                                                     })
                                                     .count()
                                                     .max(1)
@@ -531,7 +485,7 @@ impl State {
                                     match &team_manager {
                                         Some(team_manager) => team_manager
                                             .team_index(id, |id| {
-                                                watchers.is_alive(id, &tunnel_finder)
+                                                Watchers::is_alive(id, &tunnel_finder)
                                             })
                                             .unwrap_or(0),
                                         None => 0,
@@ -554,45 +508,13 @@ impl State {
                 }
                 .into(),
                 self.config.time_limit,
-            )
+            );
         }
-    }
-
-    /// Attempts to transition from one slide state to another
-    ///
-    /// This method provides safe state transitions by checking that the current
-    /// state matches the expected "before" state before changing to the "after" state.
-    ///
-    /// # Arguments
-    ///
-    /// * `before` - Expected current state
-    /// * `after` - Target state to transition to
-    ///
-    /// # Returns
-    ///
-    /// `true` if the transition was successful, `false` if the current state didn't match
-    fn change_state(&mut self, before: SlideState, after: SlideState) -> bool {
-        if self.state == before {
-            self.state = after;
-
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Returns the current state of the slide
-    ///
-    /// # Returns
-    ///
-    /// The current SlideState of this multiple choice question
-    fn state(&self) -> SlideState {
-        self.state
     }
 
     /// Sends the results showing correct answers and player response statistics
     ///
-    /// This method handles the transition from Answers to AnswersResults state,
+    /// This method handles the transition from Answers to `AnswersResults` state,
     /// revealing the correct answers and showing statistics about how players responded.
     ///
     /// # Arguments
@@ -610,11 +532,7 @@ impl State {
         tunnel_finder: F,
     ) {
         if self.change_state(SlideState::Answers, SlideState::AnswersResults) {
-            let answer_count = self
-                .user_answers
-                .iter()
-                .map(|(_, (answer, _))| *answer)
-                .counts();
+            let answer_count = self.answer_counts();
             watchers.announce(
                 &UpdateMessage::AnswersResults {
                     answers: self
@@ -638,83 +556,6 @@ impl State {
                 tunnel_finder,
             );
         }
-    }
-
-    /// Calculates and adds scores to the leaderboard based on player answers
-    ///
-    /// This method evaluates all player answers, calculates scores based on
-    /// correctness and response time, and updates the leaderboard. In team mode,
-    /// it uses the fastest correct answer from team members.
-    ///
-    /// # Arguments
-    ///
-    /// * `leaderboard` - Mutable reference to the game leaderboard
-    /// * `watchers` - Connection manager for all participants
-    /// * `team_manager` - Optional team manager for team-based games
-    /// * `tunnel_finder` - Function to find communication tunnels for participants
-    ///
-    /// # Type Parameters
-    ///
-    /// * `T` - Type implementing the Tunnel trait for participant communication
-    /// * `F` - Function type for finding tunnels by participant ID
-    fn add_scores<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &self,
-        leaderboard: &mut Leaderboard,
-        watchers: &Watchers,
-        team_manager: Option<&TeamManager>,
-        tunnel_finder: F,
-    ) {
-        let starting_instant = self.timer();
-
-        leaderboard.add_scores(
-            &self
-                .user_answers
-                .iter()
-                .map(|(id, (answer, instant))| {
-                    let correct = self.config.answers.get(*answer).is_some_and(|x| x.correct);
-                    (
-                        *id,
-                        if correct {
-                            State::calculate_score(
-                                self.config.time_limit,
-                                instant
-                                    .duration_since(starting_instant)
-                                    .expect("future is past the past"),
-                                self.config.points_awarded,
-                            )
-                        } else {
-                            0
-                        },
-                        instant,
-                    )
-                })
-                .into_grouping_map_by(|(id, _, _)| {
-                    let player_id = *id;
-                    match &team_manager {
-                        Some(team_manager) => team_manager.get_team(player_id).unwrap_or(player_id),
-                        None => player_id,
-                    }
-                })
-                .min_by_key(|_, (_, _, instant)| *instant)
-                .into_iter()
-                .map(|(id, (_, score, _))| (id, score))
-                .chain(
-                    {
-                        match &team_manager {
-                            Some(team_manager) => team_manager.all_ids(),
-                            None => watchers
-                                .specific_vec(ValueKind::Player, tunnel_finder)
-                                .into_iter()
-                                .map(|(x, _, _)| x)
-                                .collect_vec(),
-                        }
-                    }
-                    .into_iter()
-                    .map(|id| (id, 0)),
-                )
-                .unique_by(|(id, _)| *id)
-                .collect_vec(),
-        );
     }
 
     /// Determines which answer options should be visible to a specific participant
@@ -795,7 +636,7 @@ impl State {
     ///
     /// # Returns
     ///
-    /// A SyncMessage appropriate for the current state and participant type
+    /// A `SyncMessage` appropriate for the current state and participant type
     ///
     /// # Type Parameters
     ///
@@ -805,7 +646,7 @@ impl State {
         &self,
         watcher_id: Id,
         watcher_kind: ValueKind,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         tunnel_finder: F,
         index: usize,
@@ -818,17 +659,14 @@ impl State {
                 question: self.config.title.clone(),
                 media: self.config.media.clone(),
                 duration: self.config.introduce_question
-                    - self.timer().elapsed().expect("system clock went backwards"),
+                    - self.timer().elapsed().unwrap_or_default(),
             },
             SlideState::Answers => SyncMessage::AnswersAnnouncement {
                 index,
                 count,
                 question: self.config.title.clone(),
                 media: self.config.media.clone(),
-                duration: {
-                    self.config.time_limit
-                        - self.timer().elapsed().expect("system clock went backwards")
-                },
+                duration: { self.config.time_limit - self.elapsed() },
                 answers: self.get_answers_for_player(
                     watcher_id,
                     watcher_kind,
@@ -838,7 +676,7 @@ impl State {
                                 team_manager.team_members(watcher_id).map_or(1, |members| {
                                     members
                                         .into_iter()
-                                        .filter(|id| watchers.is_alive(*id, &tunnel_finder))
+                                        .filter(|id| Watchers::is_alive(*id, &tunnel_finder))
                                         .collect_vec()
                                         .len()
                                         .max(1)
@@ -850,29 +688,17 @@ impl State {
                     {
                         match &team_manager {
                             Some(team_manager) => team_manager
-                                .team_index(watcher_id, |id| watchers.is_alive(id, &tunnel_finder))
+                                .team_index(watcher_id, |id| Watchers::is_alive(id, &tunnel_finder))
                                 .unwrap_or(0),
                             None => 0,
                         }
                     },
                     team_manager.is_some(),
                 ),
-                answered_count: {
-                    let left_set: HashSet<_> = watchers
-                        .specific_vec(ValueKind::Player, &tunnel_finder)
-                        .iter()
-                        .map(|(w, _, _)| w.to_owned())
-                        .collect();
-                    let right_set: HashSet<_> = self.user_answers.keys().copied().collect();
-                    left_set.intersection(&right_set).count()
-                },
+                answered_count: get_answered_count(self, watchers, &tunnel_finder),
             },
             SlideState::AnswersResults => {
-                let answer_count = self
-                    .user_answers
-                    .iter()
-                    .map(|(_, (answer, _))| answer)
-                    .counts();
+                let answer_count = self.answer_counts();
 
                 SyncMessage::AnswersResults {
                     index,
@@ -898,103 +724,6 @@ impl State {
                 }
             }
         }
-    }
-
-    /// Handles incoming messages from participants during the multiple choice question
-    ///
-    /// This method processes messages from hosts and players, including host commands
-    /// to advance the slide and player answer submissions. It manages automatic
-    /// progression when all players have answered.
-    ///
-    /// # Arguments
-    ///
-    /// * `watcher_id` - ID of the participant sending the message
-    /// * `message` - The incoming message to process
-    /// * `leaderboard` - Mutable reference to the game leaderboard
-    /// * `watchers` - Connection manager for all participants
-    /// * `team_manager` - Optional team manager for team-based games
-    /// * `schedule_message` - Function to schedule delayed messages for timing
-    /// * `tunnel_finder` - Function to find communication tunnels for participants
-    /// * `index` - Current slide index in the game
-    /// * `count` - Total number of slides in the game
-    ///
-    /// # Returns
-    ///
-    /// `true` if the slide is complete and should advance to the next slide, `false` otherwise
-    ///
-    /// # Type Parameters
-    ///
-    /// * `T` - Type implementing the Tunnel trait for participant communication
-    /// * `F` - Function type for finding tunnels by participant ID
-    /// * `S` - Function type for scheduling alarm messages
-    pub fn receive_message<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnMut(crate::AlarmMessage, time::Duration),
-    >(
-        &mut self,
-        watcher_id: Id,
-        message: IncomingMessage,
-        leaderboard: &mut Leaderboard,
-        watchers: &Watchers,
-        team_manager: Option<&TeamManager>,
-        schedule_message: S,
-        tunnel_finder: F,
-        index: usize,
-        count: usize,
-    ) -> bool {
-        match message {
-            IncomingMessage::Host(IncomingHostMessage::Next) => match self.state() {
-                SlideState::Unstarted => {
-                    self.send_question_announcements(
-                        team_manager,
-                        watchers,
-                        schedule_message,
-                        tunnel_finder,
-                        index,
-                        count,
-                    );
-                }
-                SlideState::Question => {
-                    self.send_answers_announcements(
-                        team_manager,
-                        watchers,
-                        schedule_message,
-                        tunnel_finder,
-                        index,
-                    );
-                }
-                SlideState::Answers => self.send_answers_results(watchers, tunnel_finder),
-                SlideState::AnswersResults => {
-                    self.add_scores(leaderboard, watchers, team_manager, tunnel_finder);
-                    return true;
-                }
-            },
-            IncomingMessage::Player(IncomingPlayerMessage::IndexAnswer(v))
-                if v < self.config.answers.len() =>
-            {
-                self.user_answers.insert(watcher_id, (v, SystemTime::now()));
-                let left_set: HashSet<_> = watchers
-                    .specific_vec(ValueKind::Player, &tunnel_finder)
-                    .iter()
-                    .map(|(w, _, _)| w.to_owned())
-                    .collect();
-                let right_set: HashSet<_> = self.user_answers.keys().copied().collect();
-                if left_set.is_subset(&right_set) {
-                    self.send_answers_results(watchers, &tunnel_finder);
-                } else {
-                    watchers.announce_specific(
-                        ValueKind::Host,
-                        &UpdateMessage::AnswersCount(left_set.intersection(&right_set).count())
-                            .into(),
-                        &tunnel_finder,
-                    );
-                }
-            }
-            _ => (),
-        };
-
-        false
     }
 
     /// Handles scheduled alarm messages for timed state transitions
@@ -1031,10 +760,10 @@ impl State {
         &mut self,
         _leaderboard: &mut Leaderboard,
         watchers: &Watchers,
-        team_manager: Option<&TeamManager>,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: &mut S,
         tunnel_finder: F,
-        message: crate::AlarmMessage,
+        message: &crate::AlarmMessage,
         index: usize,
         _count: usize,
     ) -> bool {
@@ -1056,8 +785,89 @@ impl State {
                 SlideState::AnswersResults => self.send_answers_results(watchers, tunnel_finder),
                 _ => (),
             }
-        };
+        }
 
         false
+    }
+}
+
+impl QuestionReceiveMessage for State {
+    fn receive_host_next<
+        T: Tunnel,
+        F: Fn(Id) -> Option<T>,
+        S: FnMut(crate::AlarmMessage, time::Duration),
+    >(
+        &mut self,
+        leaderboard: &mut Leaderboard,
+        watchers: &Watchers,
+        team_manager: Option<&TeamManager<crate::names::NameStyle>>,
+        schedule_message: S,
+        tunnel_finder: F,
+        index: usize,
+        count: usize,
+    ) -> bool {
+        match self.state() {
+            SlideState::Unstarted => {
+                self.send_question_announcements(
+                    team_manager,
+                    watchers,
+                    schedule_message,
+                    tunnel_finder,
+                    index,
+                    count,
+                );
+            }
+            SlideState::Question => {
+                self.send_answers_announcements(
+                    team_manager,
+                    watchers,
+                    schedule_message,
+                    tunnel_finder,
+                    index,
+                );
+            }
+            SlideState::Answers => self.send_answers_results(watchers, tunnel_finder),
+            SlideState::AnswersResults => {
+                add_scores_to_leaderboard(
+                    self,
+                    self,
+                    leaderboard,
+                    watchers,
+                    team_manager,
+                    tunnel_finder,
+                );
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn receive_player_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
+        &mut self,
+        watcher_id: Id,
+        message: IncomingPlayerMessage,
+        watchers: &Watchers,
+        tunnel_finder: F,
+    ) {
+        if let IncomingPlayerMessage::IndexAnswer(v) = message
+            && v < self.config.answers.len()
+        {
+            self.record_answer(watcher_id, v);
+            if all_players_answered(self, watchers, &tunnel_finder) {
+                self.send_answers_results(watchers, &tunnel_finder);
+            } else {
+                watchers.announce_specific(
+                    ValueKind::Host,
+                    &UpdateMessage::AnswersCount(get_answered_count(
+                        self,
+                        watchers,
+                        &tunnel_finder,
+                    ))
+                    .into(),
+                    &tunnel_finder,
+                );
+            }
+        }
     }
 }
