@@ -17,6 +17,7 @@ use serde_with::skip_serializing_none;
 use web_time::SystemTime;
 
 use crate::{
+    fuiz::config::SlideAction,
     leaderboard::Leaderboard,
     session::Tunnel,
     teams::TeamManager,
@@ -334,7 +335,7 @@ impl State {
     pub fn play<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
-        S: FnMut(crate::AlarmMessage, time::Duration),
+        S: FnOnce(crate::AlarmMessage, time::Duration),
     >(
         &mut self,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
@@ -378,12 +379,12 @@ impl State {
     fn send_question_announcements<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
-        S: FnMut(crate::AlarmMessage, time::Duration),
+        S: FnOnce(crate::AlarmMessage, time::Duration),
     >(
         &mut self,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
-        mut schedule_message: S,
+        schedule_message: S,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -445,12 +446,12 @@ impl State {
     fn send_answers_announcements<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
-        S: FnMut(crate::AlarmMessage, time::Duration),
+        S: FnOnce(crate::AlarmMessage, time::Duration),
     >(
         &mut self,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
-        mut schedule_message: S,
+        schedule_message: S,
         tunnel_finder: F,
         index: usize,
     ) {
@@ -745,7 +746,7 @@ impl State {
     ///
     /// # Returns
     ///
-    /// `true` if the slide is complete and should advance to the next slide, `false` otherwise
+    /// A `SlideAction` indicating whether to stay on the current slide or advance
     ///
     /// # Type Parameters
     ///
@@ -755,18 +756,18 @@ impl State {
     pub fn receive_alarm<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
-        S: FnMut(crate::AlarmMessage, web_time::Duration),
+        S: FnOnce(crate::AlarmMessage, web_time::Duration),
     >(
         &mut self,
         _leaderboard: &mut Leaderboard,
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
-        schedule_message: &mut S,
+        schedule_message: S,
         tunnel_finder: F,
         message: &crate::AlarmMessage,
         index: usize,
         _count: usize,
-    ) -> bool {
+    ) -> SlideAction<S> {
         if let crate::AlarmMessage::MultipleChoice(AlarmMessage::ProceedFromSlideIntoSlide {
             index: _,
             to,
@@ -787,7 +788,7 @@ impl State {
             }
         }
 
-        false
+        SlideAction::Stay
     }
 }
 
@@ -795,7 +796,7 @@ impl QuestionReceiveMessage for State {
     fn receive_host_next<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
-        S: FnMut(crate::AlarmMessage, time::Duration),
+        S: FnOnce(crate::AlarmMessage, time::Duration),
     >(
         &mut self,
         leaderboard: &mut Leaderboard,
@@ -805,7 +806,7 @@ impl QuestionReceiveMessage for State {
         tunnel_finder: F,
         index: usize,
         count: usize,
-    ) -> bool {
+    ) -> SlideAction<S> {
         match self.state() {
             SlideState::Unstarted => {
                 self.send_question_announcements(
@@ -836,11 +837,11 @@ impl QuestionReceiveMessage for State {
                     team_manager,
                     tunnel_finder,
                 );
-                return true;
+                return SlideAction::Next { schedule_message };
             }
         }
 
-        false
+        SlideAction::Stay
     }
 
     fn receive_player_message<T: Tunnel, F: Fn(Id) -> Option<T>>(

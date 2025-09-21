@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use web_time::SystemTime;
 
 use crate::{
+    fuiz::config::SlideAction,
     leaderboard::Leaderboard,
     session::Tunnel,
     teams::TeamManager,
@@ -293,7 +294,7 @@ pub trait QuestionReceiveMessage {
     ///
     /// # Returns
     ///
-    /// `true` if the slide is complete and should advance to the next slide, `false` otherwise
+    /// A `SlideAction` indicating whether to stay on the current slide or advance
     ///
     /// # Type Parameters
     ///
@@ -303,7 +304,7 @@ pub trait QuestionReceiveMessage {
     fn receive_host_next<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
-        S: FnMut(crate::AlarmMessage, Duration),
+        S: FnOnce(crate::AlarmMessage, Duration),
     >(
         &mut self,
         leaderboard: &mut Leaderboard,
@@ -313,7 +314,7 @@ pub trait QuestionReceiveMessage {
         tunnel_finder: F,
         index: usize,
         count: usize,
-    ) -> bool;
+    ) -> SlideAction<S>;
 
     /// Handle player messages
     ///
@@ -358,7 +359,7 @@ pub trait QuestionReceiveMessage {
     ///
     /// # Returns
     ///
-    /// `true` if the slide is complete and should advance to the next slide, `false` otherwise
+    /// A `SlideAction` indicating whether to stay on the current slide or advance
     ///
     /// # Type Parameters
     ///
@@ -368,7 +369,7 @@ pub trait QuestionReceiveMessage {
     fn receive_message<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
-        S: FnMut(crate::AlarmMessage, Duration),
+        S: FnOnce(crate::AlarmMessage, Duration),
     >(
         &mut self,
         watcher_id: Id,
@@ -380,7 +381,7 @@ pub trait QuestionReceiveMessage {
         tunnel_finder: F,
         index: usize,
         count: usize,
-    ) -> bool {
+    ) -> SlideAction<S> {
         match message {
             crate::game::IncomingMessage::Host(crate::game::IncomingHostMessage::Next) => self
                 .receive_host_next(
@@ -394,14 +395,14 @@ pub trait QuestionReceiveMessage {
                 ),
             crate::game::IncomingMessage::Player(player_message) => {
                 self.receive_player_message(watcher_id, player_message, watchers, tunnel_finder);
-                false
+                SlideAction::Stay
             }
             crate::game::IncomingMessage::Host(
                 crate::game::IncomingHostMessage::Index(_)
                 | crate::game::IncomingHostMessage::Lock(_),
             )
             | crate::game::IncomingMessage::Ghost(_)
-            | crate::game::IncomingMessage::Unassigned(_) => false,
+            | crate::game::IncomingMessage::Unassigned(_) => SlideAction::Stay,
         }
     }
 }

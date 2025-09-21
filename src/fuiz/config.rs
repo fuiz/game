@@ -20,6 +20,11 @@ use crate::{
     watcher::{Id, ValueKind, Watchers},
 };
 
+/// Alias for a function that schedules alarm messages
+pub trait ScheduleMessageFn: FnOnce(AlarmMessage, web_time::Duration) {}
+
+impl<T: FnOnce(AlarmMessage, web_time::Duration)> ScheduleMessageFn for T {}
+
 /// Represents content that can be either text or media
 ///
 /// This enum allows questions and answers to include either plain text
@@ -127,6 +132,19 @@ impl Fuiz {
     }
 }
 
+/// Action to take after processing a slide event
+/// This enum indicates whether to proceed to the next slide
+/// or remain on the current slide after handling an event.
+pub enum SlideAction<S: ScheduleMessageFn> {
+    /// Proceed to the next slide
+    Next {
+        /// Function to schedule timed alarm messages, returned for further scheduling
+        schedule_message: S,
+    },
+    /// Stay on the current slide, potentially changing its state
+    Stay,
+}
+
 impl SlideState {
     /// Starts playing this slide and manages its lifecycle
     ///
@@ -142,7 +160,7 @@ impl SlideState {
     /// * `tunnel_finder` - Function to find communication tunnels for participants
     /// * `index` - The current slide index
     /// * `count` - The total number of slides
-    pub fn play<T: Tunnel, F: Fn(Id) -> Option<T>, S: FnMut(AlarmMessage, web_time::Duration)>(
+    pub fn play<T: Tunnel, F: Fn(Id) -> Option<T>, S: ScheduleMessageFn>(
         &mut self,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
@@ -191,12 +209,8 @@ impl SlideState {
     ///
     /// # Returns
     ///
-    /// `true` if the message was successfully processed, `false` otherwise
-    pub fn receive_message<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnMut(AlarmMessage, web_time::Duration),
-    >(
+    /// A `SlideAction` indicating whether to stay on the current slide or advance
+    pub fn receive_message<T: Tunnel, F: Fn(Id) -> Option<T>, S: ScheduleMessageFn>(
         &mut self,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,
@@ -207,7 +221,7 @@ impl SlideState {
         message: IncomingMessage,
         index: usize,
         count: usize,
-    ) -> bool {
+    ) -> SlideAction<S> {
         match self {
             Self::MultipleChoice(s) => s.receive_message(
                 watcher_id,
@@ -325,22 +339,18 @@ impl SlideState {
     ///
     /// # Returns
     ///
-    /// `true` if the alarm was successfully processed, `false` otherwise
-    pub fn receive_alarm<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnMut(AlarmMessage, web_time::Duration),
-    >(
+    /// A `SlideAction` indicating whether to stay on the current slide or advance
+    pub fn receive_alarm<T: Tunnel, F: Fn(Id) -> Option<T>, S: ScheduleMessageFn>(
         &mut self,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
-        schedule_message: &mut S,
+        schedule_message: S,
         tunnel_finder: F,
         message: &AlarmMessage,
         index: usize,
         count: usize,
-    ) -> bool {
+    ) -> SlideAction<S> {
         match self {
             Self::MultipleChoice(s) => s.receive_alarm(
                 leaderboard,
