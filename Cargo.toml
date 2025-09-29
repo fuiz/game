@@ -1,7 +1,7 @@
 [package]
 name = "fuiz-cloudflare"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["Khaleel Al-Adhami <khaleel.aladhami@gmail.com>"]
 
 
@@ -10,8 +10,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 http-body-util = "0.1"
-worker = { version = "0.5", features = ['http'] }
-worker-macros = { version = "0.5", features = ['http'] }
+worker = { version = "0.6", features = ['http'] }
+worker-macros = { version = "0.6", features = ['http'] }
 console_error_panic_hook = { version = "0.1" }
 http = "1.2"
 chrono = { version = "0.4", features = ["serde"] }

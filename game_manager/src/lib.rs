@@ -11,7 +11,7 @@ struct GameManager {
 }
 
 impl GameManager {
-    async fn get_game(&mut self, game_id: &str) -> Result<GameManagerInstance> {
+    async fn get_game(&self, game_id: &str) -> Result<GameManagerInstance> {
         let game = self
             .state
             .storage()
@@ -27,18 +27,17 @@ impl GameManager {
     }
 }
 
-#[durable_object]
 impl DurableObject for GameManager {
     fn new(state: State, env: Env) -> Self {
         Self { state, env }
     }
 
-    async fn fetch(&mut self, mut req: Request) -> Result<Response> {
+    async fn fetch(&self, mut req: Request) -> Result<Response> {
         match req.method() {
             Method::Get => {
                 let url = req.url()?;
 
-                let game_id = url.path_segments().and_then(|ps| ps.last());
+                let game_id = url.path_segments().and_then(|mut ps| ps.next_back());
 
                 if let Some(game_id) = game_id {
                     let game = self.get_game(game_id).await;
@@ -69,11 +68,13 @@ impl DurableObject for GameManager {
                         if let Err(e) = self
                             .env
                             .service("COUNTER")?
-                            .fetch("https://example.com/game_count", {
-                                let mut request_init = RequestInit::default();
-                                request_init.method = Method::Post;
-                                Some(request_init)
-                            })
+                            .fetch(
+                                "https://example.com/game_count",
+                                Some(worker::RequestInit {
+                                    method: worker::Method::Post,
+                                    ..Default::default()
+                                }),
+                            )
                             .await
                         {
                             console_error!("Failed to increment game count: {:?}", e);

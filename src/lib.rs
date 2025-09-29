@@ -1,4 +1,7 @@
-use std::str::FromStr;
+use std::{
+    cell::{RefCell, RefMut},
+    str::FromStr,
+};
 
 use garde::Validate;
 use http_body_util::BodyExt;
@@ -7,7 +10,12 @@ use serde_json::json;
 use wasm_bindgen_futures::wasm_bindgen::JsValue;
 use worker::*;
 
-use fuiz::{fuiz::config::Fuiz, game, session::Tunnel, watcher};
+use fuiz::{
+    fuiz::config::Fuiz,
+    game,
+    session::Tunnel,
+    watcher::{self},
+};
 use worker_sys::web_sys::Blob;
 
 #[derive(Serialize, Deserialize)]
@@ -36,16 +44,11 @@ impl Tunnel for WebSocketTunnel {
     }
 }
 
-enum LoadingState {
-    Loading,
-    Done(Option<fuiz::game::Game>),
-}
-
 #[durable_object]
 pub struct Game {
-    game: LoadingState,
+    game: RefCell<Option<fuiz::game::Game>>,
+    alarm_message: RefCell<Option<AlarmMessage>>,
     state: State,
-    alarm_message: Option<AlarmMessage>,
     env: Env,
 }
 
@@ -64,10 +67,15 @@ enum AlarmMessage {
 }
 
 impl Game {
-    async fn load_state(&mut self) {
-        if matches!(self.game, LoadingState::Loading) {
-            self.game = LoadingState::Done(load_game(&self.state.storage()).await);
-            self.alarm_message = self.state.storage().get("alarm").await.ok();
+    async fn load_state(&self) {
+        if self.game.borrow().is_none() {
+            if let Some(game) = load_game(&self.state.storage()).await {
+                self.game.replace(Some(game));
+            } else {
+                self.game.replace(None);
+            }
+            self.alarm_message
+                .replace(self.state.storage().get("alarm").await.ok());
         }
     }
 }
@@ -108,7 +116,7 @@ async fn load_game(storage: &worker::durable::Storage) -> Option<fuiz::game::Gam
     }
 }
 
-async fn store_game(storage: &mut worker::durable::Storage, game: &fuiz::game::Game) -> Result<()> {
+fn get_serialized_game(game: &fuiz::game::Game) -> Result<Vec<u8>> {
     let mut game_bytes = Vec::new();
 
     ciborium::into_writer(game, &mut game_bytes).map_err(|e| {
@@ -116,6 +124,10 @@ async fn store_game(storage: &mut worker::durable::Storage, game: &fuiz::game::G
         worker::Error::RustError(e.to_string())
     })?;
 
+    Ok(game_bytes)
+}
+
+async fn store_game(storage: &mut worker::durable::Storage, game_bytes: &[u8]) -> Result<()> {
     let chunks_of_64kb = game_bytes
         .chunks(64 * 1024)
         .map(|chunk| GameBytes {
@@ -133,77 +145,119 @@ async fn store_game(storage: &mut worker::durable::Storage, game: &fuiz::game::G
     Ok(())
 }
 
-const GAME_EXPIRY: chrono::Duration = chrono::Duration::hours(1);
+const GAME_EXPIRY: web_time::Duration = web_time::Duration::from_hours(1);
 
-#[durable_object]
+impl Game {
+    fn borrow_game_mut(&self) -> Option<RefMut<'_, fuiz::game::Game>> {
+        let game = RefMut::filter_map(self.game.borrow_mut(), |game_state| game_state.as_mut());
+
+        game.ok()
+    }
+
+    fn borrow_game(&self) -> Option<std::cell::Ref<'_, fuiz::game::Game>> {
+        let game = std::cell::Ref::filter_map(self.game.borrow(), |game_state| game_state.as_ref());
+
+        game.ok()
+    }
+
+    fn with_mut_game<F, R>(&self, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut fuiz::game::Game) -> R,
+    {
+        self.borrow_game_mut().map(|mut game| f(&mut game))
+    }
+
+    async fn with_mut_game_update_storage<F, R>(&self, f: F) -> Result<Option<R>>
+    where
+        F: FnOnce(&mut fuiz::game::Game) -> R,
+    {
+        let Some((ret, game_bytes)) = self.with_mut_game(|game| {
+            let ret = f(game);
+            (ret, get_serialized_game(game))
+        }) else {
+            return Ok(None);
+        };
+
+        store_game(&mut self.state.storage(), &game_bytes?).await?;
+
+        Ok(Some(ret))
+    }
+
+    async fn with_mut_game_alarm_message_update_storage<F>(&self, f: F) -> Result<()>
+    where
+        F: FnOnce(&mut fuiz::game::Game) -> Option<(fuiz::AlarmMessage, web_time::Duration)>,
+    {
+        let Some((alarm_message_duration, game_bytes)) = self.with_mut_game(|game| {
+            let alarm_message_duration = f(game);
+
+            (alarm_message_duration, get_serialized_game(game))
+        }) else {
+            return Ok(());
+        };
+
+        store_game(&mut self.state.storage(), &game_bytes?).await?;
+
+        if let Some((message, duration)) = alarm_message_duration {
+            self.alarm_message
+                .replace(Some(AlarmMessage::Game(message)));
+            self.state.storage().set_alarm(duration).await?;
+        } else if self.state.storage().get_alarm().await.unwrap().is_none() {
+            self.alarm_message.replace(Some(AlarmMessage::DeleteGame));
+            self.state.storage().set_alarm(GAME_EXPIRY).await?;
+        }
+
+        self.state
+            .storage()
+            .put("alarm", &self.alarm_message)
+            .await?;
+
+        Ok(())
+    }
+
+    fn tunnel_finder(&self) -> impl Fn(watcher::Id) -> Option<WebSocketTunnel> + '_ {
+        |id| {
+            self.state
+                .get_websockets_with_tag(&id.to_string())
+                .first()
+                .map(|ws| WebSocketTunnel(ws.to_owned()))
+        }
+    }
+}
+
 impl DurableObject for Game {
     fn new(state: State, env: Env) -> Self {
         Self {
-            game: LoadingState::Loading,
+            game: None.into(),
+            alarm_message: None.into(),
             state,
-            alarm_message: None,
             env,
         }
     }
 
-    async fn alarm(&mut self) -> Result<Response> {
+    async fn alarm(&self) -> Result<Response> {
         self.load_state().await;
-
-        let LoadingState::Done(game) = &mut self.game else {
-            return Response::empty();
-        };
 
         let alarm_message_to_be_announced = self.alarm_message.take();
 
-        let alarm_message = &mut self.alarm_message;
-
-        let state = &self.state;
-
-        let schedule_message = move |message: fuiz::AlarmMessage, duration: web_time::Duration| {
-            let time_in_future = chrono::Utc::now() + duration;
-
-            *alarm_message = Some(AlarmMessage::Game(message));
-
-            let storage = state.storage();
-
-            state.wait_until(async move {
-                let _ = storage
-                    .set_alarm(ScheduledTime::new(js_sys::Date::new(&JsValue::from_f64(
-                        time_in_future.timestamp_millis() as f64,
-                    ))))
-                    .await;
-            })
-        };
-
-        match (alarm_message_to_be_announced, game) {
-            (Some(AlarmMessage::DeleteGame), _) => {
+        match alarm_message_to_be_announced {
+            Some(AlarmMessage::DeleteGame) => {
                 self.state.storage().delete_all().await?;
                 return Response::ok("");
             }
-            (Some(AlarmMessage::Game(message)), Some(game)) => {
-                game.receive_alarm(message, schedule_message, |id| {
-                    self.state
-                        .get_websockets_with_tag(&id.to_string())
-                        .first()
-                        .map(|ws| WebSocketTunnel(ws.to_owned()))
-                });
+            Some(AlarmMessage::Game(message)) => {
+                self.with_mut_game_alarm_message_update_storage(|game| {
+                    let mut alarm_message_duration = None;
 
-                store_game(&mut self.state.storage(), game).await?;
+                    let schedule_message =
+                        |message: fuiz::AlarmMessage, duration: web_time::Duration| {
+                            alarm_message_duration = Some((message, duration));
+                        };
 
-                if self.state.storage().get_alarm().await.unwrap().is_none() {
-                    self.alarm_message = Some(AlarmMessage::DeleteGame);
-                    self.state
-                        .storage()
-                        .set_alarm(ScheduledTime::new(js_sys::Date::new(&JsValue::from_f64(
-                            (chrono::Utc::now() + GAME_EXPIRY).timestamp_millis() as f64,
-                        ))))
-                        .await?;
-                }
+                    game.receive_alarm(&message, schedule_message, self.tunnel_finder());
 
-                self.state
-                    .storage()
-                    .put("alarm", &self.alarm_message)
-                    .await?;
+                    alarm_message_duration
+                })
+                .await?;
             }
             _ => {}
         };
@@ -211,7 +265,7 @@ impl DurableObject for Game {
         Response::ok("")
     }
 
-    async fn fetch(&mut self, mut req: Request) -> Result<Response> {
+    async fn fetch(&self, mut req: Request) -> Result<Response> {
         self.load_state().await;
 
         if req.url()?.path().starts_with("/add") {
@@ -219,7 +273,7 @@ impl DurableObject for Game {
 
             let host_id = watcher::Id::new();
 
-            self.game = LoadingState::Done(Some(fuiz::game::Game::new(
+            self.game.replace(Some(fuiz::game::Game::new(
                 game_request.config,
                 game_request.options,
                 host_id,
@@ -228,21 +282,15 @@ impl DurableObject for Game {
         }
 
         if req.url()?.path().starts_with("/alive") {
-            let LoadingState::Done(game) = &mut self.game else {
+            let Some(game) = self.borrow_game() else {
                 return Response::ok("false");
             };
 
-            return Response::ok(
-                if game
-                    .as_ref()
-                    .map(|g| !matches!(g.state, game::State::Done))
-                    .unwrap_or(false)
-                {
-                    "true"
-                } else {
-                    "false"
-                },
-            );
+            return Response::ok(if !matches!(game.state, game::State::Done) {
+                "true"
+            } else {
+                "false"
+            });
         }
 
         let WebSocketPair { client, server } = WebSocketPair::new()?;
@@ -250,7 +298,7 @@ impl DurableObject for Game {
         let claimed_id = req
             .url()?
             .path_segments()
-            .and_then(|ps| ps.last())
+            .and_then(|mut ps| ps.next_back())
             .and_then(|s| watcher::Id::from_str(s).to_owned().ok())
             .unwrap_or(watcher::Id::new());
 
@@ -263,206 +311,132 @@ impl DurableObject for Game {
     }
 
     async fn websocket_message(
-        &mut self,
+        &self,
         ws: WebSocket,
         message: WebSocketIncomingMessage,
     ) -> Result<()> {
         self.load_state().await;
 
         {
-            let alarm_message = &mut self.alarm_message;
-            let state = &self.state;
-            let schedule_message =
-                move |message: fuiz::AlarmMessage, duration: web_time::Duration| {
-                    let time_in_future = chrono::Utc::now() + duration;
+            let WebSocketIncomingMessage::String(serialized_message) = message else {
+                return Ok(());
+            };
 
-                    *alarm_message = Some(AlarmMessage::Game(message));
+            let Ok(message) = serde_json::from_str(serialized_message.as_ref()) else {
+                return Ok(());
+            };
 
-                    let storage = state.storage();
+            let watcher_id = ws.deserialize_attachment::<watcher::Id>()?;
 
-                    state.wait_until(async move {
-                        let _ = storage
-                            .set_alarm(ScheduledTime::new(js_sys::Date::new(&JsValue::from_f64(
-                                time_in_future.timestamp_millis() as f64,
-                            ))))
-                            .await;
-                    })
-                };
+            if let Some(watcher_id) = watcher_id {
+                match message {
+                    game::IncomingMessage::Ghost(game::IncomingGhostMessage::DemandId) => {
+                        close_connections_with_tag_except_one(&self.state, &watcher_id, &ws);
+                        let session = WebSocketTunnel(ws);
 
-            match message {
-                WebSocketIncomingMessage::Binary(_) => {}
-                WebSocketIncomingMessage::String(s) => {
-                    let LoadingState::Done(Some(game)) = &mut self.game else {
-                        return Ok(());
-                    };
+                        session.send_message(&game::UpdateMessage::IdAssign(watcher_id).into());
 
-                    let watcher_id = ws.deserialize_attachment::<watcher::Id>()?;
+                        self.with_mut_game_update_storage(|game| {
+                            if game
+                                .add_unassigned(watcher_id, self.tunnel_finder())
+                                .is_err()
+                            {
+                                session.close();
+                            }
+                        })
+                        .await?;
 
-                    if let Ok(message) = serde_json::from_str(s.as_ref()) {
-                        match watcher_id {
-                            None => match message {
-                                game::IncomingMessage::Ghost(
-                                    game::IncomingGhostMessage::ClaimId(id),
-                                ) if game.watchers.has_watcher(id) => {
-                                    close_connections_with_tag(&self.state, &id);
-                                    ws.serialize_attachment(id)?;
-
-                                    game.update_session(id, |id| {
-                                        self.state
-                                            .get_websockets_with_tag(&id.to_string())
-                                            .first()
-                                            .map(|ws| WebSocketTunnel(ws.to_owned()))
-                                    });
-                                }
-                                game::IncomingMessage::Ghost(_) => {
-                                    let new_id = watcher::Id::new();
-
-                                    ws.serialize_attachment(new_id)?;
-
-                                    let session = WebSocketTunnel(ws);
-
-                                    session.send_message(
-                                        &game::UpdateMessage::IdAssign(new_id).into(),
-                                    );
-
-                                    if game
-                                        .add_unassigned(new_id, |id| {
-                                            self.state
-                                                .get_websockets_with_tag(&id.to_string())
-                                                .first()
-                                                .map(|ws| WebSocketTunnel(ws.to_owned()))
-                                        })
-                                        .is_err()
-                                    {
-                                        session.close();
-                                    }
-                                }
-                                _ => {}
-                            },
-                            Some(watcher_id) => match message {
-                                game::IncomingMessage::Ghost(
-                                    game::IncomingGhostMessage::DemandId,
-                                ) => {
-                                    close_connections_with_tag_except_one(
-                                        &self.state,
-                                        &watcher_id,
-                                        &ws,
-                                    );
-                                    let session = WebSocketTunnel(ws);
-
-                                    session.send_message(
-                                        &game::UpdateMessage::IdAssign(watcher_id).into(),
-                                    );
-
-                                    if game
-                                        .add_unassigned(watcher_id, |id| {
-                                            self.state
-                                                .get_websockets_with_tag(&id.to_string())
-                                                .first()
-                                                .map(|ws| WebSocketTunnel(ws.to_owned()))
-                                        })
-                                        .is_err()
-                                    {
-                                        session.close();
-                                    }
-
-                                    if let Err(e) = self
-                                        .env
-                                        .service("COUNTER")?
-                                        .fetch("https://example.com/player_count", {
-                                            Some(RequestInit {
-                                                method: Method::Post,
-                                                ..RequestInit::default()
-                                            })
-                                        })
-                                        .await
-                                    {
-                                        console_error!("Error incrementing player count: {:?}", e);
-                                    }
-                                }
-                                game::IncomingMessage::Ghost(_) => {
-                                    close_connections_with_tag_except_one(
-                                        &self.state,
-                                        &watcher_id,
-                                        &ws,
-                                    );
-
-                                    let session = WebSocketTunnel(ws);
-
-                                    session.send_message(
-                                        &game::UpdateMessage::IdAssign(watcher_id).into(),
-                                    );
-
-                                    game.update_session(watcher_id, |id| {
-                                        self.state
-                                            .get_websockets_with_tag(&id.to_string())
-                                            .first()
-                                            .map(|ws| WebSocketTunnel(ws.to_owned()))
-                                    });
-                                }
-                                message => {
-                                    game.receive_message(
-                                        watcher_id,
-                                        message,
-                                        schedule_message,
-                                        |id| {
-                                            self.state
-                                                .get_websockets_with_tag(&id.to_string())
-                                                .first()
-                                                .map(|ws| WebSocketTunnel(ws.to_owned()))
-                                        },
-                                    );
-                                }
-                            },
+                        if let Err(e) = self
+                            .env
+                            .service("COUNTER")?
+                            .fetch("https://example.com/player_count", {
+                                Some(RequestInit {
+                                    method: Method::Post,
+                                    ..RequestInit::default()
+                                })
+                            })
+                            .await
+                        {
+                            console_error!("Error incrementing player count: {:?}", e);
                         }
                     }
+                    game::IncomingMessage::Ghost(_) => {
+                        close_connections_with_tag_except_one(&self.state, &watcher_id, &ws);
+
+                        let session = WebSocketTunnel(ws);
+
+                        session.send_message(&game::UpdateMessage::IdAssign(watcher_id).into());
+
+                        self.with_mut_game_update_storage(|game| {
+                            game.update_session(watcher_id, self.tunnel_finder());
+                        })
+                        .await?;
+                    }
+                    message => {
+                        self.with_mut_game_alarm_message_update_storage(|game| {
+                            let mut alarm_message_duration = None;
+
+                            let schedule_message =
+                                |message: fuiz::AlarmMessage, duration: web_time::Duration| {
+                                    alarm_message_duration = Some((message, duration));
+                                };
+
+                            game.receive_message(
+                                watcher_id,
+                                message,
+                                schedule_message,
+                                self.tunnel_finder(),
+                            );
+
+                            alarm_message_duration
+                        })
+                        .await?;
+                    }
                 }
+            } else {
+                let game::IncomingMessage::Ghost(ghost_message) = message else {
+                    return Ok(());
+                };
+
+                self.with_mut_game_update_storage(|game| {
+                    if let game::IncomingGhostMessage::ClaimId(id) = ghost_message
+                        && game.watchers.has_watcher(id)
+                    {
+                        close_connections_with_tag(&self.state, &id);
+                        ws.serialize_attachment(id)?;
+
+                        game.update_session(id, self.tunnel_finder());
+                    } else {
+                        let new_id = watcher::Id::new();
+
+                        ws.serialize_attachment(new_id)?;
+
+                        let session = WebSocketTunnel(ws);
+
+                        session.send_message(&game::UpdateMessage::IdAssign(new_id).into());
+
+                        if game.add_unassigned(new_id, self.tunnel_finder()).is_err() {
+                            session.close();
+                        }
+                    }
+
+                    Ok::<(), worker::Error>(())
+                })
+                .await?
+                .transpose()?;
             }
-        }
-
-        if self.state.storage().get_alarm().await.unwrap().is_none() {
-            self.alarm_message = Some(AlarmMessage::DeleteGame);
-            self.state
-                .storage()
-                .set_alarm(ScheduledTime::new(js_sys::Date::new(&JsValue::from_f64(
-                    (chrono::Utc::now() + GAME_EXPIRY).timestamp_millis() as f64,
-                ))))
-                .await?;
-        }
-
-        if let LoadingState::Done(game) = &self.game {
-            store_game(&mut self.state.storage(), game.as_ref().unwrap()).await?;
-            self.state
-                .storage()
-                .put("alarm", &self.alarm_message)
-                .await?;
         }
 
         Ok(())
     }
 
     async fn websocket_close(
-        &mut self,
-        ws: WebSocket,
+        &self,
+        _ws: WebSocket,
         _code: usize,
         _reason: String,
         _was_clean: bool,
     ) -> Result<()> {
-        let LoadingState::Done(Some(game)) = &mut self.game else {
-            return Ok(());
-        };
-
-        let Some(watcher_id) = ws.deserialize_attachment::<watcher::Id>()? else {
-            return Ok(());
-        };
-
-        game.watchers.remove_watcher_session(&watcher_id, |id| {
-            self.state
-                .get_websockets_with_tag(&id.to_string())
-                .first()
-                .map(|ws| WebSocketTunnel(ws.to_owned()))
-        });
-
         Ok(())
     }
 }
@@ -507,11 +481,18 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     router
         .get("/hello", |_, _| Response::ok("Hello World!"))
         .post_async("/add", |mut req, ctx| async move {
-            let game_request = req.json::<GameRequest>().await?;
+            console_log!("Received /add request");
+
+            let game_request = req.json::<GameRequest>().await.map_err(|e| {
+                console_error!("Error parsing request: {:?}", e);
+                Error::RustError("Invalid request".to_string())
+            })?;
 
             if let Err(e) = game_request.validate() {
                 return Response::error(e.to_string(), 400);
             }
+
+            console_log!("Creating game with config: {:?}", game_request.config);
 
             let game_namespace = ctx.durable_object("GAME")?;
 
@@ -529,18 +510,32 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 &game_manager_instance,
             )?));
 
+            console_log!("Preparing request to game manager");
+
             let request = http::Request::builder()
                 .method("POST")
                 .uri("http://example.com")
                 .header("content-type", "application/json")
                 .body(Body::new(Blob::new_with_str_sequence(&arr)?.stream()))?;
 
-            let response = game_manager.fetch_request(request).await?;
+            console_log!("Creating game instance");
+
+            let response = game_manager
+                .fetch_request(request)
+                .await
+                .map_err(|e| Error::RustError(e.to_string()))?;
+
+            console_log!("Parsing game ID from response");
 
             let bytes = response.into_body().collect().await?.to_bytes().to_vec();
 
-            let game_id = serde_json::from_slice::<String>(&bytes)
-                .map_err(|e| Error::RustError(e.to_string()))?;
+            let game_id = serde_json::from_slice::<String>(&bytes).map_err(|e| {
+                let response_str = String::from_utf8_lossy(&bytes);
+                console_error!("Error parsing game ID: {:?}, response: {}", e, response_str);
+                Error::RustError("Failed to parse game ID".to_string())
+            })?;
+
+            console_log!("Created game with ID: {}", game_id);
 
             let stub = internal_id.get_stub()?;
 
@@ -552,7 +547,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                             &serde_json::to_string(&game_request).expect("serializer failed"),
                         )),
                         headers: {
-                            let mut headers = Headers::new();
+                            let headers = Headers::new();
                             headers.append("content-type", "application/json")?;
                             headers
                         },
@@ -561,9 +556,17 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                         redirect: RequestRedirect::Follow,
                     },
                 )?)
-                .await?
+                .await
+                .map_err(|e| {
+                    console_error!("Error creating game: {:?}", e);
+                    Error::RustError("Failed to create game".to_string())
+                })?
                 .text()
-                .await?;
+                .await
+                .map_err(|e| {
+                    console_error!("Error fetching watcher ID: {:?}", e);
+                    Error::RustError("Failed to fetch watcher ID".to_string())
+                })?;
 
             Response::from_json(&json!({
                 "watcher_id": watcher_id,
