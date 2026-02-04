@@ -16,7 +16,8 @@ impl GameManager {
             .state
             .storage()
             .get::<GameManagerInstance>(game_id)
-            .await?;
+            .await?
+            .ok_or(Error::RustError("Game not found".to_string()))?;
 
         if game.created_at + GAME_EXPIRY < chrono::Utc::now() {
             self.state.storage().delete(game_id).await?;
@@ -95,16 +96,4 @@ impl DurableObject for GameManager {
 pub struct GameManagerInstance {
     pub id: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
-}
-
-#[event(fetch)]
-async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
-    console_error_panic_hook::set_once();
-
-    let game_manager = env
-        .durable_object("GAME_MANAGER")?
-        .id_from_name("default")?
-        .get_stub()?;
-
-    game_manager.fetch_with_request(req).await
 }

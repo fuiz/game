@@ -10,10 +10,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 http-body-util = "0.1"
-worker = { version = "0.6", features = ['http'] }
-worker-macros = { version = "0.6", features = ['http'] }
+worker = { version = "0.7", features = ['http'] }
+worker-macros = { version = "0.7", features = ['http'] }
 console_error_panic_hook = { version = "0.1" }
-http = "1.2"
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1.0", features = ["serde_derive", "derive", "alloc"] }
 serde_json = "1.0"
