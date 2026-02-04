@@ -3,7 +3,6 @@ main = "build/worker/shim.mjs"
 compatibility_date = "2024-11-17"
 
 services = [
-    { binding = "GAME_MANAGER", service = "fuiz-game-manager" },
     { binding = "COUNTER", service = "counter" },
 ]
 
@@ -11,9 +10,17 @@ services = [
 command = "cargo install -q worker-build && worker-build --release"
 
 [durable_objects]
-bindings = [{ name = "GAME", class_name = "Game" }]
+bindings = [
+    { name = "GAME", class_name = "Game" },
+    { name = "GAME_MANAGER", class_name = "GameManager" },
+]
 
 
 [[migrations]]
 tag = "v1"
 new_classes = ["Game"]
+
+
+[[migrations]]
+tag = "v1"
+new_classes = ["GameManager"]
