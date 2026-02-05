@@ -1,10 +1,9 @@
+"$schema" = "./node_modules/wrangler/config-schema.json"
 name = "fuiz-cloudflare"
 main = "build/worker/shim.mjs"
 compatibility_date = "2024-11-17"
 
-services = [
-    { binding = "COUNTER", service = "counter" },
-]
+services = [{ binding = "COUNTER", service = "counter" }]
 
 [build]
 command = "cargo install -q worker-build && worker-build --release"
@@ -22,5 +21,7 @@ new_classes = ["Game"]
 
 
 [[migrations]]
-tag = "v1"
-new_classes = ["GameManager"]
+tag = "v2"
+transferred_classes = [
+    { from = "GameManager", to = "GameManager", from_script = "game_manager" },
+]
