@@ -5,35 +5,25 @@ type CountersObject = {
 };
 
 export class Counter extends DurableObject {
-	counters: CountersObject;
-
-	constructor(ctx: DurableObjectState, env: Env) {
-		super(ctx, env);
-
-		this.counters = {};
-
-		ctx.blockConcurrencyWhile(async () => {
-			this.counters = (await ctx.storage.get('counters')) || {};
-		});
-	}
-
 	async increment(name: string): Promise<number> {
-		this.counters[name] = (this.counters[name] || 0) + 1;
-		await this.ctx.storage.put('counters', this.counters);
-		return this.counters[name];
+		const counters = await this.getAll();
+		counters[name] = (counters[name] || 0) + 1;
+		// no need to await here, read: https://blog.cloudflare.com/durable-objects-easy-fast-correct-choose-three/
+		this.ctx.storage.put('counters', counters);
+		return counters[name];
 	}
 
 	async get(name: string): Promise<number> {
-		return this.counters[name] || 0;
+		return (await this.getAll())[name] || 0;
+	}
+
+	async getAll(): Promise<CountersObject> {
+		return (await this.ctx.storage.get('counters')) || {};
 	}
 }
 
 export default class extends WorkerEntrypoint<Env> {
 	async fetch(request: Request): Promise<Response> {
-		let id = this.env.COUNTER.idFromName('default');
-
-		let stub = this.env.COUNTER.get(id);
-
 		let name = request.url.split('/').pop();
 
 		if (!name) {
@@ -41,6 +31,8 @@ export default class extends WorkerEntrypoint<Env> {
 		}
 
 		if (request.method === 'POST') {
+			const stub = this.env.COUNTER.getByName('default');
+
 			await stub.increment(name);
 
 			return new Response('OK', { status: 200 });
@@ -50,6 +42,8 @@ export default class extends WorkerEntrypoint<Env> {
 			let response = await cache.match(request);
 
 			if (response) return response;
+
+			const stub = this.env.COUNTER.getByName('default');
 
 			let count = await stub.get(name);
 
@@ -64,10 +58,10 @@ export default class extends WorkerEntrypoint<Env> {
 	}
 
 	async getCount(name: string): Promise<number> {
-		let id = this.env.COUNTER.idFromName('default');
+		return await this.env.COUNTER.getByName('default').get(name);
+	}
 
-		let stub = this.env.COUNTER.get(id);
-
-		return await stub.get(name);
+	async getAllCounts(): Promise<CountersObject> {
+		return await this.env.COUNTER.getByName('default').getAll();
 	}
 }
