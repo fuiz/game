@@ -26,6 +26,21 @@ impl GameManager {
 
         Ok(game)
     }
+
+    async fn increment_game_count(&self) -> Result<()> {
+        self.env
+            .service("COUNTER")?
+            .fetch(
+                "https://example.com/game_count",
+                Some(worker::RequestInit {
+                    method: worker::Method::Post,
+                    ..Default::default()
+                }),
+            )
+            .await?;
+
+        Ok(())
+    }
 }
 
 impl DurableObject for GameManager {
@@ -66,18 +81,7 @@ impl DurableObject for GameManager {
                             .put(&random_game_id.to_string(), &game_instance)
                             .await?;
 
-                        if let Err(e) = self
-                            .env
-                            .service("COUNTER")?
-                            .fetch(
-                                "https://example.com/game_count",
-                                Some(worker::RequestInit {
-                                    method: worker::Method::Post,
-                                    ..Default::default()
-                                }),
-                            )
-                            .await
-                        {
+                        if let Err(e) = self.increment_game_count().await {
                             console_error!("Failed to increment game count: {:?}", e);
                         }
 

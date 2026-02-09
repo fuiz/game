@@ -214,6 +214,20 @@ impl Game {
                 .map(|ws| WebSocketTunnel(ws.to_owned()))
         }
     }
+
+    async fn increment_player_count(&self) -> Result<()> {
+        self.env
+            .service("COUNTER")?
+            .fetch("https://example.com/player_count", {
+                Some(RequestInit {
+                    method: Method::Post,
+                    ..RequestInit::default()
+                })
+            })
+            .await?;
+
+        Ok(())
+    }
 }
 
 impl DurableObject for Game {
@@ -338,17 +352,7 @@ impl DurableObject for Game {
                         })
                         .await?;
 
-                        if let Err(e) = self
-                            .env
-                            .service("COUNTER")?
-                            .fetch("https://example.com/player_count", {
-                                Some(RequestInit {
-                                    method: Method::Post,
-                                    ..RequestInit::default()
-                                })
-                            })
-                            .await
-                        {
+                        if let Err(e) = self.increment_player_count().await {
                             console_error!("Error incrementing player count: {:?}", e);
                         }
                     }
