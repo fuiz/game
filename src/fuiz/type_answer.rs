@@ -465,7 +465,10 @@ impl State {
                 count,
                 question: self.config.title.clone(),
                 media: self.config.media.clone(),
-                duration: self.config.introduce_question - self.elapsed(),
+                duration: self
+                    .config
+                    .introduce_question
+                    .saturating_sub(self.elapsed()),
                 accept_answers: false,
             },
             SlideState::Answers => SyncMessage::QuestionAnnouncement {
@@ -473,7 +476,7 @@ impl State {
                 count,
                 question: self.config.title.clone(),
                 media: self.config.media.clone(),
-                duration: self.config.time_limit - self.elapsed(),
+                duration: self.config.time_limit.saturating_sub(self.elapsed()),
                 accept_answers: true,
             },
             SlideState::AnswersResults => SyncMessage::AnswersResults {
@@ -502,7 +505,7 @@ impl State {
     ///
     /// # Returns
     /// * A `SlideAction` indicating whether to stay on the current slide or advance
-    pub fn receive_alarm<
+    pub(crate) fn receive_alarm<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
         S: FnOnce(crate::AlarmMessage, web_time::Duration),

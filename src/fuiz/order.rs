@@ -579,7 +579,7 @@ impl State {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    pub fn receive_alarm<
+    pub(crate) fn receive_alarm<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
         S: FnOnce(crate::AlarmMessage, web_time::Duration),

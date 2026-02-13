@@ -23,7 +23,7 @@ use crate::{
 use super::{
     AlarmMessage, TruncatedVec,
     fuiz::{config::Fuiz, multiple_choice},
-    leaderboard::{Leaderboard, ScoreMessage},
+    leaderboard::{HostSummary, Leaderboard, ScoreMessage},
     names::{self, Names},
     session::Tunnel,
     teams::{self, TeamManager},
@@ -95,7 +95,7 @@ pub struct Game {
     /// Name assignments and validation for players
     names: Names,
     /// Scoring and leaderboard management
-    pub leaderboard: Leaderboard,
+    leaderboard: Leaderboard,
     /// Current phase/state of the game
     pub state: State,
     /// Game configuration options
@@ -305,8 +305,8 @@ pub enum SummaryMessage {
         stats: Vec<(usize, usize)>,
         /// Total number of players who participated
         player_count: usize,
-        /// Final results: (name, score) for all players
-        results: Vec<(String, u64)>,
+        /// Final results: (name, points) for all players
+        results: Vec<(String, Vec<u64>)>,
         /// Team composition mapping: (team_name, [player_names])
         team_mapping: Vec<(String, Vec<String>)>,
         /// The game configuration that was played
@@ -708,15 +708,18 @@ impl Game {
             |id, vk| match vk {
                 ValueKind::Host => Some(
                     UpdateMessage::Summary({
-                        let (player_count, mapping, stats) =
-                            self.leaderboard.host_summary(!self.options.no_leaderboard);
+                        let HostSummary {
+                            total_players,
+                            player_scores,
+                            correctness_stats,
+                        } = self.leaderboard.host_summary(!self.options.no_leaderboard);
 
                         SummaryMessage::Host {
-                            stats,
-                            player_count,
-                            results: mapping
-                                .iter()
-                                .map(|(id, points)| (self.names.get_name_or_unknown(id), *points))
+                            stats: correctness_stats,
+                            player_count: total_players,
+                            results: player_scores
+                                .into_iter()
+                                .map(|(id, points)| (self.names.get_name_or_unknown(&id), points))
                                 .collect(),
                             team_mapping: self
                                 .team_manager
@@ -1259,14 +1262,17 @@ impl Game {
             ),
             State::Done => match watcher_kind {
                 ValueKind::Host => SyncMessage::Summary({
-                    let (player_count, mapping, stats) =
-                        self.leaderboard.host_summary(!self.options.no_leaderboard);
+                    let HostSummary {
+                        total_players,
+                        player_scores,
+                        correctness_stats,
+                    } = self.leaderboard.host_summary(!self.options.no_leaderboard);
                     SummaryMessage::Host {
-                        stats,
-                        player_count,
-                        results: mapping
-                            .iter()
-                            .map(|(id, points)| (self.names.get_name_or_unknown(id), *points))
+                        stats: correctness_stats,
+                        player_count: total_players,
+                        results: player_scores
+                            .into_iter()
+                            .map(|(id, points)| (self.names.get_name_or_unknown(&id), points))
                             .collect(),
                         team_mapping: self
                             .team_manager

@@ -171,7 +171,7 @@ pub trait AnswerHandler<AnswerType> {
 }
 
 /// Helper function to add scores to leaderboard (common across all slide types)
-pub fn add_scores_to_leaderboard<T, F, AnswerType>(
+pub(crate) fn add_scores_to_leaderboard<T, F, AnswerType>(
     slide: &impl AnswerHandler<AnswerType>,
     timer: &impl SlideTimer,
     leaderboard: &mut Leaderboard,
@@ -276,7 +276,7 @@ where
 ///
 /// This trait abstracts the message handling logic that is common across
 /// all question types, allowing for uniform treatment of different slide types.
-pub trait QuestionReceiveMessage {
+pub(crate) trait QuestionReceiveMessage {
     /// Handle host "Next" command
     ///
     /// This method processes the host's request to advance to the next phase

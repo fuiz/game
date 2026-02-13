@@ -659,15 +659,17 @@ impl State {
                 count,
                 question: self.config.title.clone(),
                 media: self.config.media.clone(),
-                duration: self.config.introduce_question
-                    - self.timer().elapsed().unwrap_or_default(),
+                duration: self
+                    .config
+                    .introduce_question
+                    .saturating_sub(self.elapsed()),
             },
             SlideState::Answers => SyncMessage::AnswersAnnouncement {
                 index,
                 count,
                 question: self.config.title.clone(),
                 media: self.config.media.clone(),
-                duration: { self.config.time_limit - self.elapsed() },
+                duration: self.config.time_limit.saturating_sub(self.elapsed()),
                 answers: self.get_answers_for_player(
                     watcher_id,
                     watcher_kind,
@@ -753,7 +755,7 @@ impl State {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    pub fn receive_alarm<
+    pub(crate) fn receive_alarm<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
         S: FnOnce(crate::AlarmMessage, web_time::Duration),

@@ -210,7 +210,7 @@ impl SlideState {
     /// # Returns
     ///
     /// A `SlideAction` indicating whether to stay on the current slide or advance
-    pub fn receive_message<T: Tunnel, F: Fn(Id) -> Option<T>, S: ScheduleMessageFn>(
+    pub(crate) fn receive_message<T: Tunnel, F: Fn(Id) -> Option<T>, S: ScheduleMessageFn>(
         &mut self,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,
@@ -340,7 +340,7 @@ impl SlideState {
     /// # Returns
     ///
     /// A `SlideAction` indicating whether to stay on the current slide or advance
-    pub fn receive_alarm<T: Tunnel, F: Fn(Id) -> Option<T>, S: ScheduleMessageFn>(
+    pub(crate) fn receive_alarm<T: Tunnel, F: Fn(Id) -> Option<T>, S: ScheduleMessageFn>(
         &mut self,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,

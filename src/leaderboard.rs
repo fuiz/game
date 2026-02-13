@@ -19,7 +19,7 @@ pub struct FinalSummary {
     /// For each slide, tuple of (players who earned points, players who didn't)
     stats: Vec<(usize, usize)>,
     /// For each player, the points they earned on each slide
-    mapping: HashMap<Id, Vec<u64>>,
+    player_to_points: HashMap<Id, Vec<u64>>,
 }
 
 /// Serialization helper for Leaderboard struct
@@ -35,7 +35,7 @@ struct LeaderboardSerde {
 /// and statistics for the game.
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(from = "LeaderboardSerde")]
-pub struct Leaderboard {
+pub(crate) struct Leaderboard {
     /// Points earned by each player for each slide/question
     points_earned: Vec<Vec<(Id, u64)>>,
 
@@ -134,6 +134,16 @@ pub struct ScoreMessage {
 
 type CorrectnessSlideSummary = (usize, usize);
 
+/// Summary statistics for the game host
+///
+/// This struct aggregates statistics about the game that are relevant for the host,
+/// such as the total number of players, their scores, and per-question performance data.
+pub(crate) struct HostSummary {
+    pub(crate) total_players: usize,
+    pub(crate) player_scores: Vec<(Id, Vec<u64>)>,
+    pub(crate) correctness_stats: Vec<CorrectnessSlideSummary>,
+}
+
 impl Leaderboard {
     /// Adds new scores for a round and updates leaderboard standings
     ///
@@ -144,19 +154,6 @@ impl Leaderboard {
     /// # Arguments
     ///
     /// * `scores` - Slice of (player_id, points_earned) tuples for the round
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use fuiz::watcher::Id;
-    /// use fuiz::leaderboard::Leaderboard;
-    ///
-    /// let mut leaderboard = Leaderboard::default();
-    /// let player1_id = Id::new();
-    /// let player2_id = Id::new();
-    /// let player3_id = Id::new();
-    /// let scores = [(player1_id, 100), (player2_id, 75), (player3_id, 50)];
-    /// leaderboard.add_scores(&scores);
     /// ```
     pub fn add_scores(&mut self, scores: &[(Id, u64)]) {
         let mut summary: HashMap<Id, u64> = self
@@ -235,6 +232,13 @@ impl Leaderboard {
             if show_real_score { s } else { s.min(1) }
         };
 
+        let total_players = self
+            .points_earned
+            .iter()
+            .flat_map(|points_earned| points_earned.iter().map(|(id, _)| *id))
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+
         FinalSummary {
             stats: self
                 .points_earned
@@ -245,10 +249,10 @@ impl Leaderboard {
                         .filter(|(_, earned)| *earned > 0)
                         .count();
 
-                    (earned_count, points_earned.len() - earned_count)
+                    (earned_count, total_players - earned_count)
                 })
                 .collect(),
-            mapping: self
+            player_to_points: self
                 .points_earned
                 .iter()
                 .map(|points_earned| {
@@ -262,7 +266,10 @@ impl Leaderboard {
                     HashMap::new(),
                     |mut aggregate_score_mapping, (slide_index, slide_score_mapping)| {
                         for (id, points) in slide_score_mapping {
-                            aggregate_score_mapping.entry(id).or_default().push(points);
+                            let player_scores = aggregate_score_mapping
+                                .entry(id)
+                                .or_insert_with(|| vec![0; slide_index]);
+                            player_scores.push(points);
                         }
                         for v in aggregate_score_mapping.values_mut() {
                             v.resize(slide_index + 1, 0);
@@ -305,23 +312,20 @@ impl Leaderboard {
     ///
     /// A tuple containing:
     /// - Total number of players
-    /// - A vector of (player_id, total_points) for each player
+    /// - A vector of (player_id, points_earned) for each player
     /// - A vector of (players_earned, players_didnt) for each question
-    pub fn host_summary(
-        &self,
-        show_real_score: bool,
-    ) -> (usize, Vec<(Id, u64)>, Vec<CorrectnessSlideSummary>) {
+    pub fn host_summary(&self, show_real_score: bool) -> HostSummary {
         let final_summary = self.final_summary(show_real_score);
 
-        (
-            final_summary.mapping.len(),
-            final_summary
-                .mapping
+        HostSummary {
+            total_players: final_summary.player_to_points.len(),
+            player_scores: final_summary
+                .player_to_points
                 .iter()
-                .map(|(id, points)| (*id, points.iter().sum()))
+                .map(|(id, points)| (*id, points.clone()))
                 .collect(),
-            final_summary.stats.clone(),
-        )
+            correctness_stats: final_summary.stats.clone(),
+        }
     }
 
     /// Generates detailed score breakdown for a specific player
@@ -340,7 +344,7 @@ impl Leaderboard {
     /// A vector containing the player's score for each question in order
     pub fn player_summary(&self, id: Id, show_real_score: bool) -> Vec<u64> {
         self.final_summary(show_real_score)
-            .mapping
+            .player_to_points
             .get(&id)
             .map_or(vec![0; self.points_earned.len()], std::clone::Clone::clone)
     }
@@ -371,6 +375,8 @@ impl Leaderboard {
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
+    use std::vec;
+
     use super::*;
 
     #[test]
@@ -486,28 +492,36 @@ mod tests {
         let id3 = Id::new();
 
         // Round 1: 2 players earn points, 1 doesn't
-        leaderboard.add_scores(&[(id1, 100), (id2, 50), (id3, 0)]);
+        leaderboard.add_scores(&[(id1, 100), (id2, 50)]);
 
         // Round 2: All 3 players earn points
         leaderboard.add_scores(&[(id1, 75), (id2, 25), (id3, 10)]);
 
-        let (player_count, mapping, stats) = leaderboard.host_summary(true);
+        let HostSummary {
+            total_players,
+            player_scores,
+            correctness_stats,
+        } = leaderboard.host_summary(true);
 
-        assert_eq!(player_count, 3);
+        assert_eq!(total_players, 3);
         assert_eq!(
-            mapping.iter().sorted().collect_vec(),
-            [(id3, 10), (id2, 75), (id1, 175)]
-                .iter()
-                .sorted()
-                .collect_vec()
+            player_scores.iter().sorted().collect_vec(),
+            [
+                (id3, vec![0, 10]),
+                (id2, vec![50, 25]),
+                (id1, vec![100, 75])
+            ]
+            .iter()
+            .sorted()
+            .collect_vec()
         );
-        assert_eq!(stats.len(), 2); // Two rounds
+        assert_eq!(correctness_stats.len(), 2); // Two rounds
 
         // Round 1: 2 earned points, 1 didn't
-        assert_eq!(stats[0], (2, 1));
+        assert_eq!(correctness_stats[0], (2, 1));
 
         // Round 2: 3 earned points, 0 didn't
-        assert_eq!(stats[1], (3, 0));
+        assert_eq!(correctness_stats[1], (3, 0));
     }
 
     #[test]
@@ -519,14 +533,21 @@ mod tests {
         // Add scores with different values
         leaderboard.add_scores(&[(id1, 100), (id2, 0)]);
 
-        let (player_count, mapping, stats) = leaderboard.host_summary(false);
+        let HostSummary {
+            total_players,
+            player_scores,
+            correctness_stats,
+        } = leaderboard.host_summary(false);
 
-        assert_eq!(player_count, 2);
+        assert_eq!(total_players, 2);
         assert_eq!(
-            mapping.iter().sorted().collect_vec(),
-            [(id1, 1), (id2, 0)].iter().sorted().collect_vec()
+            player_scores.iter().sorted().collect_vec(),
+            [(id1, vec![1]), (id2, vec![0])]
+                .iter()
+                .sorted()
+                .collect_vec()
         ); // Binary scoring
-        assert_eq!(stats[0], (1, 1)); // Only one player earned points (binary)
+        assert_eq!(correctness_stats[0], (1, 1)); // Only one player earned points (binary)
     }
 
     #[test]
