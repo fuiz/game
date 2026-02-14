@@ -14,7 +14,7 @@ use std::{
 use garde::Validate;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use serde_with::skip_serializing_none;
+use serde_with::DurationMilliSeconds;
 use web_time::SystemTime;
 
 use crate::{
@@ -42,7 +42,6 @@ pub use super::common::SlideState;
 ///
 /// These labels help players understand what the ordering represents,
 /// such as "Earliest" to "Latest" or "Smallest" to "Largest".
-#[skip_serializing_none]
 #[derive(Debug, Clone, Default, Serialize, serde::Deserialize, Validate)]
 pub struct AxisLabels {
     /// Label for the start/left end of the ordering axis
@@ -58,8 +57,6 @@ pub struct AxisLabels {
 /// Contains all the settings and content for a single order question,
 /// including the question text, media, timing, items to be ordered,
 /// and axis labels for the ordering interface.
-#[serde_with::serde_as]
-#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, serde::Deserialize, Validate)]
 pub struct SlideConfig {
     /// The question title, represents what's being asked
@@ -70,11 +67,11 @@ pub struct SlideConfig {
     media: Option<Media>,
     /// Time before the question is displayed
     #[garde(custom(validate_duration::<MIN_INTRODUCE_QUESTION, MAX_INTRODUCE_QUESTION>))]
-    #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+    #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
     introduce_question: Duration,
     /// Time where players can answer the question
     #[garde(custom(validate_duration::<MIN_TIME_LIMIT, MAX_TIME_LIMIT>))]
-    #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+    #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
     time_limit: Duration,
     /// Maximum number of points awarded the question, decreases linearly to half the amount by the end of the slide
     #[garde(skip)]
@@ -94,8 +91,6 @@ pub struct SlideConfig {
 /// This struct maintains the dynamic state of an order question as it
 /// progresses through its phases, tracking player arrangements, timing
 /// information, shuffled item order, and current presentation state.
-#[serde_with::serde_as]
-#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct State {
     /// The configuration this state was created from
@@ -133,8 +128,6 @@ impl SlideConfig {
 }
 
 /// Messages sent to the listeners to update their pre-existing state with the slide state
-#[serde_with::serde_as]
-#[skip_serializing_none]
 #[derive(Debug, Serialize, Clone)]
 pub enum UpdateMessage {
     /// Announcement of the question without its answers
@@ -148,7 +141,7 @@ pub enum UpdateMessage {
         /// Accompanying media
         media: Option<Media>,
         /// Time before answers will be release
-        #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+        #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
         duration: Duration,
     },
     /// Announcement of the question with its answers
@@ -158,7 +151,7 @@ pub enum UpdateMessage {
         /// Answers in a shuffled order
         answers: Vec<String>,
         /// Time where players can answer the question
-        #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+        #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
         duration: Duration,
     },
     /// (HOST ONLY): Number of players who answered the question
@@ -190,8 +183,6 @@ pub enum AlarmMessage {
 /// Messages sent to the listeners who lack preexisting state to synchronize their state.
 ///
 /// See [`UpdateMessage`] for explaination of these fields.
-#[serde_with::serde_as]
-#[skip_serializing_none]
 #[derive(Debug, Serialize, Clone)]
 pub enum SyncMessage {
     /// Announcement of the question without its answers
@@ -205,7 +196,7 @@ pub enum SyncMessage {
         /// Optional media content accompanying the question
         media: Option<Media>,
         /// Remaining time for the question to be displayed without its answers
-        #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+        #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
         duration: Duration,
     },
     /// Announcement of the question with its answers
@@ -223,7 +214,7 @@ pub enum SyncMessage {
         /// Items to be ordered in shuffled arrangement
         answers: Vec<String>,
         /// Time where players can answer the question
-        #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+        #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
         duration: Duration,
     },
     /// Results of the game including correct answers and statistics of how many they got chosen

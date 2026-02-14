@@ -10,7 +10,6 @@ use std::{collections::HashSet, fmt::Debug};
 use garde::Validate;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use serde_with::skip_serializing_none;
 
 use crate::{
     fuiz::{
@@ -199,7 +198,6 @@ pub enum IncomingHostMessage {
 ///
 /// These messages inform participants about changes that affect their
 /// view or interaction with the game.
-#[skip_serializing_none]
 #[derive(Debug, Serialize, Clone)]
 pub enum UpdateMessage {
     /// Assign a unique ID to a participant
@@ -241,7 +239,6 @@ pub enum UpdateMessage {
 ///
 /// These messages are sent when participants connect or when their view
 /// needs to be completely synchronized with the current game state.
-#[skip_serializing_none]
 #[derive(Debug, Serialize, Clone)]
 pub enum SyncMessage {
     /// Sync waiting screen with current players
@@ -287,7 +284,6 @@ pub enum SyncMessage {
 ///
 /// This enum provides different views of the game results depending
 /// on whether the recipient is a player or the host.
-#[skip_serializing_none]
 #[derive(Debug, Serialize, Clone)]
 pub enum SummaryMessage {
     /// Summary for individual players

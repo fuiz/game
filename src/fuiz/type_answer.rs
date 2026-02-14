@@ -13,7 +13,7 @@ use std::{
 use garde::Validate;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use serde_with::skip_serializing_none;
+use serde_with::DurationMilliSeconds;
 use web_time::SystemTime;
 
 use crate::{
@@ -37,8 +37,6 @@ use super::{
 // Re-export SlideState publicly so other modules can use it
 pub use super::common::SlideState;
 
-#[serde_with::serde_as]
-#[skip_serializing_none]
 /// Configuration for a type answer slide
 ///
 /// Contains all the settings and content for a single type answer question,
@@ -53,12 +51,12 @@ pub struct SlideConfig {
     media: Option<Media>,
     /// Time before the answers are displayed
     #[garde(custom(validate_duration::<MIN_INTRODUCE_QUESTION, MAX_INTRODUCE_QUESTION>))]
-    #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+    #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
     #[serde(default)]
     introduce_question: Duration,
     /// Time where players can answer the question
     #[garde(custom(validate_duration::<MIN_TIME_LIMIT, MAX_TIME_LIMIT>))]
-    #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+    #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
     time_limit: Duration,
     /// Maximum number of points awarded the question, decreases linearly to half the amount by the end of the slide
     #[garde(skip)]
@@ -78,8 +76,6 @@ pub struct SlideConfig {
 ///
 /// Tracks the current state of the slide including player answers,
 /// timing information, and the current phase of the question.
-#[serde_with::serde_as]
-#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct State {
     /// The configuration this state was created from
@@ -121,8 +117,6 @@ impl SlideConfig {
 }
 
 /// Messages sent to the listeners to update their pre-existing state with the slide state
-#[serde_with::serde_as]
-#[skip_serializing_none]
 #[derive(Debug, Serialize, Clone)]
 pub enum UpdateMessage {
     /// Announcement of the question without its answers
@@ -136,7 +130,7 @@ pub enum UpdateMessage {
         /// Accompanying media
         media: Option<Media>,
         /// Time before answers will be release
-        #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+        #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
         duration: Duration,
         /// Accept answers from players
         accept_answers: bool,
@@ -169,8 +163,6 @@ pub enum AlarmMessage {
 /// Messages sent to the listeners who lack preexisting state to synchronize their state.
 ///
 /// See [`UpdateMessage`] for explaination of these fields.
-#[serde_with::serde_as]
-#[skip_serializing_none]
 #[derive(Debug, Serialize, Clone)]
 pub enum SyncMessage {
     /// Announcement of the question without its answers
@@ -184,7 +176,7 @@ pub enum SyncMessage {
         /// Optional media content accompanying the question
         media: Option<Media>,
         /// Remaining time for the question to be displayed without its answers
-        #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+        #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
         duration: Duration,
         /// Whether to accept text answers from players
         accept_answers: bool,

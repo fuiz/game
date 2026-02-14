@@ -14,9 +14,7 @@ enum-map = { version = "2", features = [
 ] } # Efficient enum-to-value mappings
 serde = { version = "1.0", features = ["derive"] } # Serialization framework
 serde_json = "1.0" # JSON support for serde
-serde_with = { version = "3", features = [
-    "chrono",
-] } # Additional serde utilities
+serde_with = { version = "3", default-features = false } # Additional serde utilities
 derive_more = { version = "2", features = ["full"] } # Extended derive macros
 
 # Game logic and utilities
@@ -38,14 +36,14 @@ once_cell_serde = { version = "1.20", features = [
 
 # Validation and safety
 garde = { version = "0.22", features = ["derive"] } # Input validation framework
-rustrict = "0.7"                                    # Content filtering and profanity detection
 thiserror = "2.0"                                   # Error handling and custom error types
 
-# Name generation
-petname = "2"       # Pet-style name generation (adjective + animal)
-romanname = "0.1.1" # Roman-style name generation
-heck = "0.5"        # String case conversion
-pluralizer = "0.5"  # String pluralization utilities
+# Name manipulation utilities
+rustrict = { version = "0.7", default-features = false, features = [
+    "censor",
+] } # Content filtering and profanity detection
+heck = "0.5" # String case conversion
+pluralizer = "0.5" # String pluralization utilities
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }

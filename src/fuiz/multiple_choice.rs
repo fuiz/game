@@ -13,7 +13,7 @@ use std::{
 use garde::Validate;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use serde_with::skip_serializing_none;
+use serde_with::DurationMilliSeconds;
 use web_time::SystemTime;
 
 use crate::{
@@ -43,8 +43,6 @@ pub use super::common::SlideState;
 /// This struct defines all the parameters needed to create and present
 /// a multiple choice question, including timing, content, scoring, and
 /// the available answer options.
-#[serde_with::serde_as]
-#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, serde::Deserialize, Validate)]
 pub struct SlideConfig {
     /// The question text that will be displayed to players
@@ -55,11 +53,11 @@ pub struct SlideConfig {
     media: Option<Media>,
     /// Duration to display the question before revealing answer options
     #[garde(custom(validate_duration::<MIN_INTRODUCE_QUESTION, MAX_INTRODUCE_QUESTION>))]
-    #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+    #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
     introduce_question: Duration,
     /// Duration players have to select their answer once options are revealed
     #[garde(custom(validate_duration::<MIN_TIME_LIMIT, MAX_TIME_LIMIT>))]
-    #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+    #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
     time_limit: Duration,
     /// Maximum points awarded for a correct answer (decreases linearly over time)
     #[garde(skip)]
@@ -74,8 +72,6 @@ pub struct SlideConfig {
 /// This struct maintains the dynamic state of a multiple choice question
 /// as it progresses through its phases, tracking player responses,
 /// timing information, and current presentation state.
-#[serde_with::serde_as]
-#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct State {
     /// The configuration this state was created from
@@ -114,8 +110,6 @@ impl SlideConfig {
 ///
 /// This enum allows content to be visible to some participants (like hosts)
 /// while being hidden from others (like players) until the appropriate time.
-#[serde_with::serde_as]
-#[skip_serializing_none]
 #[derive(Debug, Serialize, Clone)]
 pub enum PossiblyHidden<T> {
     /// Content is visible to the recipient
@@ -129,8 +123,6 @@ pub enum PossiblyHidden<T> {
 /// These messages inform participants about changes in the question state,
 /// such as when new phases begin or when results become available.
 /// They are sent to participants who already have some context about the slide.
-#[serde_with::serde_as]
-#[skip_serializing_none]
 #[derive(Debug, Serialize, Clone)]
 pub enum UpdateMessage {
     /// Announces the question without revealing answer options
@@ -144,13 +136,13 @@ pub enum UpdateMessage {
         /// Optional media content accompanying the question
         media: Option<Media>,
         /// Duration before answer options will be revealed
-        #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+        #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
         duration: Duration,
     },
     /// Announces the answer options for player selection
     AnswersAnnouncement {
         /// Duration before the answering phase ends
-        #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+        #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
         duration: Duration,
         /// Answer options (may be hidden from some participants)
         answers: Vec<PossiblyHidden<TextOrMedia>>,
@@ -187,8 +179,6 @@ pub enum AlarmMessage {
 /// connect or reconnect during a question, allowing them to synchronize
 /// their view with the current state. Similar to UpdateMessage but includes
 /// additional context needed for synchronization.
-#[serde_with::serde_as]
-#[skip_serializing_none]
 #[derive(Debug, Serialize, Clone)]
 pub enum SyncMessage {
     /// Synchronizes the question announcement phase
@@ -202,7 +192,7 @@ pub enum SyncMessage {
         /// Optional media content accompanying the question
         media: Option<Media>,
         /// Remaining time before answer options will be revealed
-        #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+        #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
         duration: Duration,
     },
     /// Synchronizes the answer selection phase
@@ -216,7 +206,7 @@ pub enum SyncMessage {
         /// Optional media content accompanying the question
         media: Option<Media>,
         /// Remaining time before the answering phase ends
-        #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+        #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
         duration: Duration,
         /// Answer options (may be hidden from some participants)
         answers: Vec<PossiblyHidden<TextOrMedia>>,

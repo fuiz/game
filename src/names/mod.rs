@@ -4,6 +4,10 @@
 //! a game session. It ensures name uniqueness, filters inappropriate content,
 //! and maintains bidirectional mappings between player IDs and names.
 
+mod pets;
+mod romans;
+mod word_list;
+
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 
 use heck::ToTitleCase;
@@ -40,11 +44,14 @@ impl NameStyle {
     /// A randomly generated name as a String.
     pub fn get_name(&self) -> String {
         match self {
-            Self::Roman(count) => romanname::romanname(romanname::NameConfig {
+            Self::Roman(count) => romans::roman_name(romans::NameConfig {
                 praenomen: *count > 2,
             }),
-            Self::Petname(count) => petname::petname(*count as u8, " ").unwrap_or_default(),
+            Self::Petname(count) => pets::pet_name(pets::NameConfig {
+                parts: *count as u8,
+            }),
         }
+        .join(" ")
         .to_title_case()
     }
 }

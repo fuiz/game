@@ -28,7 +28,7 @@ pub mod fuiz;
 pub mod game;
 pub mod game_id;
 pub mod leaderboard;
-pub mod names;
+mod names;
 pub mod session;
 pub mod teams;
 pub mod watcher;
