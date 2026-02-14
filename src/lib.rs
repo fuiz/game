@@ -68,8 +68,6 @@ async fn start_instance(env: &Env, game_manager_instance: &GameManagerInstance) 
 
 #[event(fetch)]
 async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
-    console_error_panic_hook::set_once();
-
     let router = Router::new();
 
     router
