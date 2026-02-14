@@ -18,7 +18,7 @@ static NAME_PARTS: LazyLock<NameParts> = LazyLock::new(|| NameParts {
     adverbs: WordList::new(include_str!("../../names/pets/adverbs.txt")),
 });
 
-pub fn pet_name(config: NameConfig) -> Vec<String> {
+pub fn pet_name(config: &NameConfig) -> Vec<String> {
     let name_parts = &*NAME_PARTS;
 
     (0..config.parts)

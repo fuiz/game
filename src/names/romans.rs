@@ -18,7 +18,7 @@ static NAME_PARTS: LazyLock<NameParts> = LazyLock::new(|| NameParts {
     cognomen: WordList::new(include_str!("../../names/romans/cognomen.txt")),
 });
 
-pub fn roman_name(config: NameConfig) -> Vec<String> {
+pub fn roman_name(config: &NameConfig) -> Vec<String> {
     let name_parts = &*NAME_PARTS;
     let nomen = name_parts.nomen.random_choice();
     let cognomen = name_parts.cognomen.random_choice();
