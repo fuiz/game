@@ -1,12 +1,77 @@
-use std::hash::{DefaultHasher, Hash, Hasher};
-
+use image::{AnimationDecoder, Frame, ImageFormat, ImageReader, ImageResult};
+use num_integer::Integer;
 use serde_hex::{SerHex, Strict};
 use serde_json::json;
 use worker::*;
 
+const IMAGE_EXPIRATION: std::time::Duration = std::time::Duration::from_hours(24);
+
+fn read_image_as_frames(bytes: &[u8]) -> ImageResult<Vec<Frame>> {
+    let reader = ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()?;
+    match reader.format().ok_or_else(|| {
+        image::ImageError::Unsupported(image::error::UnsupportedError::from_format_and_kind(
+            image::error::ImageFormatHint::Unknown,
+            image::error::UnsupportedErrorKind::Format(image::error::ImageFormatHint::Unknown),
+        ))
+    })? {
+        ImageFormat::Gif => image::codecs::gif::GifDecoder::new(reader.into_inner())?
+            .into_frames()
+            .collect_frames(),
+        ImageFormat::Png => {
+            let png_decoder = image::codecs::png::PngDecoder::new(reader.into_inner())?;
+            if png_decoder.is_apng()? {
+                png_decoder.apng()?.into_frames().collect_frames()
+            } else {
+                let mut reader = ImageReader::new(std::io::Cursor::new(bytes));
+                reader.set_format(ImageFormat::Png);
+                let image = reader.decode()?.to_rgba8();
+                Ok(vec![Frame::new(image)])
+            }
+        }
+        ImageFormat::WebP => image::codecs::webp::WebPDecoder::new(reader.into_inner())?
+            .into_frames()
+            .collect_frames(),
+        _ => {
+            let image = reader.decode()?.to_rgba8();
+            Ok(vec![Frame::new(image)])
+        }
+    }
+}
+
+fn encode_frames_as_png(frames: Vec<Frame>) -> Result<Vec<u8>, png::EncodingError> {
+    let mut output: Vec<u8> = Vec::new();
+
+    let (width, height) = frames[0].buffer().dimensions();
+
+    let mut encoder = png::Encoder::new(&mut output, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_animated(frames.len() as u32, 0)?; // 0 = loop forever
+
+    let mut writer = encoder.write_header()?;
+
+    for frame in frames {
+        let buf = frame.buffer();
+
+        let (num_ms, denom_ms) = frame.delay().numer_denom_ms();
+        let (num_sec, denom_sec) = (num_ms, denom_ms * 1000);
+        let gcd = num_sec.gcd(&denom_sec);
+        let num_sec_simple = num_sec / gcd;
+        let denom_sec_simple = denom_sec / gcd;
+
+        writer.set_frame_delay(num_sec_simple as u16, denom_sec_simple as u16)?;
+        writer.set_frame_position(frame.left(), frame.top())?;
+
+        writer.write_image_data(buf.as_raw())?;
+    }
+
+    writer.finish()?;
+
+    Ok(output)
+}
+
 #[event(fetch)]
 pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Response> {
-    console_error_panic_hook::set_once();
     let router = Router::new();
 
     router
@@ -43,7 +108,7 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
 
             Ok(
                 Response::from_body(worker::ResponseBody::Body(thumbnail_bytes))?.with_headers({
-                    let mut headers = Headers::new();
+                    let headers = Headers::new();
                     headers.append("content-type", "image/png")?;
                     headers
                 }),
@@ -54,83 +119,33 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
                 return Response::error("no image in request", 400);
             };
 
-            let (data, content_type) = match image {
-                FormEntry::File(f) => (f.bytes().await?, f.type_()),
+            let data = match image {
+                FormEntry::File(f) => f.bytes().await?,
                 FormEntry::Field(_) => return Response::error("image has to be a file", 400),
             };
 
-            let (bytes, content_type) = match content_type {
-                gif if gif == "image/gif" => {
-                    let Ok(mut decoded_image) = gif::Decoder::new(std::io::Cursor::new(data))
-                    else {
-                        return Response::error("data couldn't be decoded", 500);
-                    };
+            let (bytes, content_type) = {
+                let frames = read_image_as_frames(&data)
+                    .map_err(|_| worker::Error::RustError("failed to decode image".into()))?;
+                let bytes = encode_frames_as_png(frames)
+                    .map_err(|_| worker::Error::RustError("failed to encode image".into()))?;
 
-                    let Some(palette) = decoded_image.global_palette() else {
-                        return Response::error("couldn't determine GIF palette", 500);
-                    };
-
-                    let mut bytes: Vec<u8> = Vec::new();
-
-                    {
-                        let Ok(mut encoded_image) = gif::Encoder::new(
-                            &mut bytes,
-                            decoded_image.width(),
-                            decoded_image.height(),
-                            palette,
-                        ) else {
-                            return Response::error("data couldn't be encoded", 500);
-                        };
-                        let _ = encoded_image.set_repeat(decoded_image.repeat());
-                        while let Ok(Some(frame)) = decoded_image.read_next_frame() {
-                            if encoded_image.write_frame(frame).is_err() {
-                                return Response::error("couldn't encode frame", 500);
-                            }
-                        }
-                    }
-
-                    (bytes, "image/gif")
-                }
-                _ => {
-                    let Ok(decoded_image) = image::ImageReader::new(std::io::Cursor::new(data))
-                        .with_guessed_format()?
-                        .decode()
-                    else {
-                        return Response::error("data couldn't be decoded", 500);
-                    };
-
-                    let mut bytes: Vec<u8> = Vec::new();
-
-                    if decoded_image
-                        .write_to(
-                            &mut std::io::Cursor::new(&mut bytes),
-                            image::ImageFormat::Png,
-                        )
-                        .is_err()
-                    {
-                        return Response::error("image format not supported", 400);
-                    }
-
-                    (bytes, "image/png")
-                }
+                (bytes, image::ImageFormat::Png.to_mime_type())
             };
 
             let kv = ctx.kv("IMAGES")?;
 
-            let mut hasher = DefaultHasher::new();
-            bytes.hash(&mut hasher);
-            let hash = hasher.finish();
+            let Ok(random_key) = getrandom::u64() else {
+                return Response::error("couldn't generate random key", 500);
+            };
 
-            let Ok(key) = <u64 as SerHex<Strict>>::into_hex(&hash) else {
+            let Ok(key) = <u64 as SerHex<Strict>>::into_hex(&random_key) else {
                 return Response::error("couldn't convert hash to hex", 500);
             };
 
             kv.put_bytes(&key, &bytes)?
                 .metadata(content_type)?
-                .expiration_ttl({
-                    const SECONDS_IN_A_DAY: u64 = 60 * 60 * 24;
-                    SECONDS_IN_A_DAY
-                })
+                .expiration_ttl(IMAGE_EXPIRATION.as_secs())
                 .execute()
                 .await?;
 
@@ -147,12 +162,10 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
 
             Ok(
                 Response::from_bytes(bytes.unwrap_or_default())?.with_headers({
-                    let mut headers = Headers::new();
-                    headers.append(
-                        "content-type",
-                        &content_type.unwrap_or("image/png".to_owned()),
-                    )?;
-                    headers
+                    Headers::from_iter([(
+                        "content-type".to_string(),
+                        content_type.unwrap_or(image::ImageFormat::Png.to_mime_type().to_string()),
+                    )])
                 }),
             )
         })

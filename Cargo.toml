@@ -1,19 +1,28 @@
 [package]
 name = "corkboard-cloudflare"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["Khaleel Al-Adhami <khaleel.aladhami@gmail.com>"]
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-worker = { version = "0.5", features = ['http'] }
-worker-macros = { version = "0.5", features = ['http'] }
-console_error_panic_hook = { version = "0.1" }
-http = "1.2"
-image = "0.25"
-gif = "0.13"
+worker = { version = "0.7", features = ['http'] }
+worker-macros = { version = "0.7", features = ['http'] }
+http = "1.4"
+image = { version = "0.25", default-features = false, features = [
+    "avif",
+    "gif",
+    "hdr",
+    "jpeg",
+    "png",
+    "tiff",
+    "webp",
+] }
 serde = { version = "1.0", features = ["derive"] }
 serde-hex = "0.1"
 serde_json = "1.0"
+png = "0.18.1"
+num-integer = "0.1.46"
+getrandom = { version = "0.4.1", features = ["wasm_js"] }
