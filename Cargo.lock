@@ -297,7 +297,7 @@ dependencies = [
 [[package]]
 name = "fuiz"
 version = "0.1.0"
-source = "git+https://gitlab.com/opencode-mit/fuiz/game.git#13c4be9e4d1a2b422c00f3b2d9771e56ff7139c2"
+source = "git+https://gitlab.com/fuiz/game.git#13c4be9e4d1a2b422c00f3b2d9771e56ff7139c2"
 dependencies = [
  "derive-where",
  "derive_more",
@@ -328,7 +328,6 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
- "web-time",
  "worker",
  "worker-macros",
 ]

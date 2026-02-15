@@ -1,6 +1,7 @@
 use std::{
     cell::{RefCell, RefMut},
     str::FromStr,
+    time::Duration,
 };
 
 use serde::{Deserialize, Serialize};
@@ -137,7 +138,7 @@ async fn store_game(storage: &mut worker::durable::Storage, game_bytes: &[u8]) -
     Ok(())
 }
 
-const GAME_EXPIRY: web_time::Duration = web_time::Duration::from_hours(1);
+const GAME_EXPIRY: Duration = Duration::from_hours(1);
 
 impl Game {
     fn borrow_game_mut(&self) -> Option<RefMut<'_, fuiz::game::Game>> {
@@ -177,7 +178,7 @@ impl Game {
 
     async fn with_mut_game_alarm_message_update_storage<F>(&self, f: F) -> Result<()>
     where
-        F: FnOnce(&mut fuiz::game::Game) -> Option<(fuiz::AlarmMessage, web_time::Duration)>,
+        F: FnOnce(&mut fuiz::game::Game) -> Option<(fuiz::AlarmMessage, Duration)>,
     {
         let Some((alarm_message_duration, game_bytes)) = self.with_mut_game(|game| {
             let alarm_message_duration = f(game);
@@ -254,10 +255,9 @@ impl DurableObject for Game {
                 self.with_mut_game_alarm_message_update_storage(|game| {
                     let mut alarm_message_duration = None;
 
-                    let schedule_message =
-                        |message: fuiz::AlarmMessage, duration: web_time::Duration| {
-                            alarm_message_duration = Some((message, duration));
-                        };
+                    let schedule_message = |message: fuiz::AlarmMessage, duration: Duration| {
+                        alarm_message_duration = Some((message, duration));
+                    };
 
                     game.receive_alarm(&message, schedule_message, self.tunnel_finder());
 
@@ -373,7 +373,7 @@ impl DurableObject for Game {
                             let mut alarm_message_duration = None;
 
                             let schedule_message =
-                                |message: fuiz::AlarmMessage, duration: web_time::Duration| {
+                                |message: fuiz::AlarmMessage, duration: Duration| {
                                     alarm_message_duration = Some((message, duration));
                                 };
 
