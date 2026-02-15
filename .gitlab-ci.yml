@@ -22,7 +22,6 @@ stages:
 # Before script to install necessary components
 before_script:
   - rustc --version && cargo --version
-  - rustup target add wasm32-unknown-unknown
   - rustup component add rustfmt clippy
 
 # Format check
