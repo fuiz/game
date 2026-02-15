@@ -661,7 +661,6 @@ dependencies = [
  "futures-util",
  "garde",
  "garde-actix-web",
- "jiden",
  "log",
  "parking_lot",
  "pretty_env_logger",
@@ -1092,16 +1091,6 @@ name = "itoa"
 version = "1.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
-
-[[package]]
-name = "jiden"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca8f1eef1d363ac80f10e7eedb53a08e171e24986bac0629be3b18b8ddd9fbca"
-dependencies = [
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "jobserver"

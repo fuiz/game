@@ -129,15 +129,6 @@ async fn alive(data: web::Data<AppState>, game_id: web::Path<GameId>) -> impl Re
         .to_string()
 }
 
-#[get("/count")]
-async fn count(data: web::Data<AppState>) -> impl Responder {
-    let (current, since_restart) = data.game_manager.count();
-    web::Json(json!({
-        "current": current,
-        "since_restart": since_restart
-    }))
-}
-
 fn websocket_heartbeat_verifier(mut session: actix_ws::Session) -> impl Fn(bytes::Bytes) -> bool {
     let latest_value = Arc::new(AtomicU64::new(0));
 
@@ -322,7 +313,6 @@ async fn main() -> std::io::Result<()> {
             .route("/hello", web::get().to(|| async { "Hello World!" }))
             .service(alive)
             .service(add)
-            .service(count)
             .service(watch);
 
         if cfg!(feature = "expose-network") {
