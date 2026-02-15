@@ -2,9 +2,9 @@
 
 Host live quizzes freely
 
-<img src="https://gitlab.com/opencode-mit/fuiz-website/-/raw/main/static/favicon.svg?ref_type=heads" width="128" height="128" alt="Switcheroo icon">
+<img src="https://gitlab.com/fuiz/website/-/raw/main/static/favicon.svg?ref_type=heads" width="128" height="128" alt="Fuiz icon">
 
-[![License](https://img.shields.io/gitlab/license/opencode-mit/fuiz?style=for-the-badge)](https://gitlab.com/opencode-mit/fuiz/-/raw/main/LICENSE)
+[![License](https://img.shields.io/gitlab/license/fuiz/hosted-server?style=for-the-badge)](https://gitlab.com/fuiz/hosted-server/-/raw/main/LICENSE)
 
 ## Developing
 
@@ -62,8 +62,4 @@ true | false;
 GET /watch/:gameid
 ```
 
-This establishes a websocket connection. #TODO: documenting websocket messages.
-
-## Status
-
-While you could host this yourself, a live version exists on [api.fuiz.us](https://api.fuiz.us). Its status can be checked on: [status.fuiz.us](https://status.fuiz.us).
+This establishes a websocket connection.

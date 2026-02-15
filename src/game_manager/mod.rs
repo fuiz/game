@@ -1,4 +1,8 @@
-use std::sync::atomic::AtomicUsize;
+use std::{
+    ops::{Deref, DerefMut},
+    sync::atomic::AtomicUsize,
+    time::Duration,
+};
 
 use enum_map::EnumMap;
 use jiden::StateSaver;
@@ -29,7 +33,7 @@ impl SharedGame {
                 if matches!(x.state, game::State::Done) {
                     None
                 } else {
-                    Some(MappedRwLockReadGuard::map(x, unbox_box::BoxExt::unbox_ref))
+                    Some(MappedRwLockReadGuard::map(x, Box::deref))
                 }
             })
     }
@@ -41,7 +45,7 @@ impl SharedGame {
                 if matches!(x.state, game::State::Done) {
                     None
                 } else {
-                    Some(MappedRwLockWriteGuard::map(x, unbox_box::BoxExt::unbox_mut))
+                    Some(MappedRwLockWriteGuard::map(x, Box::deref_mut))
                 }
             })
     }
@@ -49,7 +53,7 @@ impl SharedGame {
     pub fn write_done(&self) -> Option<MappedRwLockWriteGuard<'_, Game>> {
         RwLockWriteGuard::try_map(self.0.write(), std::option::Option::as_mut)
             .ok()
-            .map(|x| MappedRwLockWriteGuard::map(x, unbox_box::BoxExt::unbox_mut))
+            .map(|x| MappedRwLockWriteGuard::map(x, Box::deref_mut))
     }
 }
 
@@ -141,7 +145,7 @@ impl GameManager {
         Ok(self.get_game(game_id)?.watchers.has_watcher(watcher_id))
     }
 
-    pub fn receive_message<F: Fn(AlarmMessage, web_time::Duration)>(
+    pub fn receive_message<F: Fn(AlarmMessage, Duration)>(
         &self,
         game_id: GameId,
         watcher_id: Id,
@@ -155,25 +159,21 @@ impl GameManager {
         Ok(())
     }
 
-    pub fn receive_alarm<F: Fn(AlarmMessage, web_time::Duration)>(
+    pub fn receive_alarm<F: Fn(AlarmMessage, Duration)>(
         &self,
         game_id: GameId,
         alarm_message: AlarmMessage,
         schedule_message: F,
     ) -> Result<(), GameVanish> {
         self.get_game_mut(game_id)?
-            .receive_alarm(alarm_message, schedule_message, |id| self.tunnel_finder(id));
+            .receive_alarm(&alarm_message, schedule_message, |id| {
+                self.tunnel_finder(id)
+            });
         Ok(())
     }
 
-    pub fn remove_watcher_session(
-        &self,
-        game_id: GameId,
-        watcher_id: Id,
-    ) -> Result<(), GameVanish> {
-        self.get_game_mut(game_id)?
-            .watchers
-            .remove_watcher_session(&watcher_id, |id| self.tunnel_finder(id));
+    pub fn remove_watcher_session(&self, watcher_id: Id) -> Result<(), GameVanish> {
+        fuiz::watcher::Watchers::remove_watcher_session(watcher_id, |id| self.tunnel_finder(id));
         Ok(())
     }
 

@@ -26,6 +26,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc, OnceLock,
     },
+    time::Duration,
 };
 
 use crate::game_manager::GameVanish;
@@ -45,7 +46,7 @@ impl Session {
     }
 }
 
-type MessageScheduler = Box<dyn Fn(fuiz::AlarmMessage, web_time::Duration)>;
+type MessageScheduler = Box<dyn Fn(fuiz::AlarmMessage, Duration)>;
 
 impl fuiz::session::Tunnel for Session {
     fn send_message(&self, message: &fuiz::UpdateMessage) {
@@ -102,7 +103,7 @@ async fn add(
     // Stale Detection
     actix_web::rt::spawn(async move {
         loop {
-            actix_web::rt::time::sleep(web_time::Duration::from_secs(60)).await;
+            actix_web::rt::time::sleep(Duration::from_secs(60)).await;
             match stale_data.game_manager.alive_check(game_id) {
                 Ok(true) => continue,
                 Ok(false) => {
@@ -143,7 +144,7 @@ fn websocket_heartbeat_verifier(mut session: actix_ws::Session) -> impl Fn(bytes
     let sender_latest_value = latest_value.clone();
     actix_web::rt::spawn(async move {
         loop {
-            actix_web::rt::time::sleep(web_time::Duration::from_secs(5)).await;
+            actix_web::rt::time::sleep(Duration::from_secs(5)).await;
             let new_value = fastrand::u64(0..u64::MAX);
             sender_latest_value.store(new_value, Ordering::SeqCst);
             if session.ping(&new_value.to_ne_bytes()).await.is_err() {
@@ -189,23 +190,20 @@ async fn watch(
 
         let thread_schedule_message = schedule_message.clone();
 
-        let temp_schedule_message =
-            move |alarm_message: fuiz::AlarmMessage, duration: web_time::Duration| {
-                let schedule_thread = schedule_thread.clone();
-                let schedule_message = thread_schedule_message.clone();
-                actix_web::rt::spawn(async move {
-                    actix_web::rt::time::sleep(duration).await;
-                    let _ = schedule_thread.game_manager.receive_alarm(
-                        game_id,
-                        alarm_message,
-                        |alarm, duration| {
-                            schedule_message.get().expect("schedule is unintialized")(
-                                alarm, duration,
-                            )
-                        },
-                    );
-                });
-            };
+        let temp_schedule_message = move |alarm_message: fuiz::AlarmMessage, duration: Duration| {
+            let schedule_thread = schedule_thread.clone();
+            let schedule_message = thread_schedule_message.clone();
+            actix_web::rt::spawn(async move {
+                actix_web::rt::time::sleep(duration).await;
+                let _ = schedule_thread.game_manager.receive_alarm(
+                    game_id,
+                    alarm_message,
+                    |alarm, duration| {
+                        schedule_message.get().expect("schedule is unintialized")(alarm, duration)
+                    },
+                );
+            });
+        };
 
         schedule_message
             .as_ref()
@@ -301,9 +299,7 @@ async fn watch(
         if let Some(watcher_id) = watcher_id {
             data.game_manager.remove_tunnel(watcher_id);
 
-            let _ = data
-                .game_manager
-                .remove_watcher_session(game_id, watcher_id);
+            let _ = data.game_manager.remove_watcher_session(watcher_id);
         }
         session.close(None).await.ok();
     });
