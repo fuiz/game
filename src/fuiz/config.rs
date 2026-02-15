@@ -5,8 +5,6 @@
 //! state management for different question types. It provides the central
 //! coordination layer that manages question flow and state transitions.
 
-use web_time;
-
 use garde::Validate;
 use serde::{Deserialize, Serialize};
 
@@ -21,9 +19,9 @@ use crate::{
 };
 
 /// Alias for a function that schedules alarm messages
-pub trait ScheduleMessageFn: FnOnce(AlarmMessage, web_time::Duration) {}
+pub trait ScheduleMessageFn: FnOnce(AlarmMessage, std::time::Duration) {}
 
-impl<T: FnOnce(AlarmMessage, web_time::Duration)> ScheduleMessageFn for T {}
+impl<T: FnOnce(AlarmMessage, std::time::Duration)> ScheduleMessageFn for T {}
 
 /// Represents content that can be either text or media
 ///
@@ -517,7 +515,7 @@ mod tests {
         let watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
         let mut schedule_called = false;
-        let schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {
+        let schedule_message = |_msg: AlarmMessage, _duration: std::time::Duration| {
             schedule_called = true;
         };
 
@@ -534,7 +532,7 @@ mod tests {
         let watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
         let mut schedule_called = false;
-        let schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {
+        let schedule_message = |_msg: AlarmMessage, _duration: std::time::Duration| {
             schedule_called = true;
         };
 
@@ -551,7 +549,7 @@ mod tests {
         let watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
         let mut schedule_called = false;
-        let schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {
+        let schedule_message = |_msg: AlarmMessage, _duration: std::time::Duration| {
             schedule_called = true;
         };
 
@@ -568,7 +566,7 @@ mod tests {
         let watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
         let mut leaderboard = create_mock_leaderboard();
-        let schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {};
+        let schedule_message = |_msg: AlarmMessage, _duration: std::time::Duration| {};
         let message = IncomingMessage::Host(IncomingHostMessage::Next);
 
         let _result = state.receive_message(
@@ -594,7 +592,7 @@ mod tests {
         let watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
         let mut leaderboard = create_mock_leaderboard();
-        let schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {};
+        let schedule_message = |_msg: AlarmMessage, _duration: std::time::Duration| {};
         let message = IncomingMessage::Host(IncomingHostMessage::Next);
 
         let _result = state.receive_message(
@@ -620,7 +618,7 @@ mod tests {
         let watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
         let mut leaderboard = create_mock_leaderboard();
-        let schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {};
+        let schedule_message = |_msg: AlarmMessage, _duration: std::time::Duration| {};
         let message = IncomingMessage::Host(IncomingHostMessage::Next);
 
         let _result = state.receive_message(
@@ -760,7 +758,7 @@ mod tests {
         let watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
         let mut leaderboard = create_mock_leaderboard();
-        let mut schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {};
+        let mut schedule_message = |_msg: AlarmMessage, _duration: std::time::Duration| {};
 
         let alarm_message =
             AlarmMessage::TypeAnswer(type_answer::AlarmMessage::ProceedFromSlideIntoSlide {
@@ -789,7 +787,7 @@ mod tests {
         let watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
         let mut leaderboard = create_mock_leaderboard();
-        let mut schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {};
+        let mut schedule_message = |_msg: AlarmMessage, _duration: std::time::Duration| {};
 
         let alarm_message = AlarmMessage::Order(order::AlarmMessage::ProceedFromSlideIntoSlide {
             index: 0,
@@ -817,7 +815,7 @@ mod tests {
         let watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
         let mut leaderboard = create_mock_leaderboard();
-        let mut schedule_message = |_msg: AlarmMessage, _duration: web_time::Duration| {};
+        let mut schedule_message = |_msg: AlarmMessage, _duration: std::time::Duration| {};
 
         let alarm_message = AlarmMessage::MultipleChoice(
             multiple_choice::AlarmMessage::ProceedFromSlideIntoSlide {
