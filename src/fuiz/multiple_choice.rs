@@ -748,7 +748,7 @@ impl State {
     pub(crate) fn receive_alarm<
         T: Tunnel,
         F: Fn(Id) -> Option<T>,
-        S: FnOnce(crate::AlarmMessage, web_time::Duration),
+        S: FnOnce(crate::AlarmMessage, std::time::Duration),
     >(
         &mut self,
         _leaderboard: &mut Leaderboard,

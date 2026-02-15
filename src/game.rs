@@ -1750,7 +1750,7 @@ mod tests {
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
         let mut schedule_called = false;
-        let mut schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {
+        let mut schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {
             schedule_called = true;
         };
 
@@ -1769,7 +1769,7 @@ mod tests {
         let mut game = Game::new(fuiz, options, host_id);
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game to get to first slide
         game.play(schedule_message, tunnel_finder);
@@ -1862,7 +1862,7 @@ mod tests {
         );
 
         // Start the game - should move to team display
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
         game.play(schedule_message, tunnel_finder);
 
         assert!(matches!(game.state, State::TeamDisplay));
@@ -1893,7 +1893,7 @@ mod tests {
 
         // Process lock message from host
         let lock_msg = IncomingMessage::Host(IncomingHostMessage::Lock(false));
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         game.receive_message(host_id, lock_msg, schedule_message, tunnel_finder);
         assert!(!game.locked);
@@ -1925,7 +1925,7 @@ mod tests {
 
         // Try to send host message from player (should be ignored)
         let invalid_msg = IncomingMessage::Host(IncomingHostMessage::Next);
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         game.receive_message(player_id, invalid_msg, schedule_message, tunnel_finder);
 
@@ -1945,7 +1945,7 @@ mod tests {
 
         // Try to receive message from nonexistent watcher
         let msg = IncomingMessage::Host(IncomingHostMessage::Next);
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Should not panic and should do nothing
         game.receive_message(nonexistent_id, msg, schedule_message, tunnel_finder);
@@ -2058,7 +2058,7 @@ mod tests {
         let teammate_msg = IncomingMessage::Player(IncomingPlayerMessage::ChooseTeammates(vec![
             "Player2".to_string(),
         ]));
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         game.receive_message(player1, teammate_msg, schedule_message, tunnel_finder);
 
@@ -2073,7 +2073,7 @@ mod tests {
         let mut game = Game::new(fuiz, options, host_id);
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game
         game.play(schedule_message, tunnel_finder);
@@ -2102,7 +2102,7 @@ mod tests {
         let mut game = Game::new(fuiz, options, host_id);
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game
         game.play(schedule_message, tunnel_finder);
@@ -2121,7 +2121,7 @@ mod tests {
         let mut game = Game::new(fuiz, options, host_id);
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game
         game.play(schedule_message, tunnel_finder);
@@ -2313,7 +2313,7 @@ mod tests {
         game.state = State::Done;
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Send Next message in Done state - should call mark_as_done
         let next_msg = IncomingMessage::Host(IncomingHostMessage::Next);
@@ -2332,7 +2332,7 @@ mod tests {
 
         // Start game to get to a slide
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
         game.play(schedule_message, tunnel_finder);
 
         // Send alarm for wrong slide index - should be ignored
@@ -2363,7 +2363,7 @@ mod tests {
         let mut game = Game::new(fuiz, options, host_id);
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Play should immediately go to Done state since no slides
         game.play(schedule_message, tunnel_finder);
@@ -2513,7 +2513,7 @@ mod tests {
                 .is_ok()
         );
 
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // First play call should transition to TeamDisplay
         game.play(schedule_message, tunnel_finder);
@@ -2639,7 +2639,7 @@ mod tests {
         let mut game = Game::new(fuiz, options, host_id);
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game
         game.play(schedule_message, tunnel_finder);
@@ -2703,7 +2703,7 @@ mod tests {
         let mut game = Game::new(fuiz, options, host_id);
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game
         game.play(schedule_message, tunnel_finder);
@@ -2749,7 +2749,7 @@ mod tests {
         assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
         game.locked = true;
 
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Try to send name request - should be ignored due to lock
         let name_msg = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest(
@@ -2788,7 +2788,7 @@ mod tests {
         // Add unassigned player
         assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
 
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Try to send name request when random names are enabled - should be ignored
         let name_msg = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest(
@@ -2826,7 +2826,7 @@ mod tests {
         assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
         assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
 
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // First player takes a name
         let name_msg1 = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest(
@@ -3249,7 +3249,7 @@ mod tests {
         let mut game = Game::new(fuiz, options, host_id);
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game to get to slide 0
         game.play(schedule_message, tunnel_finder);
@@ -3275,7 +3275,7 @@ mod tests {
 
         // Keep game in WaitingScreen state
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Send alarm while not in slide state - should be ignored
         let alarm = crate::AlarmMessage::MultipleChoice(
@@ -3299,7 +3299,7 @@ mod tests {
 
         let player_id = crate::watcher::Id::new();
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
-        let schedule_message = |_: crate::AlarmMessage, _: web_time::Duration| {};
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game to get to slide state
         game.play(schedule_message, tunnel_finder);
