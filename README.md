@@ -27,11 +27,3 @@ POST -F image=bytes /thumbnail
 ```
 
 It responds with bytes of content-type: `image/png`.
-
-### Exists
-
-```http
-GET /exists/{media_id}
-```
-
-`true` if the image exists and `false` if it doesn't.

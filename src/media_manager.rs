@@ -1,5 +1,4 @@
 use actix_web::web::Bytes;
-use dashmap::{mapref::entry::Entry, DashMap};
 use mime::Mime;
 use serde::{Deserialize, Serialize};
 use serde_hex::{SerHex, Strict};
@@ -11,46 +10,27 @@ pub struct MediaId(#[serde(with = "SerHex::<Strict>")] u64);
 
 impl MediaId {
     fn new() -> Self {
-        Self(rand::random())
+        Self(getrandom::u64().expect("failed to generate random media id"))
     }
 }
 
-#[derive(Debug, Default)]
-pub struct MediaManager<U: Clone, T: Storage<U>> {
-    mapping: DashMap<MediaId, U>,
+#[derive(Default)]
+pub struct MediaManager<T: Storage<MediaId> + Default> {
     storage: T,
 }
 
-impl<U: Clone, T: Storage<U>> MediaManager<U, T> {
+impl<T: Storage<MediaId>> MediaManager<T> {
     pub fn store(&self, bytes: Bytes, content_type: Mime) -> MediaId {
-        let object_id = self.storage.store(bytes, content_type);
-        loop {
-            let media_id = MediaId::new();
-            match self.mapping.entry(media_id) {
-                Entry::Occupied(_) => continue,
-                Entry::Vacant(v) => {
-                    v.insert(object_id);
-                    return media_id;
-                }
-            };
-        }
+        let media_id = MediaId::new();
+        self.storage.store(media_id, bytes, content_type);
+        media_id
     }
 
     pub fn retrieve(&self, media_id: MediaId) -> Option<(Bytes, Mime)> {
-        self.mapping
-            .get(&media_id)
-            .map(|x| x.to_owned())
-            .and_then(|x| self.storage.retrieve(&x))
-    }
-
-    pub fn contains(&self, media_id: MediaId) -> bool {
-        match self.mapping.get(&media_id) {
-            Some(x) => self.storage.contains(&x),
-            None => false,
-        }
+        self.storage.retrieve(&media_id)
     }
 
     pub fn delete(&self, media_id: MediaId) {
-        self.mapping.remove(&media_id);
+        self.storage.delete(&media_id);
     }
 }

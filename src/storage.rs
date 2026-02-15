@@ -1,44 +1,36 @@
-use std::{
-    collections::hash_map::DefaultHasher,
-    fmt::Debug,
-    hash::{Hash, Hasher},
-};
-
 use actix_web::web::Bytes;
 use dashmap::DashMap;
 use mime::Mime;
 
-pub trait Storage<T: Clone>: Default + Debug {
-    fn store(&self, bytes: Bytes, content_type: Mime) -> T;
+pub trait Storage<T>: Default {
+    fn store(&self, media_id: T, bytes: Bytes, content_type: Mime);
 
     fn retrieve(&self, object_id: &T) -> Option<(Bytes, Mime)>;
-
-    fn contains(&self, object_id: &T) -> bool;
 
     fn delete(&self, object_id: &T);
 }
 
-#[derive(Debug, Default)]
-pub struct Memory(DashMap<u64, (Bytes, Mime)>);
+pub struct Memory<T: std::hash::Hash + Eq>(DashMap<T, (Bytes, Mime)>);
 
-impl Storage<u64> for Memory {
-    fn retrieve(&self, object_id: &u64) -> Option<(Bytes, Mime)> {
+impl<T: std::hash::Hash + Eq> Default for Memory<T> {
+    fn default() -> Self {
+        Self(DashMap::new())
+    }
+}
+
+impl<T> Storage<T> for Memory<T>
+where
+    T: std::hash::Hash + Eq,
+{
+    fn retrieve(&self, object_id: &T) -> Option<(Bytes, Mime)> {
         self.0.get(object_id).map(|x| x.clone())
     }
 
-    fn store(&self, bytes: Bytes, content_type: Mime) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        bytes.hash(&mut hasher);
-        let hash = hasher.finish();
-        self.0.insert(hash, (bytes, content_type));
-        hash
+    fn store(&self, media_id: T, bytes: Bytes, content_type: Mime) {
+        self.0.insert(media_id, (bytes, content_type));
     }
 
-    fn contains(&self, object_id: &u64) -> bool {
-        self.0.contains_key(object_id)
-    }
-
-    fn delete(&self, object_id: &u64) {
+    fn delete(&self, object_id: &T) {
         self.0.remove(object_id);
     }
 }

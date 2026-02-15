@@ -1,19 +1,20 @@
 use actix_multipart::form::{MultipartForm, MultipartFormConfig};
 use actix_web::{
-    error::ErrorNotFound, get, http::StatusCode, post, web, App, HttpResponse, HttpServer,
-    Responder,
+    App, HttpResponse, HttpServer, Responder, error::ErrorNotFound, get, http::StatusCode, post,
+    web,
 };
-use image::{codecs::gif, AnimationDecoder, ImageError};
+use image::ImageError;
 use media_manager::{MediaId, MediaManager};
 use storage::Memory;
 use thiserror::Error;
 
+mod codec;
 mod media_manager;
 mod storage;
 
 #[derive(Default)]
 struct AppState {
-    media_manager: MediaManager<u64, Memory>,
+    media_manager: MediaManager<Memory<MediaId>>,
 }
 
 #[get("/get/{media_id}")]
@@ -24,11 +25,6 @@ async fn get_full(data: web::Data<AppState>, path: web::Path<MediaId>) -> impl R
             .body(bytes)),
         None => Err(ErrorNotFound("This file was not found")),
     }
-}
-
-#[get("/exists/{media_id}")]
-async fn exists(data: web::Data<AppState>, path: web::Path<MediaId>) -> impl Responder {
-    web::Json(data.media_manager.contains(path.into_inner()))
 }
 
 #[derive(MultipartForm)]
@@ -43,8 +39,8 @@ enum ImageDecodingError {
     NotRecognizable(#[from] std::io::Error),
     #[error("image decoding error")]
     ImageError(#[from] ImageError),
-    #[error("missing content type")]
-    NoContentType,
+    #[error("encoding error")]
+    EncodingError(#[from] png::EncodingError),
 }
 
 impl actix_web::error::ResponseError for ImageDecodingError {}
@@ -78,37 +74,10 @@ async fn upload(
 ) -> impl Responder {
     let ImageUpload { image } = image_upload.into_inner();
 
-    let content_type = image
-        .content_type
-        .ok_or(ImageDecodingError::NoContentType)?;
-
-    let (bytes, content_type) = match content_type {
-        gif if gif == mime::IMAGE_GIF => {
-            let decoded_image = gif::GifDecoder::new(std::io::Cursor::new(image.data))?;
-            let mut bytes: Vec<u8> = Vec::new();
-
-            {
-                let mut encoded_image = gif::GifEncoder::new(&mut bytes);
-                encoded_image.set_repeat(gif::Repeat::Infinite)?;
-                encoded_image
-                    .encode_frames(decoded_image.into_frames().collect::<Result<Vec<_>, _>>()?)?;
-            }
-
-            (bytes, gif)
-        }
-        _ => {
-            let decoded_image = image::ImageReader::new(std::io::Cursor::new(image.data))
-                .with_guessed_format()?
-                .decode()?;
-
-            let mut bytes: Vec<u8> = Vec::new();
-            decoded_image.write_to(
-                &mut std::io::Cursor::new(&mut bytes),
-                image::ImageFormat::Png,
-            )?;
-
-            (bytes, mime::IMAGE_PNG)
-        }
+    let (bytes, content_type) = {
+        let frames = codec::read_image_as_frames(&image.data)?;
+        let bytes = codec::encode_frames_as_png(frames)?;
+        (bytes, mime::IMAGE_PNG)
     };
 
     let media_id = data
@@ -116,7 +85,7 @@ async fn upload(
         .store(actix_web::web::Bytes::from(bytes), content_type);
 
     actix_web::rt::spawn(async move {
-        actix_web::rt::time::sleep(std::time::Duration::from_secs(60 * 60)).await;
+        actix_web::rt::time::sleep(std::time::Duration::from_hours(1)).await;
         data.media_manager.delete(media_id);
     });
 
@@ -137,7 +106,6 @@ async fn main() -> std::io::Result<()> {
             .route("/hello", web::get().to(|| async { "Hello World!" }))
             .service(get_full)
             .service(thumbnail)
-            .service(exists)
             .service(upload);
 
         #[cfg(feature = "https")]
