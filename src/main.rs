@@ -98,17 +98,15 @@ async fn add(
     let host_id = Id::new();
     let game_id = data.game_manager.add_game(config, options, host_id);
 
-    let stale_data = data;
-
     // Stale Detection
     actix_web::rt::spawn(async move {
         loop {
             actix_web::rt::time::sleep(Duration::from_secs(60)).await;
-            match stale_data.game_manager.alive_check(game_id) {
-                Ok(true) => continue,
-                Ok(false) => {
+            match data.game_manager.is_game_done(game_id) {
+                Ok(false) => continue,
+                Ok(true) => {
                     info!("clearing, {}", game_id);
-                    stale_data.game_manager.remove_game(game_id);
+                    data.game_manager.remove_game(game_id);
                 }
                 _ => break,
             }

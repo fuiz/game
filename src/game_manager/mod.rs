@@ -112,9 +112,9 @@ impl GameManager {
         })
     }
 
-    pub fn alive_check(&self, game_id: GameId) -> Result<bool, GameVanish> {
+    pub fn is_game_done(&self, game_id: GameId) -> Result<bool, GameVanish> {
         self.games[game_id]
-            .with_game_raw(|game| !matches!(game.state, game::State::Done))
+            .with_game_raw(|game| matches!(game.state, game::State::Done))
             .ok_or(GameVanish {})
     }
 
