@@ -171,9 +171,14 @@ pub trait AnswerHandler<AnswerType> {
 }
 
 /// Helper function to add scores to leaderboard (common across all slide types)
-pub(crate) fn add_scores_to_leaderboard<F: TunnelFinder, AnswerType: Clone>(
-    slide: &impl AnswerHandler<AnswerType>,
-    timer: &impl SlideTimer,
+pub(crate) fn add_scores_to_leaderboard<
+    F: TunnelFinder,
+    AnswerType: Clone,
+    A: AnswerHandler<AnswerType>,
+    T: SlideTimer,
+>(
+    slide: &A,
+    timer: &T,
     leaderboard: &mut Leaderboard,
     watchers: &Watchers,
     team_manager: Option<&TeamManager<crate::names::NameStyle>>,
@@ -231,8 +236,8 @@ pub(crate) fn add_scores_to_leaderboard<F: TunnelFinder, AnswerType: Clone>(
 }
 
 /// Helper function to check if all players have answered
-pub fn all_players_answered<F: TunnelFinder, AnswerType>(
-    slide: &impl AnswerHandler<AnswerType>,
+pub fn all_players_answered<F: TunnelFinder, AnswerType, A: AnswerHandler<AnswerType>>(
+    slide: &A,
     watchers: &Watchers,
     tunnel_finder: &F,
 ) -> bool {
@@ -246,8 +251,8 @@ pub fn all_players_answered<F: TunnelFinder, AnswerType>(
 }
 
 /// Helper function to get answered player count
-pub fn get_answered_count<F: TunnelFinder, AnswerType>(
-    slide: &impl AnswerHandler<AnswerType>,
+pub fn get_answered_count<F: TunnelFinder, AnswerType, A: AnswerHandler<AnswerType>>(
+    slide: &A,
     watchers: &Watchers,
     tunnel_finder: &F,
 ) -> usize {
