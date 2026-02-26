@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     TruncatedVec, names,
-    session::Tunnel,
+    session::TunnelFinder,
     watcher::{self, Id, Watchers},
 };
 
@@ -103,7 +103,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
     /// * `watchers` - The watchers manager containing all players
     /// * `names` - The names manager for generating team names
     /// * `tunnel_finder` - Function to find communication tunnels for players
-    pub fn finalize<T: Tunnel, F: Fn(Id) -> Option<T>>(
+    pub fn finalize<F: TunnelFinder>(
         &mut self,
         watchers: &mut Watchers,
         names: &mut names::Names,
@@ -119,10 +119,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
         }
     }
 
-    fn get_players<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        watchers: &Watchers,
-        tunnel_finder: F,
-    ) -> Vec<Id> {
+    fn get_players<F: TunnelFinder>(watchers: &Watchers, tunnel_finder: F) -> Vec<Id> {
         watchers
             .specific_vec(watcher::ValueKind::Player, tunnel_finder)
             .into_iter()
@@ -505,11 +502,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
     ///
     /// Returns the count of team members that satisfy the aliveness check,
     /// with a minimum of 1. If the player has no team, returns 1.
-    pub fn alive_team_size<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &self,
-        player_id: Id,
-        tunnel_finder: &F,
-    ) -> usize {
+    pub fn alive_team_size<F: TunnelFinder>(&self, player_id: Id, tunnel_finder: &F) -> usize {
         self.team_members(player_id).map_or(1, |members| {
             members
                 .into_iter()
@@ -523,11 +516,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
     ///
     /// Returns the player's positional index considering only alive members,
     /// or 0 if the player is not found.
-    pub fn alive_team_index<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &self,
-        player_id: Id,
-        tunnel_finder: &F,
-    ) -> usize {
+    pub fn alive_team_index<F: TunnelFinder>(&self, player_id: Id, tunnel_finder: &F) -> usize {
         self.team_index(player_id, |id| Watchers::is_alive(id, tunnel_finder))
             .unwrap_or(0)
     }
@@ -572,6 +561,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use crate::names::NameStyle;
+    use crate::session::Tunnel;
 
     use super::*;
 

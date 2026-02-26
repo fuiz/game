@@ -13,7 +13,7 @@ use crate::fuiz::common::QuestionReceiveMessage;
 use crate::{
     AlarmMessage, SyncMessage,
     leaderboard::Leaderboard,
-    session::Tunnel,
+    session::TunnelFinder,
     teams::TeamManager,
     watcher::{Id, ValueKind, Watchers},
 };
@@ -158,7 +158,7 @@ impl SlideState {
     /// * `tunnel_finder` - Function to find communication tunnels for participants
     /// * `index` - The current slide index
     /// * `count` - The total number of slides
-    pub fn play<T: Tunnel, F: Fn(Id) -> Option<T>, S: ScheduleMessageFn>(
+    pub fn play<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
@@ -208,7 +208,7 @@ impl SlideState {
     /// # Returns
     ///
     /// A `SlideAction` indicating whether to stay on the current slide or advance
-    pub(crate) fn receive_message<T: Tunnel, F: Fn(Id) -> Option<T>, S: ScheduleMessageFn>(
+    pub(crate) fn receive_message<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,
@@ -276,7 +276,7 @@ impl SlideState {
     /// # Returns
     ///
     /// A `SyncMessage` containing the current slide state information
-    pub fn state_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
+    pub fn state_message<F: TunnelFinder>(
         &self,
         watcher_id: Id,
         watcher_kind: ValueKind,
@@ -338,7 +338,7 @@ impl SlideState {
     /// # Returns
     ///
     /// A `SlideAction` indicating whether to stay on the current slide or advance
-    pub(crate) fn receive_alarm<T: Tunnel, F: Fn(Id) -> Option<T>, S: ScheduleMessageFn>(
+    pub(crate) fn receive_alarm<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,

@@ -24,7 +24,7 @@ use super::{
     fuiz::{config::Fuiz, multiple_choice},
     leaderboard::{HostSummary, Leaderboard, ScoreMessage},
     names::{self, Names},
-    session::Tunnel,
+    session::TunnelFinder,
     teams::{self, TeamManager},
     watcher::{self, Id, PlayerValue, ValueKind, Watchers},
 };
@@ -401,7 +401,7 @@ impl Game {
     /// # Returns
     ///
     /// An `UpdateMessage` with teammate selection options
-    fn choose_teammates_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
+    fn choose_teammates_message<F: TunnelFinder>(
         &self,
         watcher: Id,
         team_manager: &TeamManager<names::NameStyle>,
@@ -442,10 +442,7 @@ impl Game {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    fn waiting_screen_names<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &self,
-        tunnel_finder: F,
-    ) -> TruncatedVec<String> {
+    fn waiting_screen_names<F: TunnelFinder>(&self, tunnel_finder: F) -> TruncatedVec<String> {
         const LIMIT: usize = 50;
 
         if let Some(team_manager) = &self.team_manager
@@ -563,7 +560,7 @@ impl Game {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    pub fn play<T: Tunnel, F: Fn(Id) -> Option<T>, S: ScheduleMessageFn>(
+    pub fn play<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         schedule_message: S,
         tunnel_finder: F,
@@ -631,7 +628,7 @@ impl Game {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    pub fn finish_slide<T: Tunnel, F: Fn(Id) -> Option<T>, S: ScheduleMessageFn>(
+    pub fn finish_slide<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         schedule_message: S,
         tunnel_finder: F,
@@ -697,7 +694,7 @@ impl Game {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    fn announce_summary<T: Tunnel, F: Fn(Id) -> Option<T>>(&mut self, tunnel_finder: F) {
+    fn announce_summary<F: TunnelFinder>(&mut self, tunnel_finder: F) {
         self.state = State::Done;
 
         self.watchers.announce_with(
@@ -760,7 +757,7 @@ impl Game {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    pub fn mark_as_done<T: Tunnel, F: Fn(Id) -> Option<T>>(&mut self, tunnel_finder: F) {
+    pub fn mark_as_done<F: TunnelFinder>(&mut self, tunnel_finder: F) {
         self.state = State::Done;
 
         let watchers = self
@@ -789,11 +786,7 @@ impl Game {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    fn update_player_with_options<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &self,
-        watcher: Id,
-        tunnel_finder: F,
-    ) {
+    fn update_player_with_options<F: TunnelFinder>(&self, watcher: Id, tunnel_finder: F) {
         Watchers::send_state(
             &SyncMessage::Metainfo(MetainfoMessage::Player {
                 score: self.score(watcher).map_or(0, |x| x.points),
@@ -820,11 +813,7 @@ impl Game {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    fn handle_unassigned<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &mut self,
-        watcher: Id,
-        tunnel_finder: F,
-    ) {
+    fn handle_unassigned<F: TunnelFinder>(&mut self, watcher: Id, tunnel_finder: F) {
         if let Some(name_style) = self.options.random_names {
             loop {
                 let name = name_style.get_name();
@@ -862,7 +851,7 @@ impl Game {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    fn assign_player_name<T: Tunnel, F: Fn(Id) -> Option<T>>(
+    fn assign_player_name<F: TunnelFinder>(
         &mut self,
         watcher: Id,
         name: &str,
@@ -896,7 +885,7 @@ impl Game {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    pub fn update_player_with_name<T: Tunnel, F: Fn(Id) -> Option<T>>(
+    pub fn update_player_with_name<F: TunnelFinder>(
         &mut self,
         watcher: Id,
         name: &str,
@@ -979,7 +968,7 @@ impl Game {
     ///
     /// If there are too many participants, the watcher may not be added.
     ///
-    pub fn add_unassigned<T: Tunnel, F: Fn(Id) -> Option<T>>(
+    pub fn add_unassigned<F: TunnelFinder>(
         &mut self,
         watcher: Id,
         tunnel_finder: F,
@@ -1011,7 +1000,7 @@ impl Game {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    pub fn receive_message<T: Tunnel, F: Fn(Id) -> Option<T>, S: ScheduleMessageFn>(
+    pub fn receive_message<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         watcher_id: Id,
         message: IncomingMessage,
@@ -1126,7 +1115,7 @@ impl Game {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    pub fn receive_alarm<T: Tunnel, F: Fn(Id) -> Option<T>, S: ScheduleMessageFn>(
+    pub fn receive_alarm<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         message: &AlarmMessage,
         schedule_message: S,
@@ -1189,7 +1178,7 @@ impl Game {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    pub fn state_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
+    pub fn state_message<F: TunnelFinder>(
         &self,
         watcher_id: Id,
         watcher_kind: ValueKind,
@@ -1312,11 +1301,7 @@ impl Game {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    pub fn update_session<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &mut self,
-        watcher_id: Id,
-        tunnel_finder: F,
-    ) {
+    pub fn update_session<F: TunnelFinder>(&mut self, watcher_id: Id, tunnel_finder: F) {
         let Some(watcher_value) = self.watchers.get_watcher_value(watcher_id) else {
             return;
         };

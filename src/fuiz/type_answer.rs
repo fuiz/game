@@ -7,7 +7,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    time::{self, Duration},
+    time::Duration,
 };
 
 use garde::Validate;
@@ -17,9 +17,9 @@ use serde_with::DurationMilliSeconds;
 use web_time::SystemTime;
 
 use crate::{
-    fuiz::config::SlideAction,
+    fuiz::config::{ScheduleMessageFn, SlideAction},
     leaderboard::Leaderboard,
-    session::Tunnel,
+    session::TunnelFinder,
     teams::TeamManager,
     watcher::{Id, ValueKind, Watchers},
 };
@@ -276,11 +276,7 @@ impl State {
     /// * `tunnel_finder` - Function to find communication tunnels for specific watchers
     /// * `index` - Current slide index
     /// * `count` - Total number of slides
-    pub fn play<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnOnce(crate::AlarmMessage, time::Duration),
-    >(
+    pub fn play<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
@@ -302,11 +298,7 @@ impl State {
     /// * `tunnel_finder` - Function to find communication tunnels
     /// * `index` - Current slide index
     /// * `count` - Total number of slides
-    fn send_question_announcements<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnOnce(crate::AlarmMessage, time::Duration),
-    >(
+    fn send_question_announcements<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
@@ -363,11 +355,7 @@ impl State {
     /// * `tunnel_finder` - Function to find communication tunnels
     /// * `index` - Current slide index
     /// * `count` - Total number of slides
-    fn send_accepting_answers<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnOnce(crate::AlarmMessage, time::Duration),
-    >(
+    fn send_accepting_answers<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
@@ -410,11 +398,7 @@ impl State {
     /// # Arguments
     /// * `watchers` - Connection manager for players and hosts
     /// * `tunnel_finder` - Function to find communication tunnels
-    fn send_answers_results<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &mut self,
-        watchers: &Watchers,
-        tunnel_finder: F,
-    ) {
+    fn send_answers_results<F: TunnelFinder>(&mut self, watchers: &Watchers, tunnel_finder: F) {
         if self.change_state(SlideState::Answers, SlideState::AnswersResults) {
             watchers.announce(
                 &UpdateMessage::AnswersResults {
@@ -441,7 +425,7 @@ impl State {
     ///
     /// # Returns
     /// * Appropriate sync message based on current slide state
-    pub fn state_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
+    pub fn state_message<F: TunnelFinder>(
         &self,
         _watcher_id: Id,
         _watcher_kind: ValueKind,
@@ -497,11 +481,7 @@ impl State {
     ///
     /// # Returns
     /// * A `SlideAction` indicating whether to stay on the current slide or advance
-    pub(crate) fn receive_alarm<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnOnce(crate::AlarmMessage, std::time::Duration),
-    >(
+    pub(crate) fn receive_alarm<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         _leaderboard: &mut Leaderboard,
         watchers: &Watchers,
@@ -539,11 +519,7 @@ impl State {
 }
 
 impl QuestionReceiveMessage for State {
-    fn receive_host_next<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnOnce(crate::AlarmMessage, time::Duration),
-    >(
+    fn receive_host_next<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,
@@ -591,7 +567,7 @@ impl QuestionReceiveMessage for State {
         SlideAction::Stay
     }
 
-    fn receive_player_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
+    fn receive_player_message<F: TunnelFinder>(
         &mut self,
         watcher_id: Id,
         message: IncomingPlayerMessage,

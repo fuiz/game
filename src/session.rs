@@ -5,7 +5,7 @@
 //! allows for different communication mechanisms while maintaining a
 //! consistent interface.
 
-use super::{SyncMessage, UpdateMessage};
+use super::{SyncMessage, UpdateMessage, watcher::Id};
 
 /// Trait for sending messages through a communication tunnel
 ///
@@ -40,4 +40,18 @@ pub trait Tunnel {
     /// This method should be called when the client disconnects or
     /// when the communication is no longer needed.
     fn close(self);
+}
+
+/// Trait alias for a function that looks up a participant's tunnel by ID
+///
+/// Automatically implemented for any `Fn(Id) -> Option<T>` where `T: Tunnel`.
+/// Because this has `Fn` as a supertrait, `&F: TunnelFinder` holds whenever
+/// `F: TunnelFinder`, so references can be passed freely.
+pub trait TunnelFinder: Fn(Id) -> Option<Self::Tunnel> {
+    /// The tunnel type returned by this finder
+    type Tunnel: Tunnel;
+}
+
+impl<T: Tunnel, F: Fn(Id) -> Option<T>> TunnelFinder for F {
+    type Tunnel = T;
 }

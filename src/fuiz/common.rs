@@ -15,9 +15,9 @@ use serde::{Deserialize, Serialize};
 use web_time::SystemTime;
 
 use crate::{
-    fuiz::config::SlideAction,
+    fuiz::config::{ScheduleMessageFn, SlideAction},
     leaderboard::Leaderboard,
-    session::Tunnel,
+    session::TunnelFinder,
     teams::TeamManager,
     watcher::{Id, ValueKind, Watchers},
 };
@@ -171,18 +171,14 @@ pub trait AnswerHandler<AnswerType> {
 }
 
 /// Helper function to add scores to leaderboard (common across all slide types)
-pub(crate) fn add_scores_to_leaderboard<T, F, AnswerType>(
+pub(crate) fn add_scores_to_leaderboard<F: TunnelFinder, AnswerType: Clone>(
     slide: &impl AnswerHandler<AnswerType>,
     timer: &impl SlideTimer,
     leaderboard: &mut Leaderboard,
     watchers: &Watchers,
     team_manager: Option<&TeamManager<crate::names::NameStyle>>,
     tunnel_finder: F,
-) where
-    T: Tunnel,
-    F: Fn(Id) -> Option<T>,
-    AnswerType: Clone,
-{
+) {
     let starting_instant = timer.timer();
 
     leaderboard.add_scores(
@@ -235,15 +231,11 @@ pub(crate) fn add_scores_to_leaderboard<T, F, AnswerType>(
 }
 
 /// Helper function to check if all players have answered
-pub fn all_players_answered<T, F, AnswerType>(
+pub fn all_players_answered<F: TunnelFinder, AnswerType>(
     slide: &impl AnswerHandler<AnswerType>,
     watchers: &Watchers,
     tunnel_finder: &F,
-) -> bool
-where
-    T: Tunnel,
-    F: Fn(Id) -> Option<T>,
-{
+) -> bool {
     let left_set: HashSet<_> = watchers
         .specific_vec(ValueKind::Player, tunnel_finder)
         .iter()
@@ -254,15 +246,11 @@ where
 }
 
 /// Helper function to get answered player count
-pub fn get_answered_count<T, F, AnswerType>(
+pub fn get_answered_count<F: TunnelFinder, AnswerType>(
     slide: &impl AnswerHandler<AnswerType>,
     watchers: &Watchers,
     tunnel_finder: &F,
-) -> usize
-where
-    T: Tunnel,
-    F: Fn(Id) -> Option<T>,
-{
+) -> usize {
     let left_set: HashSet<_> = watchers
         .specific_vec(ValueKind::Player, tunnel_finder)
         .iter()
@@ -301,11 +289,7 @@ pub(crate) trait QuestionReceiveMessage {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    fn receive_host_next<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnOnce(crate::AlarmMessage, Duration),
-    >(
+    fn receive_host_next<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,
@@ -332,7 +316,7 @@ pub(crate) trait QuestionReceiveMessage {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    fn receive_player_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
+    fn receive_player_message<F: TunnelFinder>(
         &mut self,
         watcher_id: Id,
         message: crate::game::IncomingPlayerMessage,
@@ -366,11 +350,7 @@ pub(crate) trait QuestionReceiveMessage {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    fn receive_message<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnOnce(crate::AlarmMessage, Duration),
-    >(
+    fn receive_message<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         watcher_id: Id,
         message: crate::game::IncomingMessage,

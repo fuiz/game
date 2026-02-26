@@ -17,7 +17,10 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-use super::{SyncMessage, UpdateMessage, session::Tunnel};
+use super::{
+    SyncMessage, UpdateMessage,
+    session::{Tunnel, TunnelFinder},
+};
 
 /// A unique identifier for participants in the game
 ///
@@ -231,7 +234,7 @@ impl Watchers {
     ///
     /// Vector of tuples containing (ID, Tunnel, Value) for all participants
     /// with active tunnels
-    pub fn vec<T: Tunnel, F: Fn(Id) -> Option<T>>(&self, tunnel_finder: F) -> Vec<(Id, T, Value)> {
+    pub fn vec<F: TunnelFinder>(&self, tunnel_finder: F) -> Vec<(Id, F::Tunnel, Value)> {
         self.reverse_mapping
             .values()
             .flat_map(|v| v.iter())
@@ -253,11 +256,11 @@ impl Watchers {
     ///
     /// Vector of tuples containing (ID, Tunnel, Value) for participants
     /// of the specified type with active tunnels
-    pub fn specific_vec<T: Tunnel, F: Fn(Id) -> Option<T>>(
+    pub fn specific_vec<F: TunnelFinder>(
         &self,
         filter: ValueKind,
         tunnel_finder: F,
-    ) -> Vec<(Id, T, Value)> {
+    ) -> Vec<(Id, F::Tunnel, Value)> {
         self.reverse_mapping[filter]
             .iter()
             .filter_map(|x| match (tunnel_finder(*x), self.mapping.get(x)) {
@@ -368,7 +371,7 @@ impl Watchers {
     /// # Returns
     ///
     /// `true` if the watcher has an active tunnel, `false` otherwise
-    pub fn is_alive<T: Tunnel, F: Fn(Id) -> Option<T>>(watcher_id: Id, tunnel_finder: F) -> bool {
+    pub fn is_alive<F: TunnelFinder>(watcher_id: Id, tunnel_finder: F) -> bool {
         tunnel_finder(watcher_id).is_some()
     }
 
@@ -381,10 +384,7 @@ impl Watchers {
     ///
     /// * `watcher_id` - The ID of the watcher whose session should be removed
     /// * `tunnel_finder` - Function to retrieve the tunnel for the watcher
-    pub fn remove_watcher_session<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        watcher_id: Id,
-        tunnel_finder: F,
-    ) {
+    pub fn remove_watcher_session<F: TunnelFinder>(watcher_id: Id, tunnel_finder: F) {
         Watchers::apply_to_session(watcher_id, tunnel_finder, Tunnel::close);
     }
 
@@ -395,7 +395,7 @@ impl Watchers {
     /// * `message` - The update message to send
     /// * `watcher_id` - The ID of the watcher to send to
     /// * `tunnel_finder` - Function to retrieve the tunnel for the watcher
-    pub fn send_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
+    pub fn send_message<F: TunnelFinder>(
         message: &UpdateMessage,
         watcher_id: Id,
         tunnel_finder: F,
@@ -406,7 +406,7 @@ impl Watchers {
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
-    fn apply_to_session<T: Tunnel, F: Fn(Id) -> Option<T>, A: FnOnce(T)>(
+    fn apply_to_session<F: TunnelFinder, A: FnOnce(F::Tunnel)>(
         watcher_id: Id,
         tunnel_finder: F,
         action: A,
@@ -423,11 +423,7 @@ impl Watchers {
     /// * `message` - The sync message to send
     /// * `watcher_id` - The ID of the watcher to send to
     /// * `tunnel_finder` - Function to retrieve the tunnel for the watcher
-    pub fn send_state<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        message: &SyncMessage,
-        watcher_id: Id,
-        tunnel_finder: F,
-    ) {
+    pub fn send_state<F: TunnelFinder>(message: &SyncMessage, watcher_id: Id, tunnel_finder: F) {
         Watchers::apply_to_session(watcher_id, tunnel_finder, |session| {
             session.send_state(message);
         });
@@ -476,7 +472,7 @@ impl Watchers {
     ///
     /// * `sender` - Function that generates messages for each watcher
     /// * `tunnel_finder` - Function to retrieve tunnels for watchers
-    pub fn announce_with<S, T: Tunnel, F: Fn(Id) -> Option<T>>(&self, sender: S, tunnel_finder: F)
+    pub fn announce_with<S, F: TunnelFinder>(&self, sender: S, tunnel_finder: F)
     where
         S: Fn(Id, ValueKind) -> Option<super::UpdateMessage>,
     {
@@ -495,11 +491,7 @@ impl Watchers {
     ///
     /// * `message` - The update message to broadcast
     /// * `tunnel_finder` - Function to retrieve tunnels for watchers
-    pub fn announce<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &self,
-        message: &super::UpdateMessage,
-        tunnel_finder: F,
-    ) {
+    pub fn announce<F: TunnelFinder>(&self, message: &super::UpdateMessage, tunnel_finder: F) {
         self.announce_with(
             |_, value_kind| {
                 if matches!(value_kind, ValueKind::Unassigned) {
@@ -519,7 +511,7 @@ impl Watchers {
     /// * `filter` - The type of watchers to send to
     /// * `message` - The update message to send
     /// * `tunnel_finder` - Function to retrieve tunnels for watchers
-    pub fn announce_specific<T: Tunnel, F: Fn(Id) -> Option<T>>(
+    pub fn announce_specific<F: TunnelFinder>(
         &self,
         filter: ValueKind,
         message: &super::UpdateMessage,

@@ -5,10 +5,7 @@
 //! options, allowing players to select one correct answer. The module handles
 //! timing, scoring, answer validation, and result presentation.
 
-use std::{
-    collections::HashMap,
-    time::{self, Duration},
-};
+use std::{collections::HashMap, time::Duration};
 
 use garde::Validate;
 use itertools::Itertools;
@@ -17,9 +14,9 @@ use serde_with::DurationMilliSeconds;
 use web_time::SystemTime;
 
 use crate::{
-    fuiz::config::SlideAction,
+    fuiz::config::{ScheduleMessageFn, SlideAction},
     leaderboard::Leaderboard,
-    session::Tunnel,
+    session::TunnelFinder,
     teams::TeamManager,
     watcher::{Id, ValueKind, Watchers},
 };
@@ -322,11 +319,7 @@ impl State {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    pub fn play<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnOnce(crate::AlarmMessage, time::Duration),
-    >(
+    pub fn play<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
@@ -366,11 +359,7 @@ impl State {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    fn send_question_announcements<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnOnce(crate::AlarmMessage, time::Duration),
-    >(
+    fn send_question_announcements<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
@@ -433,11 +422,7 @@ impl State {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    fn send_answers_announcements<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnOnce(crate::AlarmMessage, time::Duration),
-    >(
+    fn send_answers_announcements<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
@@ -494,11 +479,7 @@ impl State {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    fn send_answers_results<T: Tunnel, F: Fn(Id) -> Option<T>>(
-        &mut self,
-        watchers: &Watchers,
-        tunnel_finder: F,
-    ) {
+    fn send_answers_results<F: TunnelFinder>(&mut self, watchers: &Watchers, tunnel_finder: F) {
         if self.change_state(SlideState::Answers, SlideState::AnswersResults) {
             let answer_count = self.answer_counts();
             watchers.announce(
@@ -610,7 +591,7 @@ impl State {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    pub fn state_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
+    pub fn state_message<F: TunnelFinder>(
         &self,
         watcher_id: Id,
         watcher_kind: ValueKind,
@@ -701,11 +682,7 @@ impl State {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    pub(crate) fn receive_alarm<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnOnce(crate::AlarmMessage, std::time::Duration),
-    >(
+    pub(crate) fn receive_alarm<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         _leaderboard: &mut Leaderboard,
         watchers: &Watchers,
@@ -741,11 +718,7 @@ impl State {
 }
 
 impl QuestionReceiveMessage for State {
-    fn receive_host_next<
-        T: Tunnel,
-        F: Fn(Id) -> Option<T>,
-        S: FnOnce(crate::AlarmMessage, time::Duration),
-    >(
+    fn receive_host_next<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         leaderboard: &mut Leaderboard,
         watchers: &Watchers,
@@ -792,7 +765,7 @@ impl QuestionReceiveMessage for State {
         SlideAction::Stay
     }
 
-    fn receive_player_message<T: Tunnel, F: Fn(Id) -> Option<T>>(
+    fn receive_player_message<F: TunnelFinder>(
         &mut self,
         watcher_id: Id,
         message: IncomingPlayerMessage,
