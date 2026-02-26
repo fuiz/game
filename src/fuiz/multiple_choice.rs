@@ -456,32 +456,9 @@ impl State {
                             answers: self.get_answers_for_player(
                                 id,
                                 kind,
-                                {
-                                    match &team_manager {
-                                        Some(team_manager) => {
-                                            team_manager.team_members(id).map_or(1, |members| {
-                                                members
-                                                    .into_iter()
-                                                    .filter(|id| {
-                                                        Watchers::is_alive(*id, &tunnel_finder)
-                                                    })
-                                                    .count()
-                                                    .max(1)
-                                            })
-                                        }
-                                        None => 1,
-                                    }
-                                },
-                                {
-                                    match &team_manager {
-                                        Some(team_manager) => team_manager
-                                            .team_index(id, |id| {
-                                                Watchers::is_alive(id, &tunnel_finder)
-                                            })
-                                            .unwrap_or(0),
-                                        None => 0,
-                                    }
-                                },
+                                team_manager.map_or(1, |tm| tm.alive_team_size(id, &tunnel_finder)),
+                                team_manager
+                                    .map_or(0, |tm| tm.alive_team_index(id, &tunnel_finder)),
                                 team_manager.is_some(),
                             ),
                         }
@@ -663,29 +640,8 @@ impl State {
                 answers: self.get_answers_for_player(
                     watcher_id,
                     watcher_kind,
-                    {
-                        match &team_manager {
-                            Some(team_manager) => {
-                                team_manager.team_members(watcher_id).map_or(1, |members| {
-                                    members
-                                        .into_iter()
-                                        .filter(|id| Watchers::is_alive(*id, &tunnel_finder))
-                                        .collect_vec()
-                                        .len()
-                                        .max(1)
-                                })
-                            }
-                            None => 1,
-                        }
-                    },
-                    {
-                        match &team_manager {
-                            Some(team_manager) => team_manager
-                                .team_index(watcher_id, |id| Watchers::is_alive(id, &tunnel_finder))
-                                .unwrap_or(0),
-                            None => 0,
-                        }
-                    },
+                    team_manager.map_or(1, |tm| tm.alive_team_size(watcher_id, &tunnel_finder)),
+                    team_manager.map_or(0, |tm| tm.alive_team_index(watcher_id, &tunnel_finder)),
                     team_manager.is_some(),
                 ),
                 answered_count: get_answered_count(self, watchers, &tunnel_finder),

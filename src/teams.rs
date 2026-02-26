@@ -501,6 +501,37 @@ impl<N: names::NamingScheme> TeamManager<N> {
             })
     }
 
+    /// Gets the number of alive team members for a player's team
+    ///
+    /// Returns the count of team members that satisfy the aliveness check,
+    /// with a minimum of 1. If the player has no team, returns 1.
+    pub fn alive_team_size<T: Tunnel, F: Fn(Id) -> Option<T>>(
+        &self,
+        player_id: Id,
+        tunnel_finder: &F,
+    ) -> usize {
+        self.team_members(player_id).map_or(1, |members| {
+            members
+                .into_iter()
+                .filter(|id| Watchers::is_alive(*id, tunnel_finder))
+                .count()
+                .max(1)
+        })
+    }
+
+    /// Gets a player's index among alive team members
+    ///
+    /// Returns the player's positional index considering only alive members,
+    /// or 0 if the player is not found.
+    pub fn alive_team_index<T: Tunnel, F: Fn(Id) -> Option<T>>(
+        &self,
+        player_id: Id,
+        tunnel_finder: &F,
+    ) -> usize {
+        self.team_index(player_id, |id| Watchers::is_alive(id, tunnel_finder))
+            .unwrap_or(0)
+    }
+
     /// Gets all team IDs that have been created
     ///
     /// Returns a list of all team identifiers that were created during
