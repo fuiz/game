@@ -72,11 +72,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
             assign_random,
             name_style,
             optimal_size,
-            preferences: if assign_random {
-                None
-            } else {
-                Some(HashMap::default())
-            },
+            preferences: if assign_random { None } else { Some(HashMap::default()) },
             teams: None,
             next_team_to_receive_player: 0,
         }
@@ -103,12 +99,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
     /// * `watchers` - The watchers manager containing all players
     /// * `names` - The names manager for generating team names
     /// * `tunnel_finder` - Function to find communication tunnels for players
-    pub fn finalize<F: TunnelFinder>(
-        &mut self,
-        watchers: &mut Watchers,
-        names: &mut names::Names,
-        tunnel_finder: F,
-    ) {
+    pub fn finalize<F: TunnelFinder>(&mut self, watchers: &mut Watchers, names: &mut names::Names, tunnel_finder: F) {
         if self.teams.is_none() {
             let players = Self::get_players(watchers, tunnel_finder);
             let preference_groups = self.create_preference_groups(&players);
@@ -142,11 +133,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
                     .get_player_preferences(id)
                     .unwrap_or_default()
                     .into_iter()
-                    .filter(|&pref| {
-                        self.get_player_preferences(pref)
-                            .unwrap_or_default()
-                            .contains(&id)
-                    })
+                    .filter(|&pref| self.get_player_preferences(pref).unwrap_or_default().contains(&id))
                     .min()
                     .unwrap_or(id)
                     .min(id);
@@ -213,8 +200,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
                 .map(|group| group.1.clone())
             {
                 sorted_teams.remove(&(&compatible_team).into());
-                let merged_team: Vec<Id> =
-                    team.iter().chain(compatible_team.iter()).copied().collect();
+                let merged_team: Vec<Id> = team.iter().chain(compatible_team.iter()).copied().collect();
                 sorted_teams.insert((&merged_team).into());
             } else {
                 sorted_teams.insert(team.into());
@@ -228,8 +214,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
         if let Some(smallest) = teams.pop_first() {
             if smallest.0 == 1 {
                 if let Some(second_smallest) = teams.pop_first() {
-                    let consolidated: Vec<Id> =
-                        smallest.1.into_iter().chain(second_smallest.1).collect();
+                    let consolidated: Vec<Id> = smallest.1.into_iter().chain(second_smallest.1).collect();
                     teams.insert((&consolidated).into());
                 } else {
                     teams.insert(smallest);
@@ -242,11 +227,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
         teams.into_iter().map(|group| group.1).collect()
     }
 
-    fn create_team_id_names(
-        &self,
-        teams: Vec<Vec<Id>>,
-        names: &mut names::Names,
-    ) -> Vec<(Id, String, Vec<Id>)> {
+    fn create_team_id_names(&self, teams: Vec<Vec<Id>>, names: &mut names::Names) -> Vec<(Id, String, Vec<Id>)> {
         teams
             .into_iter()
             .map(|players| {
@@ -342,13 +323,9 @@ impl<N: names::NamingScheme> TeamManager<N> {
     /// `Some(TruncatedVec<String>)` containing team names if teams have been
     /// finalized, or `None` if team formation hasn't completed yet
     pub fn team_names(&self) -> Option<TruncatedVec<String>> {
-        self.teams.as_ref().map(|v| {
-            TruncatedVec::new(
-                v.iter().map(|(_, team_name)| team_name.to_owned()),
-                50,
-                v.len(),
-            )
-        })
+        self.teams
+            .as_ref()
+            .map(|v| TruncatedVec::new(v.iter().map(|(_, team_name)| team_name.to_owned()), 50, v.len()))
     }
 
     /// Gets the team ID for a specific player
@@ -422,10 +399,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
 
             self.player_to_team.insert(player_id, *team_id);
 
-            let p = self
-                .team_to_players
-                .get_mut(team_id)
-                .expect("team should exist");
+            let p = self.team_to_players.get_mut(team_id).expect("team should exist");
 
             p.push(player_id);
 
@@ -531,9 +505,9 @@ impl<N: names::NamingScheme> TeamManager<N> {
     /// A vector containing all team IDs, or an empty vector if teams
     /// haven't been finalized yet
     pub fn all_ids(&self) -> Vec<Id> {
-        self.teams.as_ref().map_or(Vec::new(), |teams| {
-            teams.iter().map(|(id, _)| *id).collect_vec()
-        })
+        self.teams
+            .as_ref()
+            .map_or(Vec::new(), |teams| teams.iter().map(|(id, _)| *id).collect_vec())
     }
 
     /// Gets the teammate preferences for a specific player
@@ -1335,11 +1309,7 @@ mod tests {
                     .iter()
                     .any(|group| group.contains(&player1) && group.contains(&player2))
             );
-            assert!(
-                groups
-                    .iter()
-                    .any(|group| group.len() == 1 && group.contains(&player3))
-            );
+            assert!(groups.iter().any(|group| group.len() == 1 && group.contains(&player3)));
         }
 
         #[test]
@@ -1494,10 +1464,7 @@ mod tests {
             let player5 = Id::new();
             let player6 = Id::new();
 
-            let teams = vec![
-                vec![player1, player2, player3],
-                vec![player4, player5, player6],
-            ];
+            let teams = vec![vec![player1, player2, player3], vec![player4, player5, player6]];
             let balanced = manager.balance_teams(&teams, 6);
 
             assert_eq!(balanced.len(), 2);
@@ -1514,12 +1481,7 @@ mod tests {
             let player4 = Id::new();
             let player5 = Id::new();
 
-            let teams = vec![
-                vec![player1, player2],
-                vec![player3],
-                vec![player4],
-                vec![player5],
-            ];
+            let teams = vec![vec![player1, player2], vec![player3], vec![player4], vec![player5]];
             let balanced = manager.balance_teams(&teams, 5);
 
             assert!(balanced.iter().all(|team| !team.is_empty()));

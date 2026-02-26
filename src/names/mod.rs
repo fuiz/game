@@ -44,12 +44,8 @@ impl NameStyle {
     /// A randomly generated name as a String.
     pub fn get_name(&self) -> String {
         match self {
-            Self::Roman(count) => romans::roman_name(&romans::NameConfig {
-                praenomen: *count > 2,
-            }),
-            Self::Petname(count) => pets::pet_name(&pets::NameConfig {
-                parts: *count as u8,
-            }),
+            Self::Roman(count) => romans::roman_name(&romans::NameConfig { praenomen: *count > 2 }),
+            Self::Petname(count) => pets::pet_name(&pets::NameConfig { parts: *count as u8 }),
         }
         .join(" ")
         .to_title_case()

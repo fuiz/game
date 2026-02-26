@@ -181,8 +181,7 @@ impl Leaderboard {
 
         self.points_earned.push(scores.to_vec());
 
-        self.previous_scores_descending =
-            std::mem::replace(&mut self.scores_descending, scores_descending);
+        self.previous_scores_descending = std::mem::replace(&mut self.scores_descending, scores_descending);
 
         self.score_and_position = mapping;
     }
@@ -244,10 +243,7 @@ impl Leaderboard {
                 .points_earned
                 .iter()
                 .map(|points_earned| {
-                    let earned_count = points_earned
-                        .iter()
-                        .filter(|(_, earned)| *earned > 0)
-                        .count();
+                    let earned_count = points_earned.iter().filter(|(_, earned)| *earned > 0).count();
 
                     (earned_count, total_players - earned_count)
                 })
@@ -506,14 +502,10 @@ mod tests {
         assert_eq!(total_players, 3);
         assert_eq!(
             player_scores.iter().sorted().collect_vec(),
-            [
-                (id3, vec![0, 10]),
-                (id2, vec![50, 25]),
-                (id1, vec![100, 75])
-            ]
-            .iter()
-            .sorted()
-            .collect_vec()
+            [(id3, vec![0, 10]), (id2, vec![50, 25]), (id1, vec![100, 75])]
+                .iter()
+                .sorted()
+                .collect_vec()
         );
         assert_eq!(correctness_stats.len(), 2); // Two rounds
 
@@ -542,10 +534,7 @@ mod tests {
         assert_eq!(total_players, 2);
         assert_eq!(
             player_scores.iter().sorted().collect_vec(),
-            [(id1, vec![1]), (id2, vec![0])]
-                .iter()
-                .sorted()
-                .collect_vec()
+            [(id1, vec![1]), (id2, vec![0])].iter().sorted().collect_vec()
         ); // Binary scoring
         assert_eq!(correctness_stats[0], (1, 1)); // Only one player earned points (binary)
     }
@@ -676,18 +665,8 @@ mod tests {
 
         // Previous round totals should be: id1=80 (50+30), id2=65 (25+40)
         assert_eq!(previous.items().len(), 2);
-        let prev_id1_score = previous
-            .items()
-            .iter()
-            .find(|(id, _)| *id == id1)
-            .unwrap()
-            .1;
-        let prev_id2_score = previous
-            .items()
-            .iter()
-            .find(|(id, _)| *id == id2)
-            .unwrap()
-            .1;
+        let prev_id1_score = previous.items().iter().find(|(id, _)| *id == id1).unwrap().1;
+        let prev_id2_score = previous.items().iter().find(|(id, _)| *id == id2).unwrap().1;
         assert_eq!(prev_id1_score, 80); // This tests the coalesce Ok branch for previous rounds
         assert_eq!(prev_id2_score, 65);
     }

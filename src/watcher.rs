@@ -256,11 +256,7 @@ impl Watchers {
     ///
     /// Vector of tuples containing (ID, Tunnel, Value) for participants
     /// of the specified type with active tunnels
-    pub fn specific_vec<F: TunnelFinder>(
-        &self,
-        filter: ValueKind,
-        tunnel_finder: F,
-    ) -> Vec<(Id, F::Tunnel, Value)> {
+    pub fn specific_vec<F: TunnelFinder>(&self, filter: ValueKind, tunnel_finder: F) -> Vec<(Id, F::Tunnel, Value)> {
         self.reverse_mapping[filter]
             .iter()
             .filter_map(|x| match (tunnel_finder(*x), self.mapping.get(x)) {
@@ -343,9 +339,7 @@ impl Watchers {
     ///
     /// The watcher's value if they exist, otherwise `None`
     pub fn get_watcher_value(&self, watcher_id: Id) -> Option<Value> {
-        self.mapping
-            .get(&watcher_id)
-            .map(std::borrow::ToOwned::to_owned)
+        self.mapping.get(&watcher_id).map(std::borrow::ToOwned::to_owned)
     }
 
     /// Checks if a watcher exists in the game session
@@ -395,22 +389,14 @@ impl Watchers {
     /// * `message` - The update message to send
     /// * `watcher_id` - The ID of the watcher to send to
     /// * `tunnel_finder` - Function to retrieve the tunnel for the watcher
-    pub fn send_message<F: TunnelFinder>(
-        message: &UpdateMessage,
-        watcher_id: Id,
-        tunnel_finder: F,
-    ) {
+    pub fn send_message<F: TunnelFinder>(message: &UpdateMessage, watcher_id: Id, tunnel_finder: F) {
         Watchers::apply_to_session(watcher_id, tunnel_finder, |session| {
             session.send_message(message);
         });
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
-    fn apply_to_session<F: TunnelFinder, A: FnOnce(F::Tunnel)>(
-        watcher_id: Id,
-        tunnel_finder: F,
-        action: A,
-    ) {
+    fn apply_to_session<F: TunnelFinder, A: FnOnce(F::Tunnel)>(watcher_id: Id, tunnel_finder: F, action: A) {
         if let Some(session) = tunnel_finder(watcher_id) {
             action(session);
         }
@@ -580,9 +566,7 @@ mod tests {
 
     // Mock SyncMessage for testing
     fn mock_sync_message() -> SyncMessage {
-        SyncMessage::Game(crate::game::SyncMessage::WaitingScreen(
-            crate::TruncatedVec::default(),
-        ))
+        SyncMessage::Game(crate::game::SyncMessage::WaitingScreen(crate::TruncatedVec::default()))
     }
 
     #[test]
@@ -670,10 +654,7 @@ mod tests {
 
         assert!(watchers.has_watcher(watcher_id));
         assert_eq!(watchers.specific_count(ValueKind::Unassigned), 1);
-        assert_eq!(
-            watchers.get_watcher_value(watcher_id),
-            Some(Value::Unassigned)
-        );
+        assert_eq!(watchers.get_watcher_value(watcher_id), Some(Value::Unassigned));
     }
 
     #[test]
@@ -710,10 +691,7 @@ mod tests {
         assert!(watchers.has_watcher(player_id));
         assert_eq!(watchers.specific_count(ValueKind::Player), 1);
         assert_eq!(watchers.get_name(player_id), Some("Bob".to_string()));
-        assert_eq!(
-            watchers.get_team_name(player_id),
-            Some("Team A".to_string())
-        );
+        assert_eq!(watchers.get_team_name(player_id), Some("Team A".to_string()));
     }
 
     #[test]
@@ -820,9 +798,7 @@ mod tests {
                 }),
             )
             .unwrap();
-        watchers
-            .add_watcher(unassigned_id, Value::Unassigned)
-            .unwrap();
+        watchers.add_watcher(unassigned_id, Value::Unassigned).unwrap();
 
         // Add tunnels for all
         tunnels.insert(host_id, MockTunnel::new());
@@ -1021,9 +997,7 @@ mod tests {
         let unassigned_id = Id::new();
 
         watchers.add_watcher(host_id, Value::Host).unwrap();
-        watchers
-            .add_watcher(unassigned_id, Value::Unassigned)
-            .unwrap();
+        watchers.add_watcher(unassigned_id, Value::Unassigned).unwrap();
 
         assert_eq!(watchers.get_name(host_id), None);
         assert_eq!(watchers.get_name(unassigned_id), None);
@@ -1067,9 +1041,7 @@ mod tests {
                 }),
             )
             .unwrap();
-        watchers
-            .add_watcher(unassigned_id, Value::Unassigned)
-            .unwrap();
+        watchers.add_watcher(unassigned_id, Value::Unassigned).unwrap();
 
         let host_tunnel = MockTunnel::new();
         let player_tunnel = MockTunnel::new();

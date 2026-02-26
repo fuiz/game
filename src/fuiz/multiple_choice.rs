@@ -25,8 +25,8 @@ use super::{
     super::constants::multiple_choice::*,
     super::game::IncomingPlayerMessage,
     common::{
-        AnswerHandler, QuestionReceiveMessage, SlideStateManager, SlideTimer,
-        add_scores_to_leaderboard, all_players_answered, get_answered_count, validate_duration,
+        AnswerHandler, QuestionReceiveMessage, SlideStateManager, SlideTimer, add_scores_to_leaderboard,
+        all_players_answered, get_answered_count, validate_duration,
     },
     config::TextOrMedia,
     media::Media,
@@ -328,14 +328,7 @@ impl State {
         index: usize,
         count: usize,
     ) {
-        self.send_question_announcements(
-            team_manager,
-            watchers,
-            schedule_message,
-            tunnel_finder,
-            index,
-            count,
-        );
+        self.send_question_announcements(team_manager, watchers, schedule_message, tunnel_finder, index, count);
     }
 
     /// Sends the initial question announcement to all participants
@@ -382,13 +375,7 @@ impl State {
             );
 
             if self.config.introduce_question.is_zero() {
-                self.send_answers_announcements(
-                    team_manager,
-                    watchers,
-                    schedule_message,
-                    tunnel_finder,
-                    index,
-                );
+                self.send_answers_announcements(team_manager, watchers, schedule_message, tunnel_finder, index);
             } else {
                 schedule_message(
                     AlarmMessage::ProceedFromSlideIntoSlide {
@@ -442,8 +429,7 @@ impl State {
                                 id,
                                 kind,
                                 team_manager.map_or(1, |tm| tm.alive_team_size(id, &tunnel_finder)),
-                                team_manager
-                                    .map_or(0, |tm| tm.alive_team_index(id, &tunnel_finder)),
+                                team_manager.map_or(0, |tm| tm.alive_team_index(id, &tunnel_finder)),
                                 team_manager.is_some(),
                             ),
                         }
@@ -484,12 +470,7 @@ impl State {
             let answer_count = self.answer_counts();
             watchers.announce(
                 &UpdateMessage::AnswersResults {
-                    answers: self
-                        .config
-                        .answers
-                        .iter()
-                        .map(|a| a.content.clone())
-                        .collect_vec(),
+                    answers: self.config.answers.iter().map(|a| a.content.clone()).collect_vec(),
                     results: self
                         .config
                         .answers
@@ -535,8 +516,7 @@ impl State {
         match watcher_kind {
             ValueKind::Host | ValueKind::Unassigned => {
                 if is_team {
-                    std::iter::repeat_n(PossiblyHidden::Hidden, self.config.answers.len())
-                        .collect_vec()
+                    std::iter::repeat_n(PossiblyHidden::Hidden, self.config.answers.len()).collect_vec()
                 } else {
                     self.config
                         .answers
@@ -607,10 +587,7 @@ impl State {
                 count,
                 question: self.config.title.clone(),
                 media: self.config.media.clone(),
-                duration: self
-                    .config
-                    .introduce_question
-                    .saturating_sub(self.elapsed()),
+                duration: self.config.introduce_question.saturating_sub(self.elapsed()),
             },
             SlideState::Answers => SyncMessage::AnswersAnnouncement {
                 index,
@@ -635,12 +612,7 @@ impl State {
                     count,
                     question: self.config.title.clone(),
                     media: self.config.media.clone(),
-                    answers: self
-                        .config
-                        .answers
-                        .iter()
-                        .map(|a| a.content.clone())
-                        .collect_vec(),
+                    answers: self.config.answers.iter().map(|a| a.content.clone()).collect_vec(),
                     results: self
                         .config
                         .answers
@@ -693,20 +665,10 @@ impl State {
         index: usize,
         _count: usize,
     ) -> SlideAction<S> {
-        if let crate::AlarmMessage::MultipleChoice(AlarmMessage::ProceedFromSlideIntoSlide {
-            index: _,
-            to,
-        }) = message
-        {
+        if let crate::AlarmMessage::MultipleChoice(AlarmMessage::ProceedFromSlideIntoSlide { index: _, to }) = message {
             match to {
                 SlideState::Answers => {
-                    self.send_answers_announcements(
-                        team_manager,
-                        watchers,
-                        schedule_message,
-                        tunnel_finder,
-                        index,
-                    );
+                    self.send_answers_announcements(team_manager, watchers, schedule_message, tunnel_finder, index);
                 }
                 SlideState::AnswersResults => self.send_answers_results(watchers, tunnel_finder),
                 _ => (),
@@ -730,34 +692,14 @@ impl QuestionReceiveMessage for State {
     ) -> SlideAction<S> {
         match self.state() {
             SlideState::Unstarted => {
-                self.send_question_announcements(
-                    team_manager,
-                    watchers,
-                    schedule_message,
-                    tunnel_finder,
-                    index,
-                    count,
-                );
+                self.send_question_announcements(team_manager, watchers, schedule_message, tunnel_finder, index, count);
             }
             SlideState::Question => {
-                self.send_answers_announcements(
-                    team_manager,
-                    watchers,
-                    schedule_message,
-                    tunnel_finder,
-                    index,
-                );
+                self.send_answers_announcements(team_manager, watchers, schedule_message, tunnel_finder, index);
             }
             SlideState::Answers => self.send_answers_results(watchers, tunnel_finder),
             SlideState::AnswersResults => {
-                add_scores_to_leaderboard(
-                    self,
-                    self,
-                    leaderboard,
-                    watchers,
-                    team_manager,
-                    tunnel_finder,
-                );
+                add_scores_to_leaderboard(self, self, leaderboard, watchers, team_manager, tunnel_finder);
                 return SlideAction::Next { schedule_message };
             }
         }
@@ -781,12 +723,7 @@ impl QuestionReceiveMessage for State {
             } else {
                 watchers.announce_specific(
                     ValueKind::Host,
-                    &UpdateMessage::AnswersCount(get_answered_count(
-                        self,
-                        watchers,
-                        &tunnel_finder,
-                    ))
-                    .into(),
+                    &UpdateMessage::AnswersCount(get_answered_count(self, watchers, &tunnel_finder)).into(),
                     &tunnel_finder,
                 );
             }

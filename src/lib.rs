@@ -219,11 +219,7 @@ mod tests {
 
     #[test]
     fn test_sync_message_to_message() {
-        let players = TruncatedVec::new(
-            vec!["Player1".to_string(), "Player2".to_string()].into_iter(),
-            10,
-            2,
-        );
+        let players = TruncatedVec::new(vec!["Player1".to_string(), "Player2".to_string()].into_iter(), 10, 2);
         let sync_msg = SyncMessage::Game(crate::game::SyncMessage::WaitingScreen(players));
         let json_str = sync_msg.to_message();
 

@@ -28,8 +28,8 @@ use super::{
     super::constants::type_answer::*,
     super::game::IncomingPlayerMessage,
     common::{
-        AnswerHandler, QuestionReceiveMessage, SlideStateManager, SlideTimer,
-        add_scores_to_leaderboard, all_players_answered, get_answered_count, validate_duration,
+        AnswerHandler, QuestionReceiveMessage, SlideStateManager, SlideTimer, add_scores_to_leaderboard,
+        all_players_answered, get_answered_count, validate_duration,
     },
     media::Media,
 };
@@ -308,13 +308,7 @@ impl State {
     ) {
         if self.change_state(SlideState::Unstarted, SlideState::Question) {
             if self.config.introduce_question.is_zero() {
-                self.send_accepting_answers(
-                    watchers,
-                    schedule_message,
-                    tunnel_finder,
-                    index,
-                    count,
-                );
+                self.send_accepting_answers(watchers, schedule_message, tunnel_finder, index, count);
                 return;
             }
 
@@ -441,10 +435,7 @@ impl State {
                 count,
                 question: self.config.title.clone(),
                 media: self.config.media.clone(),
-                duration: self
-                    .config
-                    .introduce_question
-                    .saturating_sub(self.elapsed()),
+                duration: self.config.introduce_question.saturating_sub(self.elapsed()),
                 accept_answers: false,
             },
             SlideState::Answers => SyncMessage::QuestionAnnouncement {
@@ -492,20 +483,10 @@ impl State {
         index: usize,
         count: usize,
     ) -> SlideAction<S> {
-        if let crate::AlarmMessage::TypeAnswer(AlarmMessage::ProceedFromSlideIntoSlide {
-            index: _,
-            to,
-        }) = message
-        {
+        if let crate::AlarmMessage::TypeAnswer(AlarmMessage::ProceedFromSlideIntoSlide { index: _, to }) = message {
             match to {
                 SlideState::Answers => {
-                    self.send_accepting_answers(
-                        watchers,
-                        schedule_message,
-                        tunnel_finder,
-                        index,
-                        count,
-                    );
+                    self.send_accepting_answers(watchers, schedule_message, tunnel_finder, index, count);
                 }
                 SlideState::AnswersResults => {
                     self.send_answers_results(watchers, tunnel_finder);
@@ -531,35 +512,16 @@ impl QuestionReceiveMessage for State {
     ) -> SlideAction<S> {
         match self.state() {
             SlideState::Unstarted => {
-                self.send_question_announcements(
-                    watchers,
-                    schedule_message,
-                    tunnel_finder,
-                    index,
-                    count,
-                );
+                self.send_question_announcements(watchers, schedule_message, tunnel_finder, index, count);
             }
             SlideState::Question => {
-                self.send_accepting_answers(
-                    watchers,
-                    schedule_message,
-                    tunnel_finder,
-                    index,
-                    count,
-                );
+                self.send_accepting_answers(watchers, schedule_message, tunnel_finder, index, count);
             }
             SlideState::Answers => {
                 self.send_answers_results(watchers, tunnel_finder);
             }
             SlideState::AnswersResults => {
-                add_scores_to_leaderboard(
-                    self,
-                    self,
-                    leaderboard,
-                    watchers,
-                    team_manager,
-                    tunnel_finder,
-                );
+                add_scores_to_leaderboard(self, self, leaderboard, watchers, team_manager, tunnel_finder);
                 return SlideAction::Next { schedule_message };
             }
         }
@@ -581,12 +543,7 @@ impl QuestionReceiveMessage for State {
             } else {
                 watchers.announce_specific(
                     ValueKind::Host,
-                    &UpdateMessage::AnswersCount(get_answered_count(
-                        self,
-                        watchers,
-                        &tunnel_finder,
-                    ))
-                    .into(),
+                    &UpdateMessage::AnswersCount(get_answered_count(self, watchers, &tunnel_finder)).into(),
                     &tunnel_finder,
                 );
             }

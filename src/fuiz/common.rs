@@ -107,13 +107,8 @@ pub trait SlideTimer {
 }
 
 /// Calculate score based on timing - shared function used by all slide types
-pub fn calculate_slide_score(
-    full_duration: Duration,
-    taken_duration: Duration,
-    full_points_awarded: u64,
-) -> u64 {
-    (full_points_awarded as f64
-        * (1. - (taken_duration.as_secs_f64() / full_duration.as_secs_f64() / 2.))) as u64
+pub fn calculate_slide_score(full_duration: Duration, taken_duration: Duration, full_points_awarded: u64) -> u64 {
+    (full_points_awarded as f64 * (1. - (taken_duration.as_secs_f64() / full_duration.as_secs_f64() / 2.))) as u64
 }
 
 /// Trait for slides that handle answers and scoring
@@ -368,23 +363,21 @@ pub(crate) trait QuestionReceiveMessage {
         count: usize,
     ) -> SlideAction<S> {
         match message {
-            crate::game::IncomingMessage::Host(crate::game::IncomingHostMessage::Next) => self
-                .receive_host_next(
-                    leaderboard,
-                    watchers,
-                    team_manager,
-                    schedule_message,
-                    tunnel_finder,
-                    index,
-                    count,
-                ),
+            crate::game::IncomingMessage::Host(crate::game::IncomingHostMessage::Next) => self.receive_host_next(
+                leaderboard,
+                watchers,
+                team_manager,
+                schedule_message,
+                tunnel_finder,
+                index,
+                count,
+            ),
             crate::game::IncomingMessage::Player(player_message) => {
                 self.receive_player_message(watcher_id, player_message, watchers, tunnel_finder);
                 SlideAction::Stay
             }
             crate::game::IncomingMessage::Host(
-                crate::game::IncomingHostMessage::Index(_)
-                | crate::game::IncomingHostMessage::Lock(_),
+                crate::game::IncomingHostMessage::Index(_) | crate::game::IncomingHostMessage::Lock(_),
             )
             | crate::game::IncomingMessage::Ghost(_)
             | crate::game::IncomingMessage::Unassigned(_) => SlideAction::Stay,

@@ -461,11 +461,7 @@ impl Game {
             })
             .unique();
 
-        TruncatedVec::new(
-            player_names,
-            LIMIT,
-            self.watchers.specific_count(ValueKind::Player),
-        )
+        TruncatedVec::new(player_names, LIMIT, self.watchers.specific_count(ValueKind::Player))
     }
 
     /// Creates a leaderboard message with current and previous standings
@@ -528,18 +524,9 @@ impl Game {
             leaderboard: Leaderboard::default(),
             state: State::WaitingScreen,
             options,
-            team_manager: options.teams.map(
-                |TeamOptions {
-                     size,
-                     assign_random,
-                 }| {
-                    TeamManager::new(
-                        size,
-                        assign_random,
-                        options.random_names.unwrap_or_default(),
-                    )
-                },
-            ),
+            team_manager: options.teams.map(|TeamOptions { size, assign_random }| {
+                TeamManager::new(size, assign_random, options.random_names.unwrap_or_default())
+            }),
             locked: false,
         }
     }
@@ -560,11 +547,7 @@ impl Game {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    pub fn play<F: TunnelFinder, S: ScheduleMessageFn>(
-        &mut self,
-        schedule_message: S,
-        tunnel_finder: F,
-    ) {
+    pub fn play<F: TunnelFinder, S: ScheduleMessageFn>(&mut self, schedule_message: S, tunnel_finder: F) {
         if let Some(slide) = self.fuiz_config.slides.first() {
             if let Some(team_manager) = &mut self.team_manager
                 && matches!(self.state, State::WaitingScreen)
@@ -574,14 +557,12 @@ impl Game {
                 self.watchers.announce_with(
                     |id, kind| {
                         Some(match kind {
-                            ValueKind::Player => UpdateMessage::FindTeam(
-                                self.watchers.get_team_name(id).unwrap_or_default(),
-                            )
-                            .into(),
-                            ValueKind::Host => UpdateMessage::TeamDisplay(
-                                team_manager.team_names().unwrap_or_default(),
-                            )
-                            .into(),
+                            ValueKind::Player => {
+                                UpdateMessage::FindTeam(self.watchers.get_team_name(id).unwrap_or_default()).into()
+                            }
+                            ValueKind::Host => {
+                                UpdateMessage::TeamDisplay(team_manager.team_names().unwrap_or_default()).into()
+                            }
                             ValueKind::Unassigned => {
                                 return None;
                             }
@@ -628,11 +609,7 @@ impl Game {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    pub fn finish_slide<F: TunnelFinder, S: ScheduleMessageFn>(
-        &mut self,
-        schedule_message: S,
-        tunnel_finder: F,
-    ) {
+    pub fn finish_slide<F: TunnelFinder, S: ScheduleMessageFn>(&mut self, schedule_message: S, tunnel_finder: F) {
         if let State::Slide(current_slide) = &self.state {
             if self.options.no_leaderboard {
                 let next_index = current_slide.index + 1;
@@ -818,10 +795,7 @@ impl Game {
             loop {
                 let name = name_style.get_name();
 
-                if self
-                    .assign_player_name(watcher, &name, &tunnel_finder)
-                    .is_ok()
-                {
+                if self.assign_player_name(watcher, &name, &tunnel_finder).is_ok() {
                     break;
                 }
             }
@@ -885,20 +859,11 @@ impl Game {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    pub fn update_player_with_name<F: TunnelFinder>(
-        &mut self,
-        watcher: Id,
-        name: &str,
-        tunnel_finder: F,
-    ) {
+    pub fn update_player_with_name<F: TunnelFinder>(&mut self, watcher: Id, name: &str, tunnel_finder: F) {
         if let Some(team_manager) = &mut self.team_manager
             && let Some(name) = team_manager.add_player(watcher, &mut self.watchers)
         {
-            Watchers::send_message(
-                &UpdateMessage::FindTeam(name).into(),
-                watcher,
-                &tunnel_finder,
-            );
+            Watchers::send_message(&UpdateMessage::FindTeam(name).into(), watcher, &tunnel_finder);
         }
 
         Watchers::send_message(
@@ -917,10 +882,9 @@ impl Game {
                 {
                     self.watchers.announce_with(
                         |id, value| match value {
-                            ValueKind::Player => Some(
-                                self.choose_teammates_message(id, team_manager, &tunnel_finder)
-                                    .into(),
-                            ),
+                            ValueKind::Player => {
+                                Some(self.choose_teammates_message(id, team_manager, &tunnel_finder).into())
+                            }
                             _ => None,
                         },
                         &tunnel_finder,
@@ -968,11 +932,7 @@ impl Game {
     ///
     /// If there are too many participants, the watcher may not be added.
     ///
-    pub fn add_unassigned<F: TunnelFinder>(
-        &mut self,
-        watcher: Id,
-        tunnel_finder: F,
-    ) -> Result<(), watcher::Error> {
+    pub fn add_unassigned<F: TunnelFinder>(&mut self, watcher: Id, tunnel_finder: F) -> Result<(), watcher::Error> {
         self.watchers.add_watcher(watcher, Value::Unassigned)?;
 
         if !self.locked {
@@ -1024,11 +984,7 @@ impl Game {
                 if self.options.random_names.is_none() =>
             {
                 if let Err(e) = self.assign_player_name(watcher_id, &s, &tunnel_finder) {
-                    Watchers::send_message(
-                        &UpdateMessage::NameError(e).into(),
-                        watcher_id,
-                        tunnel_finder,
-                    );
+                    Watchers::send_message(&UpdateMessage::NameError(e).into(), watcher_id, tunnel_finder);
                 }
             }
             IncomingMessage::Player(IncomingPlayerMessage::ChooseTeammates(preferences)) => {
@@ -1049,19 +1005,17 @@ impl Game {
                     }
                 }
                 State::Slide(current_slide) => {
-                    if let SlideAction::Next { schedule_message } =
-                        current_slide.state.receive_message(
-                            &mut self.leaderboard,
-                            &self.watchers,
-                            self.team_manager.as_ref(),
-                            schedule_message,
-                            watcher_id,
-                            &tunnel_finder,
-                            message,
-                            current_slide.index,
-                            self.fuiz_config.len(),
-                        )
-                    {
+                    if let SlideAction::Next { schedule_message } = current_slide.state.receive_message(
+                        &mut self.leaderboard,
+                        &self.watchers,
+                        self.team_manager.as_ref(),
+                        schedule_message,
+                        watcher_id,
+                        &tunnel_finder,
+                        message,
+                        current_slide.index,
+                        self.fuiz_config.len(),
+                    ) {
                         self.finish_slide(schedule_message, tunnel_finder);
                     }
                 }
@@ -1122,12 +1076,10 @@ impl Game {
         tunnel_finder: F,
     ) {
         match message {
-            AlarmMessage::MultipleChoice(
-                multiple_choice::AlarmMessage::ProceedFromSlideIntoSlide {
-                    index: slide_index,
-                    to: _,
-                },
-            )
+            AlarmMessage::MultipleChoice(multiple_choice::AlarmMessage::ProceedFromSlideIntoSlide {
+                index: slide_index,
+                to: _,
+            })
             | AlarmMessage::TypeAnswer(type_answer::AlarmMessage::ProceedFromSlideIntoSlide {
                 index: slide_index,
                 to: _,
@@ -1137,18 +1089,16 @@ impl Game {
                 to: _,
             }) => match &mut self.state {
                 State::Slide(current_slide) if current_slide.index == *slide_index => {
-                    if let SlideAction::Next { schedule_message } =
-                        current_slide.state.receive_alarm(
-                            &mut self.leaderboard,
-                            &self.watchers,
-                            self.team_manager.as_ref(),
-                            schedule_message,
-                            &tunnel_finder,
-                            message,
-                            current_slide.index,
-                            self.fuiz_config.len(),
-                        )
-                    {
+                    if let SlideAction::Next { schedule_message } = current_slide.state.receive_alarm(
+                        &mut self.leaderboard,
+                        &self.watchers,
+                        self.team_manager.as_ref(),
+                        schedule_message,
+                        &tunnel_finder,
+                        message,
+                        current_slide.index,
+                        self.fuiz_config.len(),
+                    ) {
                         self.finish_slide(schedule_message, tunnel_finder);
                     }
                 }
@@ -1187,8 +1137,7 @@ impl Game {
         match &self.state {
             State::WaitingScreen => match &self.team_manager {
                 Some(team_manager)
-                    if !team_manager.is_random_assignments()
-                        && matches!(watcher_kind, ValueKind::Player) =>
+                    if !team_manager.is_random_assignments() && matches!(watcher_kind, ValueKind::Player) =>
                 {
                     let pref: HashSet<Id> = team_manager
                         .get_preferences(watcher_id)
@@ -1210,10 +1159,9 @@ impl Game {
                 _ => SyncMessage::WaitingScreen(self.waiting_screen_names(tunnel_finder)).into(),
             },
             State::TeamDisplay => match watcher_kind {
-                ValueKind::Player => SyncMessage::FindTeam(
-                    self.watchers.get_team_name(watcher_id).unwrap_or_default(),
-                )
-                .into(),
+                ValueKind::Player => {
+                    SyncMessage::FindTeam(self.watchers.get_team_name(watcher_id).unwrap_or_default()).into()
+                }
                 _ => SyncMessage::TeamDisplay(
                     self.team_manager
                         .as_ref()
@@ -1274,10 +1222,9 @@ impl Game {
                     } else {
                         self.score(watcher_id)
                     },
-                    points: self.leaderboard.player_summary(
-                        self.leaderboard_id(watcher_id),
-                        !self.options.no_leaderboard,
-                    ),
+                    points: self
+                        .leaderboard
+                        .player_summary(self.leaderboard_id(watcher_id), !self.options.no_leaderboard),
                     config: self.fuiz_config.clone(),
                 })
                 .into(),
@@ -1314,10 +1261,7 @@ impl Game {
                     &tunnel_finder,
                 );
                 Watchers::send_state(
-                    &SyncMessage::Metainfo(MetainfoMessage::Host {
-                        locked: self.locked,
-                    })
-                    .into(),
+                    &SyncMessage::Metainfo(MetainfoMessage::Host { locked: self.locked }).into(),
                     watcher_id,
                     tunnel_finder,
                 );
@@ -1678,11 +1622,7 @@ mod tests {
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
         let tunnel_finder = |id: crate::watcher::Id| {
-            if id == player_id {
-                Some(tunnel.clone())
-            } else {
-                None
-            }
+            if id == player_id { Some(tunnel.clone()) } else { None }
         };
 
         // Add as unassigned first
@@ -1717,8 +1657,7 @@ mod tests {
         assert!(matches!(host_message, IncomingMessage::Host(_)));
 
         let unassigned_message_json = r#"{"Unassigned": {"NameRequest": "Player1"}}"#;
-        let unassigned_message: IncomingMessage =
-            serde_json::from_str(unassigned_message_json).unwrap();
+        let unassigned_message: IncomingMessage = serde_json::from_str(unassigned_message_json).unwrap();
         assert!(matches!(unassigned_message, IncomingMessage::Unassigned(_)));
 
         let player_message_json = r#"{"Player": {"IndexAnswer": 0}}"#;
@@ -1776,8 +1715,7 @@ mod tests {
         let player_id = crate::watcher::Id::new();
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
 
-        let state_msg =
-            game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
+        let state_msg = game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
 
         // Should return waiting screen message for initial state
         assert!(matches!(
@@ -1799,8 +1737,7 @@ mod tests {
         assert!(!player_msg.follows(crate::watcher::ValueKind::Host));
         assert!(!player_msg.follows(crate::watcher::ValueKind::Unassigned));
 
-        let unassigned_msg =
-            IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest("test".to_string()));
+        let unassigned_msg = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest("test".to_string()));
         assert!(unassigned_msg.follows(crate::watcher::ValueKind::Unassigned));
         assert!(!unassigned_msg.follows(crate::watcher::ValueKind::Host));
         assert!(!unassigned_msg.follows(crate::watcher::ValueKind::Player));
@@ -1837,14 +1774,8 @@ mod tests {
         assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
 
         // Assign names to make them players
-        assert!(
-            game.assign_player_name(player1, "Player1", tunnel_finder)
-                .is_ok()
-        );
-        assert!(
-            game.assign_player_name(player2, "Player2", tunnel_finder)
-                .is_ok()
-        );
+        assert!(game.assign_player_name(player1, "Player1", tunnel_finder).is_ok());
+        assert!(game.assign_player_name(player2, "Player2", tunnel_finder).is_ok());
 
         // Start the game - should move to team display
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
@@ -1894,19 +1825,12 @@ mod tests {
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
         let tunnel_finder = |id: crate::watcher::Id| {
-            if id == player_id {
-                Some(tunnel.clone())
-            } else {
-                None
-            }
+            if id == player_id { Some(tunnel.clone()) } else { None }
         };
 
         // Add player
         assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
-        assert!(
-            game.assign_player_name(player_id, "TestPlayer", tunnel_finder)
-                .is_ok()
-        );
+        assert!(game.assign_player_name(player_id, "TestPlayer", tunnel_finder).is_ok());
 
         // Try to send host message from player (should be ignored)
         let invalid_msg = IncomingMessage::Host(IncomingHostMessage::Next);
@@ -1961,10 +1885,7 @@ mod tests {
 
         // Should now be a player
         let watcher_value = game.watchers.get_watcher_value(unassigned_id);
-        assert!(matches!(
-            watcher_value,
-            Some(crate::watcher::Value::Player(_))
-        ));
+        assert!(matches!(watcher_value, Some(crate::watcher::Value::Player(_))));
     }
 
     #[test]
@@ -1990,16 +1911,10 @@ mod tests {
         assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
 
         // Assign same name to first player
-        assert!(
-            game.assign_player_name(player1, "SameName", tunnel_finder)
-                .is_ok()
-        );
+        assert!(game.assign_player_name(player1, "SameName", tunnel_finder).is_ok());
 
         // Try to assign same name to second player - should fail
-        assert!(
-            game.assign_player_name(player2, "SameName", tunnel_finder)
-                .is_err()
-        );
+        assert!(game.assign_player_name(player2, "SameName", tunnel_finder).is_err());
     }
 
     #[test]
@@ -2030,19 +1945,11 @@ mod tests {
         // Add and name players
         assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
         assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
-        assert!(
-            game.assign_player_name(player1, "Player1", tunnel_finder)
-                .is_ok()
-        );
-        assert!(
-            game.assign_player_name(player2, "Player2", tunnel_finder)
-                .is_ok()
-        );
+        assert!(game.assign_player_name(player1, "Player1", tunnel_finder).is_ok());
+        assert!(game.assign_player_name(player2, "Player2", tunnel_finder).is_ok());
 
         // Send teammate selection message
-        let teammate_msg = IncomingMessage::Player(IncomingPlayerMessage::ChooseTeammates(vec![
-            "Player2".to_string(),
-        ]));
+        let teammate_msg = IncomingMessage::Player(IncomingPlayerMessage::ChooseTeammates(vec!["Player2".to_string()]));
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         game.receive_message(player1, teammate_msg, schedule_message, tunnel_finder);
@@ -2125,11 +2032,7 @@ mod tests {
 
         let tunnel = MockTunnel::new();
         let tunnel_finder = |id: crate::watcher::Id| {
-            if id == host_id {
-                Some(tunnel.clone())
-            } else {
-                None
-            }
+            if id == host_id { Some(tunnel.clone()) } else { None }
         };
 
         // Update host session
@@ -2156,19 +2059,12 @@ mod tests {
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
         let tunnel_finder = |id: crate::watcher::Id| {
-            if id == player_id {
-                Some(tunnel.clone())
-            } else {
-                None
-            }
+            if id == player_id { Some(tunnel.clone()) } else { None }
         };
 
         // Add player and assign name
         assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
-        assert!(
-            game.assign_player_name(player_id, "TestPlayer", tunnel_finder)
-                .is_ok()
-        );
+        assert!(game.assign_player_name(player_id, "TestPlayer", tunnel_finder).is_ok());
 
         // Update player session - should work with team manager
         game.update_session(player_id, tunnel_finder);
@@ -2246,12 +2142,8 @@ mod tests {
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
 
         // Test TeamDisplay state message for player
-        let state_msg =
-            game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
-        assert!(matches!(
-            state_msg,
-            crate::SyncMessage::Game(SyncMessage::FindTeam(_))
-        ));
+        let state_msg = game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
+        assert!(matches!(state_msg, crate::SyncMessage::Game(SyncMessage::FindTeam(_))));
 
         // Test TeamDisplay state message for host
         let state_msg = game.state_message(host_id, crate::watcher::ValueKind::Host, tunnel_finder);
@@ -2275,15 +2167,8 @@ mod tests {
         let unassigned_id = crate::watcher::Id::new();
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
 
-        let state_msg = game.state_message(
-            unassigned_id,
-            crate::watcher::ValueKind::Unassigned,
-            tunnel_finder,
-        );
-        assert!(matches!(
-            state_msg,
-            crate::SyncMessage::Game(SyncMessage::NotAllowed)
-        ));
+        let state_msg = game.state_message(unassigned_id, crate::watcher::ValueKind::Unassigned, tunnel_finder);
+        assert!(matches!(state_msg, crate::SyncMessage::Game(SyncMessage::NotAllowed)));
     }
 
     #[test]
@@ -2437,11 +2322,7 @@ mod tests {
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
         let tunnel_finder = |id: crate::watcher::Id| {
-            if id == player_id {
-                Some(tunnel.clone())
-            } else {
-                None
-            }
+            if id == player_id { Some(tunnel.clone()) } else { None }
         };
 
         // This would send metadata with show_answers: true
@@ -2451,13 +2332,11 @@ mod tests {
     #[test]
     fn test_player_message_types() {
         // Test different player message types can be constructed
-        let _string_answer =
-            IncomingMessage::Player(IncomingPlayerMessage::StringAnswer("answer".to_string()));
-        let _array_answer =
-            IncomingMessage::Player(IncomingPlayerMessage::StringArrayAnswer(vec![
-                "a".to_string(),
-                "b".to_string(),
-            ]));
+        let _string_answer = IncomingMessage::Player(IncomingPlayerMessage::StringAnswer("answer".to_string()));
+        let _array_answer = IncomingMessage::Player(IncomingPlayerMessage::StringArrayAnswer(vec![
+            "a".to_string(),
+            "b".to_string(),
+        ]));
         // Just verify they can be constructed
     }
 
@@ -2489,14 +2368,8 @@ mod tests {
         // Add players and assign names
         assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
         assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
-        assert!(
-            game.assign_player_name(player1, "Player1", tunnel_finder)
-                .is_ok()
-        );
-        assert!(
-            game.assign_player_name(player2, "Player2", tunnel_finder)
-                .is_ok()
-        );
+        assert!(game.assign_player_name(player1, "Player1", tunnel_finder).is_ok());
+        assert!(game.assign_player_name(player2, "Player2", tunnel_finder).is_ok());
 
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
@@ -2528,10 +2401,7 @@ mod tests {
 
         // Add a player
         assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
-        assert!(
-            game.assign_player_name(player_id, "TestPlayer", tunnel_finder)
-                .is_ok()
-        );
+        assert!(game.assign_player_name(player_id, "TestPlayer", tunnel_finder).is_ok());
 
         // Call announce_summary directly
         game.announce_summary(tunnel_finder);
@@ -2561,10 +2431,7 @@ mod tests {
 
         // Add a player
         assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
-        assert!(
-            game.assign_player_name(player_id, "TestPlayer", tunnel_finder)
-                .is_ok()
-        );
+        assert!(game.assign_player_name(player_id, "TestPlayer", tunnel_finder).is_ok());
 
         // Call announce_summary with no_leaderboard option
         game.announce_summary(tunnel_finder);
@@ -2737,17 +2604,12 @@ mod tests {
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Try to send name request - should be ignored due to lock
-        let name_msg = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest(
-            "TestName".to_string(),
-        ));
+        let name_msg = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest("TestName".to_string()));
         game.receive_message(unassigned_id, name_msg, schedule_message, tunnel_finder);
 
         // Should still be unassigned
         let watcher_value = game.watchers.get_watcher_value(unassigned_id);
-        assert!(matches!(
-            watcher_value,
-            Some(crate::watcher::Value::Unassigned)
-        ));
+        assert!(matches!(watcher_value, Some(crate::watcher::Value::Unassigned)));
     }
 
     #[test]
@@ -2776,17 +2638,12 @@ mod tests {
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Try to send name request when random names are enabled - should be ignored
-        let name_msg = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest(
-            "TestName".to_string(),
-        ));
+        let name_msg = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest("TestName".to_string()));
         game.receive_message(unassigned_id, name_msg, schedule_message, tunnel_finder);
 
         // Should already be a player due to random name assignment in add_unassigned
         let watcher_value = game.watchers.get_watcher_value(unassigned_id);
-        assert!(matches!(
-            watcher_value,
-            Some(crate::watcher::Value::Player(_))
-        ));
+        assert!(matches!(watcher_value, Some(crate::watcher::Value::Player(_))));
     }
 
     #[test]
@@ -2814,23 +2671,16 @@ mod tests {
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // First player takes a name
-        let name_msg1 = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest(
-            "SameName".to_string(),
-        ));
+        let name_msg1 = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest("SameName".to_string()));
         game.receive_message(player1, name_msg1, schedule_message, tunnel_finder);
 
         // Second player tries to take the same name - should get error message
-        let name_msg2 = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest(
-            "SameName".to_string(),
-        ));
+        let name_msg2 = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest("SameName".to_string()));
         game.receive_message(player2, name_msg2, schedule_message, tunnel_finder);
 
         // Second player should still be unassigned
         let watcher_value = game.watchers.get_watcher_value(player2);
-        assert!(matches!(
-            watcher_value,
-            Some(crate::watcher::Value::Unassigned)
-        ));
+        assert!(matches!(watcher_value, Some(crate::watcher::Value::Unassigned)));
     }
 
     #[test]
@@ -2861,18 +2711,11 @@ mod tests {
         // Add players
         assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
         assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
-        assert!(
-            game.assign_player_name(player1, "Player1", tunnel_finder)
-                .is_ok()
-        );
-        assert!(
-            game.assign_player_name(player2, "Player2", tunnel_finder)
-                .is_ok()
-        );
+        assert!(game.assign_player_name(player1, "Player1", tunnel_finder).is_ok());
+        assert!(game.assign_player_name(player2, "Player2", tunnel_finder).is_ok());
 
         // Should return teammate selection message for players in waiting screen with non-random teams
-        let state_msg =
-            game.state_message(player1, crate::watcher::ValueKind::Player, tunnel_finder);
+        let state_msg = game.state_message(player1, crate::watcher::ValueKind::Player, tunnel_finder);
         assert!(matches!(
             state_msg,
             crate::SyncMessage::Game(SyncMessage::ChooseTeammates { .. })
@@ -2911,11 +2754,7 @@ mod tests {
         let unassigned_id = crate::watcher::Id::new();
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
 
-        let state_msg = game.state_message(
-            unassigned_id,
-            crate::watcher::ValueKind::Unassigned,
-            tunnel_finder,
-        );
+        let state_msg = game.state_message(unassigned_id, crate::watcher::ValueKind::Unassigned, tunnel_finder);
         assert!(matches!(
             state_msg,
             crate::SyncMessage::Game(SyncMessage::Leaderboard { .. })
@@ -2957,14 +2796,9 @@ mod tests {
         let player_id = crate::watcher::Id::new();
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
 
-        let state_msg =
-            game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
+        let state_msg = game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
         // Should have None score when no_leaderboard is true
-        if let crate::SyncMessage::Game(SyncMessage::Summary(SummaryMessage::Player {
-            score,
-            ..
-        })) = state_msg
-        {
+        if let crate::SyncMessage::Game(SyncMessage::Summary(SummaryMessage::Player { score, .. })) = state_msg {
             assert!(score.is_none());
         } else {
             panic!("Expected Player summary message");
@@ -2995,11 +2829,7 @@ mod tests {
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
         let tunnel_finder = |id: crate::watcher::Id| {
-            if id == player_id {
-                Some(tunnel.clone())
-            } else {
-                None
-            }
+            if id == player_id { Some(tunnel.clone()) } else { None }
         };
 
         // Add as unassigned first
@@ -3026,11 +2856,7 @@ mod tests {
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
         let tunnel_finder = |id: crate::watcher::Id| {
-            if id == player_id {
-                Some(tunnel.clone())
-            } else {
-                None
-            }
+            if id == player_id { Some(tunnel.clone()) } else { None }
         };
 
         // Add as unassigned first
@@ -3047,8 +2873,7 @@ mod tests {
         // This test ensures the enum variants exist and can be constructed
         assert!(matches!(ghost_msg, IncomingMessage::Ghost(_)));
 
-        let claim_msg =
-            IncomingMessage::Ghost(IncomingGhostMessage::ClaimId(crate::watcher::Id::new()));
+        let claim_msg = IncomingMessage::Ghost(IncomingGhostMessage::ClaimId(crate::watcher::Id::new()));
         assert!(matches!(claim_msg, IncomingMessage::Ghost(_)));
     }
 
@@ -3080,14 +2905,8 @@ mod tests {
         // Add players
         assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
         assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
-        assert!(
-            game.assign_player_name(player1, "Player1", tunnel_finder)
-                .is_ok()
-        );
-        assert!(
-            game.assign_player_name(player2, "Player2", tunnel_finder)
-                .is_ok()
-        );
+        assert!(game.assign_player_name(player1, "Player1", tunnel_finder).is_ok());
+        assert!(game.assign_player_name(player2, "Player2", tunnel_finder).is_ok());
 
         if let Some(team_manager) = &game.team_manager {
             let message = game.choose_teammates_message(player1, team_manager, tunnel_finder);
@@ -3181,14 +3000,8 @@ mod tests {
         // Add players with names to test the actual filtering logic
         assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
         assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
-        assert!(
-            game.assign_player_name(player1, "Player1", tunnel_finder)
-                .is_ok()
-        );
-        assert!(
-            game.assign_player_name(player2, "Player2", tunnel_finder)
-                .is_ok()
-        );
+        assert!(game.assign_player_name(player1, "Player1", tunnel_finder).is_ok());
+        assert!(game.assign_player_name(player2, "Player2", tunnel_finder).is_ok());
 
         let names = game.waiting_screen_names(tunnel_finder);
         assert_eq!(names.items.len(), 2);
@@ -3206,19 +3019,12 @@ mod tests {
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
         let tunnel_finder = |id: crate::watcher::Id| {
-            if id == player_id {
-                Some(tunnel.clone())
-            } else {
-                None
-            }
+            if id == player_id { Some(tunnel.clone()) } else { None }
         };
 
         // Add a player
         assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
-        assert!(
-            game.assign_player_name(player_id, "TestPlayer", tunnel_finder)
-                .is_ok()
-        );
+        assert!(game.assign_player_name(player_id, "TestPlayer", tunnel_finder).is_ok());
 
         // Test leaderboard_message function
         let leaderboard_msg = game.leaderboard_message();
@@ -3290,14 +3096,11 @@ mod tests {
         game.play(schedule_message, tunnel_finder);
 
         // Test state message for slide state
-        let state_msg =
-            game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
+        let state_msg = game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
         // The message will be one of the slide-specific sync messages (MultipleChoice, TypeAnswer, or Order)
         assert!(matches!(
             state_msg,
-            crate::SyncMessage::MultipleChoice(_)
-                | crate::SyncMessage::TypeAnswer(_)
-                | crate::SyncMessage::Order(_)
+            crate::SyncMessage::MultipleChoice(_) | crate::SyncMessage::TypeAnswer(_) | crate::SyncMessage::Order(_)
         ));
     }
 
@@ -3311,19 +3114,12 @@ mod tests {
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
         let tunnel_finder = |id: crate::watcher::Id| {
-            if id == player_id {
-                Some(tunnel.clone())
-            } else {
-                None
-            }
+            if id == player_id { Some(tunnel.clone()) } else { None }
         };
 
         // Add player
         assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
-        assert!(
-            game.assign_player_name(player_id, "TestPlayer", tunnel_finder)
-                .is_ok()
-        );
+        assert!(game.assign_player_name(player_id, "TestPlayer", tunnel_finder).is_ok());
 
         // Update session for individual player (no teams)
         game.update_session(player_id, tunnel_finder);
@@ -3348,10 +3144,7 @@ mod tests {
 
         // Add a player
         assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
-        assert!(
-            game.assign_player_name(player_id, "TestPlayer", tunnel_finder)
-                .is_ok()
-        );
+        assert!(game.assign_player_name(player_id, "TestPlayer", tunnel_finder).is_ok());
 
         // Mark as done - should remove all watchers
         game.mark_as_done(tunnel_finder);
@@ -3384,10 +3177,7 @@ mod tests {
 
         // Should still be unassigned waiting for name choice
         let watcher_value = game.watchers.get_watcher_value(unassigned_id);
-        assert!(matches!(
-            watcher_value,
-            Some(crate::watcher::Value::Unassigned)
-        ));
+        assert!(matches!(watcher_value, Some(crate::watcher::Value::Unassigned)));
     }
 
     #[test]
@@ -3400,11 +3190,7 @@ mod tests {
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
         let tunnel_finder = |id: crate::watcher::Id| {
-            if id == player_id {
-                Some(tunnel.clone())
-            } else {
-                None
-            }
+            if id == player_id { Some(tunnel.clone()) } else { None }
         };
 
         // Add unassigned player
@@ -3417,33 +3203,24 @@ mod tests {
         if result.is_err() {
             // Should still be unassigned
             let watcher_value = game.watchers.get_watcher_value(player_id);
-            assert!(matches!(
-                watcher_value,
-                Some(crate::watcher::Value::Unassigned)
-            ));
+            assert!(matches!(watcher_value, Some(crate::watcher::Value::Unassigned)));
         }
     }
 
     #[test]
     fn test_game_alarm_message_variants() {
         // Test that we can construct different alarm message types
-        let type_answer_alarm = crate::AlarmMessage::TypeAnswer(
-            crate::fuiz::type_answer::AlarmMessage::ProceedFromSlideIntoSlide {
+        let type_answer_alarm =
+            crate::AlarmMessage::TypeAnswer(crate::fuiz::type_answer::AlarmMessage::ProceedFromSlideIntoSlide {
                 index: 0,
                 to: crate::fuiz::type_answer::SlideState::Question,
-            },
-        );
-        assert!(matches!(
-            type_answer_alarm,
-            crate::AlarmMessage::TypeAnswer(_)
-        ));
+            });
+        assert!(matches!(type_answer_alarm, crate::AlarmMessage::TypeAnswer(_)));
 
-        let order_alarm = crate::AlarmMessage::Order(
-            crate::fuiz::order::AlarmMessage::ProceedFromSlideIntoSlide {
-                index: 0,
-                to: crate::fuiz::order::SlideState::Question,
-            },
-        );
+        let order_alarm = crate::AlarmMessage::Order(crate::fuiz::order::AlarmMessage::ProceedFromSlideIntoSlide {
+            index: 0,
+            to: crate::fuiz::order::SlideState::Question,
+        });
         assert!(matches!(order_alarm, crate::AlarmMessage::Order(_)));
     }
 }

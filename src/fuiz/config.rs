@@ -169,14 +169,7 @@ impl SlideState {
     ) {
         match self {
             Self::MultipleChoice(s) => {
-                s.play(
-                    team_manager,
-                    watchers,
-                    schedule_message,
-                    tunnel_finder,
-                    index,
-                    count,
-                );
+                s.play(team_manager, watchers, schedule_message, tunnel_finder, index, count);
             }
             Self::TypeAnswer(s) => {
                 s.play(watchers, schedule_message, tunnel_finder, index, count);
@@ -644,15 +637,7 @@ mod tests {
         let watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
 
-        let message = state.state_message(
-            Id::new(),
-            ValueKind::Player,
-            None,
-            &watchers,
-            tunnel_finder,
-            0,
-            1,
-        );
+        let message = state.state_message(Id::new(), ValueKind::Player, None, &watchers, tunnel_finder, 0, 1);
 
         match message {
             SyncMessage::MultipleChoice(_) => {}
@@ -667,15 +652,7 @@ mod tests {
         let watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
 
-        let message = state.state_message(
-            Id::new(),
-            ValueKind::Player,
-            None,
-            &watchers,
-            tunnel_finder,
-            0,
-            1,
-        );
+        let message = state.state_message(Id::new(), ValueKind::Player, None, &watchers, tunnel_finder, 0, 1);
 
         match message {
             SyncMessage::TypeAnswer(_) => {}
@@ -690,15 +667,7 @@ mod tests {
         let watchers = create_mock_watchers();
         let tunnel_finder = create_mock_tunnel_finder();
 
-        let message = state.state_message(
-            Id::new(),
-            ValueKind::Player,
-            None,
-            &watchers,
-            tunnel_finder,
-            0,
-            1,
-        );
+        let message = state.state_message(Id::new(), ValueKind::Player, None, &watchers, tunnel_finder, 0, 1);
 
         match message {
             SyncMessage::Order(_) => {}
@@ -717,10 +686,7 @@ mod tests {
 
         let fuiz_with_slides = Fuiz {
             title: "With Slides".to_string(),
-            slides: vec![
-                create_test_multiple_choice_config(),
-                create_test_type_answer_config(),
-            ],
+            slides: vec![create_test_multiple_choice_config(), create_test_type_answer_config()],
         };
         assert_eq!(fuiz_with_slides.len(), 2);
         assert!(!fuiz_with_slides.is_empty());
@@ -746,8 +712,7 @@ mod tests {
         assert!(valid_text.validate().is_ok());
 
         // Text too long
-        let long_text =
-            TextOrMedia::Text("x".repeat(crate::constants::answer_text::MAX_LENGTH + 1));
+        let long_text = TextOrMedia::Text("x".repeat(crate::constants::answer_text::MAX_LENGTH + 1));
         assert!(long_text.validate().is_err());
     }
 
@@ -760,11 +725,10 @@ mod tests {
         let mut leaderboard = create_mock_leaderboard();
         let mut schedule_message = |_msg: AlarmMessage, _duration: std::time::Duration| {};
 
-        let alarm_message =
-            AlarmMessage::TypeAnswer(type_answer::AlarmMessage::ProceedFromSlideIntoSlide {
-                index: 0,
-                to: type_answer::SlideState::Question,
-            });
+        let alarm_message = AlarmMessage::TypeAnswer(type_answer::AlarmMessage::ProceedFromSlideIntoSlide {
+            index: 0,
+            to: type_answer::SlideState::Question,
+        });
 
         let _result = state.receive_alarm(
             &mut leaderboard,
@@ -817,12 +781,10 @@ mod tests {
         let mut leaderboard = create_mock_leaderboard();
         let mut schedule_message = |_msg: AlarmMessage, _duration: std::time::Duration| {};
 
-        let alarm_message = AlarmMessage::MultipleChoice(
-            multiple_choice::AlarmMessage::ProceedFromSlideIntoSlide {
-                index: 0,
-                to: multiple_choice::SlideState::Question,
-            },
-        );
+        let alarm_message = AlarmMessage::MultipleChoice(multiple_choice::AlarmMessage::ProceedFromSlideIntoSlide {
+            index: 0,
+            to: multiple_choice::SlideState::Question,
+        });
 
         let _result = state.receive_alarm(
             &mut leaderboard,
