@@ -49,18 +49,6 @@ pub enum SyncMessage {
     Order(fuiz::order::SyncMessage),
 }
 
-impl SyncMessage {
-    /// Converts the sync message to a JSON string for transmission
-    ///
-    /// # Panics
-    ///
-    /// This method panics if serialization fails, which should never happen
-    /// with the default JSON serializer for well-formed data.
-    pub fn to_message(&self) -> String {
-        serde_json::to_string(self).expect("default serializer cannot fail")
-    }
-}
-
 /// Messages sent to update specific aspects of the game state
 ///
 /// Update messages are used to notify clients about changes that affect
@@ -89,18 +77,6 @@ pub enum AlarmMessage {
     TypeAnswer(fuiz::type_answer::AlarmMessage),
     /// Order question alarms
     Order(fuiz::order::AlarmMessage),
-}
-
-impl UpdateMessage {
-    /// Converts the update message to a JSON string for transmission
-    ///
-    /// # Panics
-    ///
-    /// This method panics if serialization fails, which should never happen
-    /// with the default JSON serializer for well-formed data.
-    pub fn to_message(&self) -> String {
-        serde_json::to_string(self).expect("default serializer cannot fail")
-    }
 }
 
 /// A truncated vector that maintains the exact count while limiting displayed items
@@ -221,7 +197,7 @@ mod tests {
     fn test_sync_message_to_message() {
         let players = TruncatedVec::new(vec!["Player1".to_string(), "Player2".to_string()].into_iter(), 10, 2);
         let sync_msg = SyncMessage::Game(crate::game::SyncMessage::WaitingScreen(players));
-        let json_str = sync_msg.to_message();
+        let json_str = serde_json::to_string(&sync_msg).expect("default serializer cannot fail");
 
         assert!(json_str.contains("Game"));
         assert!(json_str.contains("WaitingScreen"));
@@ -231,7 +207,7 @@ mod tests {
     fn test_update_message_to_message() {
         let players = TruncatedVec::new(vec!["Player1".to_string()].into_iter(), 10, 1);
         let update_msg = UpdateMessage::Game(crate::game::UpdateMessage::WaitingScreen(players));
-        let json_str = update_msg.to_message();
+        let json_str = serde_json::to_string(&update_msg).expect("default serializer cannot fail");
 
         assert!(json_str.contains("Game"));
         assert!(json_str.contains("WaitingScreen"));

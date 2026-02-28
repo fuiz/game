@@ -13,7 +13,6 @@ enum-map = { version = "2", features = [
     "serde",
 ] } # Efficient enum-to-value mappings
 serde = { version = "1.0", features = ["derive"] } # Serialization framework
-serde_json = "1.0" # JSON support for serde
 serde_with = { version = "3", default-features = false } # Additional serde utilities
 derive_more = { version = "2", features = ["full"] } # Extended derive macros
 
@@ -47,3 +46,6 @@ pluralizer = "0.5" # String pluralization utilities
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
+
+[dev-dependencies]
+serde_json = "1.0" # JSON support for serde
