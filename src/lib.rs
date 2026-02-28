@@ -124,14 +124,24 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
                 FormEntry::Field(_) => return Response::error("image has to be a file", 400),
             };
 
-            let (bytes, content_type) = {
-                let frames = read_image_as_frames(&data)
-                    .map_err(|_| worker::Error::RustError("failed to decode image".into()))?;
-                let bytes = encode_frames_as_png(frames)
-                    .map_err(|_| worker::Error::RustError("failed to encode image".into()))?;
-
-                (bytes, image::ImageFormat::Png.to_mime_type())
+            let frames = match read_image_as_frames(&data) {
+                Ok(frames) => frames,
+                Err(e) => {
+                    return Response::error(
+                        format!(
+                            "Failed to decode image format, please use a supported format. Internal error: {}",
+                            e
+                        ),
+                        400,
+                    );
+                }
             };
+
+            let Ok(bytes) = encode_frames_as_png(frames) else {
+                return Response::error("failed to encode image", 500);
+            };
+
+            let content_type = image::ImageFormat::Png.to_mime_type();
 
             let kv = ctx.kv("IMAGES")?;
 
@@ -175,7 +185,7 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
             &Cors::default()
                 .with_max_age(86400)
                 .with_allowed_headers(["*"])
-                .with_origins(vec!["https://fuiz.org"])
+                .with_origins(vec!["http://localhost:5173"])
                 .with_methods(vec![Method::Get, Method::Post, Method::Options]),
         )
 }
