@@ -32,6 +32,16 @@ use super::{
     media::Media,
 };
 
+/// Controls whether a multiple choice question accepts a single answer or multiple answers
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AnswerMode {
+    /// Players pick one answer; full time-based points if correct (default behavior)
+    #[default]
+    SingleAnswer,
+    /// Players pick multiple answers; graduated scoring based on correct/wrong ratio
+    MultipleAnswers,
+}
+
 // Re-export SlideState publicly from slide_traits
 pub use super::common::SlideState;
 
@@ -62,6 +72,10 @@ pub struct SlideConfig {
     /// The available answer choices for this question
     #[garde(length(max = MAX_ANSWER_COUNT))]
     answers: Vec<AnswerChoice>,
+    /// Whether the question accepts single or multiple answer selections
+    #[garde(skip)]
+    #[serde(default)]
+    answer_mode: AnswerMode,
 }
 
 /// Runtime state for a multiple choice question during gameplay
@@ -77,7 +91,7 @@ pub struct State {
 
     // Runtime State
     /// Stores player answers along with the timestamp when they were submitted
-    user_answers: HashMap<Id, (usize, SystemTime)>,
+    user_answers: HashMap<Id, (Vec<usize>, SystemTime)>,
     /// The time when answer options were first displayed to players
     answer_start: Option<SystemTime>,
     /// Current phase of the slide presentation
@@ -143,6 +157,8 @@ pub enum UpdateMessage {
         duration: Duration,
         /// Answer options (may be hidden from some participants)
         answers: Vec<PossiblyHidden<TextOrMedia>>,
+        /// Whether the question accepts single or multiple answer selections
+        answer_mode: AnswerMode,
     },
     /// (HOST ONLY) Reports the number of players who have submitted answers
     AnswersCount(usize),
@@ -209,6 +225,8 @@ pub enum SyncMessage {
         answers: Vec<PossiblyHidden<TextOrMedia>>,
         /// Number of players who have already answered
         answered_count: usize,
+        /// Whether the question accepts single or multiple answer selections
+        answer_mode: AnswerMode,
     },
     /// Results of the game including correct answers and statistics of how many they got chosen
     AnswersResults {
@@ -276,17 +294,36 @@ impl SlideTimer for State {
     }
 }
 
-impl AnswerHandler<usize> for State {
-    fn user_answers(&self) -> &HashMap<Id, (usize, SystemTime)> {
+impl AnswerHandler<Vec<usize>> for State {
+    fn user_answers(&self) -> &HashMap<Id, (Vec<usize>, SystemTime)> {
         &self.user_answers
     }
 
-    fn user_answers_mut(&mut self) -> &mut HashMap<Id, (usize, SystemTime)> {
+    fn user_answers_mut(&mut self) -> &mut HashMap<Id, (Vec<usize>, SystemTime)> {
         &mut self.user_answers
     }
 
-    fn is_correct_answer(&self, answer: &usize) -> bool {
-        self.config.answers.get(*answer).is_some_and(|x| x.correct)
+    fn is_correct_answer(&self, answer: &Vec<usize>) -> bool {
+        match self.config.answer_mode {
+            AnswerMode::SingleAnswer => match answer.as_slice() {
+                [single] => self.config.answers.get(*single).is_some_and(|x| x.correct),
+                _ => false,
+            },
+            AnswerMode::MultipleAnswers => self.compute_score_multiplier(answer) > 0.0,
+        }
+    }
+
+    fn score_multiplier(&self, answer: &Vec<usize>) -> f64 {
+        match self.config.answer_mode {
+            AnswerMode::SingleAnswer => {
+                if self.is_correct_answer(answer) {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+            AnswerMode::MultipleAnswers => self.compute_score_multiplier(answer),
+        }
     }
 
     fn max_points(&self) -> u64 {
@@ -299,6 +336,39 @@ impl AnswerHandler<usize> for State {
 }
 
 impl State {
+    /// Computes the graduated score multiplier for a multi-answer response.
+    ///
+    /// Formula: `max(0, (correct_picked - wrong_picked) / total_correct)`
+    fn compute_score_multiplier(&self, answer: &[usize]) -> f64 {
+        let total_correct = self.config.answers.iter().filter(|a| a.correct).count();
+        if total_correct == 0 {
+            return 0.0;
+        }
+
+        let correct_picked = answer
+            .iter()
+            .filter(|&&i| self.config.answers.get(i).is_some_and(|a| a.correct))
+            .count();
+        let wrong_picked = answer.len() - correct_picked;
+
+        let numerator = correct_picked as f64 - wrong_picked as f64;
+        (numerator / total_correct as f64).max(0.0)
+    }
+
+    /// Counts how many times each answer index was selected across all players.
+    ///
+    /// Unlike `answer_counts()` which groups by exact `Vec<usize>`, this counts
+    /// per-index selections for results display.
+    fn per_index_answer_counts(&self) -> HashMap<usize, usize> {
+        let mut counts = HashMap::new();
+        for (indices, _) in self.user_answers.values() {
+            for &i in indices {
+                *counts.entry(i).or_default() += 1;
+            }
+        }
+        counts
+    }
+
     /// Starts the multiple choice slide by sending initial question announcements
     ///
     /// This method initiates the question flow by transitioning to the question phase
@@ -432,6 +502,7 @@ impl State {
                                 team_manager.map_or(0, |tm| tm.alive_team_index(id, &tunnel_finder)),
                                 team_manager.is_some(),
                             ),
+                            answer_mode: self.config.answer_mode,
                         }
                         .into(),
                     ),
@@ -467,7 +538,7 @@ impl State {
     /// * `F` - Function type for finding tunnels by participant ID
     fn send_answers_results<F: TunnelFinder>(&mut self, watchers: &Watchers, tunnel_finder: F) {
         if self.change_state(SlideState::Answers, SlideState::AnswersResults) {
-            let answer_count = self.answer_counts();
+            let answer_count = self.per_index_answer_counts();
             watchers.announce(
                 &UpdateMessage::AnswersResults {
                     answers: self.config.answers.iter().map(|a| a.content.clone()).collect_vec(),
@@ -603,9 +674,10 @@ impl State {
                     team_manager.is_some(),
                 ),
                 answered_count: get_answered_count(self, watchers, &tunnel_finder),
+                answer_mode: self.config.answer_mode,
             },
             SlideState::AnswersResults => {
-                let answer_count = self.answer_counts();
+                let answer_count = self.per_index_answer_counts();
 
                 SyncMessage::AnswersResults {
                     index,
@@ -714,10 +786,35 @@ impl QuestionReceiveMessage for State {
         watchers: &Watchers,
         tunnel_finder: F,
     ) {
-        if let IncomingPlayerMessage::IndexAnswer(v) = message
-            && v < self.config.answers.len()
-        {
-            self.record_answer(watcher_id, v);
+        let answer = match self.config.answer_mode {
+            AnswerMode::SingleAnswer => {
+                if let IncomingPlayerMessage::IndexAnswer(selected_answer_index) = message
+                    && selected_answer_index < self.config.answers.len()
+                {
+                    Some(vec![selected_answer_index])
+                } else {
+                    None
+                }
+            }
+            AnswerMode::MultipleAnswers => {
+                if let IncomingPlayerMessage::IndexArrayAnswer(selected_answer_indices) = message
+                    && !selected_answer_indices.is_empty()
+                    && selected_answer_indices.iter().all(|&i| i < self.config.answers.len())
+                    && selected_answer_indices
+                        .iter()
+                        .collect::<std::collections::HashSet<_>>()
+                        .len()
+                        == selected_answer_indices.len()
+                {
+                    Some(selected_answer_indices)
+                } else {
+                    None
+                }
+            }
+        };
+
+        if let Some(answer) = answer {
+            self.record_answer(watcher_id, answer);
             if all_players_answered(self, watchers, &tunnel_finder) {
                 self.send_answers_results(watchers, &tunnel_finder);
             } else {

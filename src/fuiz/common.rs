@@ -158,6 +158,12 @@ pub trait AnswerHandler<AnswerType> {
     /// Check if an answer is correct
     fn is_correct_answer(&self, answer: &AnswerType) -> bool;
 
+    /// Returns a score multiplier for the given answer (0.0 to 1.0).
+    /// Default implementation returns 1.0 for correct, 0.0 for incorrect.
+    fn score_multiplier(&self, answer: &AnswerType) -> f64 {
+        if self.is_correct_answer(answer) { 1.0 } else { 0.0 }
+    }
+
     /// Get the maximum points for this slide
     fn max_points(&self) -> u64;
 
@@ -186,20 +192,13 @@ pub(crate) fn add_scores_to_leaderboard<
             .user_answers()
             .iter()
             .map(|(id, (answer, instant))| {
-                let correct = slide.is_correct_answer(answer);
-                (
-                    *id,
-                    if correct {
-                        calculate_slide_score(
-                            slide.time_limit(),
-                            instant.duration_since(starting_instant).unwrap_or_default(),
-                            slide.max_points(),
-                        )
-                    } else {
-                        0
-                    },
-                    instant,
-                )
+                let multiplier = slide.score_multiplier(answer);
+                let time_score = calculate_slide_score(
+                    slide.time_limit(),
+                    instant.duration_since(starting_instant).unwrap_or_default(),
+                    slide.max_points(),
+                );
+                (*id, (time_score as f64 * multiplier) as u64, instant)
             })
             .into_grouping_map_by(|(id, _, _)| {
                 let player_id = *id;

@@ -157,8 +157,10 @@ impl IncomingMessage {
 /// Messages that can be sent by active players
 #[derive(Debug, Deserialize, Clone)]
 pub enum IncomingPlayerMessage {
-    /// Answer selected by index (for multiple choice questions)
+    /// Answer selected by index (for single-answer multiple choice questions)
     IndexAnswer(usize),
+    /// Multiple answers selected by indices (for multi-answer multiple choice questions)
+    IndexArrayAnswer(Vec<usize>),
     /// Text answer submitted (for type answer questions)
     StringAnswer(String),
     /// Array of strings submitted (for order questions)
