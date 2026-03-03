@@ -29,13 +29,13 @@ impl Tunnel for WebSocketTunnel {
     }
 
     fn send_message(&self, message: &fuiz::UpdateMessage) {
-        let message = message.to_message();
+        let message = serde_json::to_string(message).expect("Failed to serialize message");
 
         let _ = self.0.send_with_str(message);
     }
 
     fn send_state(&self, state: &fuiz::SyncMessage) {
-        let message = state.to_message();
+        let message = serde_json::to_string(state).expect("Failed to serialize state");
 
         let _ = self.0.send_with_str(message);
     }
