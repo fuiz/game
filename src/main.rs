@@ -52,7 +52,7 @@ impl fuiz::session::Tunnel for Session {
     fn send_message(&self, message: &fuiz::UpdateMessage) {
         let mut session = self.session.clone();
 
-        let message = message.to_message();
+        let message = serde_json::to_string(message).expect("message should be serializable");
 
         actix_web::rt::spawn(async move {
             let _ = session.text(message).await;
@@ -62,7 +62,7 @@ impl fuiz::session::Tunnel for Session {
     fn send_state(&self, state: &fuiz::SyncMessage) {
         let mut session = self.session.clone();
 
-        let message = state.to_message();
+        let message = serde_json::to_string(state).expect("message should be serializable");
 
         actix_web::rt::spawn(async move {
             let _ = session.text(message).await;

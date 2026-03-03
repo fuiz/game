@@ -10,7 +10,7 @@ expose-network = []
 fuiz = { git = "https://gitlab.com/fuiz/game.git" }
 actix-cors = "0.7"
 actix-web = "4"
-actix-ws = "0.3"
+actix-ws = "0.4"
 dashmap = "6"
 derive-where = "1"
 enum-map = { version = "2", features = ["serde"] }
