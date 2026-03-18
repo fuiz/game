@@ -1,6 +1,6 @@
 # Fuiz (Serverless)
 
-This is fuiz's serverless module intended for its use with Cloudflare worker's platform. For a hosted server, please refer to [fuiz/hosted-server](https://gitlab.com/fuiz/hosted-server).
+This is fuiz's serverless module intended for its use with Cloudflare worker's platform. For a hosted server, please refer to [fuiz/game-server](https://gitlab.com/fuiz/game-server).
 
 ## Why Serverless?
 
@@ -15,13 +15,13 @@ To improve co-ordination and consistency, we split it to multiple modules.
 1. `fuiz-cloudflare`. This is the root worker. It contains an entry point to the program and two [durable objects](https://developers.cloudflare.com/durable-objects/), one managing a single instance of a game and another "coordinator" that generates ids and retrieves them. Active websocket connections are also handled here.
 2. `counter`. A simple singleton that contains live metric data. This is used by the components above (and by the frontend - if binded).
 
-Note that for fuiz to run, you also need an image server, check [corkboard-serverless](https://gitlab.com/fuiz/corkboard-serverless) for a serverless implementation of that.
+Note that for fuiz to run, you also need an image server, check [corkboard-cloudflare](https://gitlab.com/fuiz/corkboard-cloudflare) for a serverless implementation of that.
 
 ## Local Development
 
 Each module can be run with `bunx wrangler dev`.
 
-Note that `fuiz-cloudflare` references [fuiz/game](https://gitlab.com/fuiz/game). If you would like to test your own version of that, you might want to edit `Cargo.toml` to reference your own fork.
+Note that `fuiz-cloudflare` references [fuiz/game](https://gitlab.com/fuiz/game-logic). If you would like to test your own version of that, you might want to edit `Cargo.toml` to reference your own fork.
 
 ## Deployment
 
