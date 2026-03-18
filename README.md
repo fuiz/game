@@ -3,12 +3,12 @@
 A Rust-based game engine for creating and managing live quiz games with real-time synchronization, multiple question types, team support, and comprehensive leaderboards.
 
 <div align="center">
-  <img src="https://gitlab.com/opencode-mit/fuiz/website/-/raw/main/static/favicon.svg?ref_type=heads" width="128" height="128" alt="Fuiz Logo">
+  <img src="https://gitlab.com/fuiz/website/-/raw/main/static/favicon.svg?ref_type=heads" width="128" height="128" alt="Fuiz Logo">
 </div>
 
 <div align="center">
 
-[![License: AGPL v3](https://img.shields.io/gitlab/license/opencode-mit/fuiz/game?style=for-the-badge)](https://gitlab.com/opencode-mit/fuiz/game/-/raw/main/LICENSE)
+[![License: AGPL v3](https://img.shields.io/gitlab/license/fuiz/game-logic?style=for-the-badge)](https://gitlab.com/fuiz/game-logic/-/raw/main/LICENSE)
 [![Rust Edition](https://img.shields.io/badge/Rust-2024-orange?style=for-the-badge&logo=rust)](https://doc.rust-lang.org/edition-guide/rust-2024/index.html)
 
 </div>
@@ -42,7 +42,7 @@ A Rust-based game engine for creating and managing live quiz games with real-tim
 ### Installation
 
 ```bash
-git clone https://gitlab.com/fuiz/game.git
+git clone https://gitlab.com/fuiz/game-logic.git
 cd game
 cargo build --release
 ```
@@ -53,7 +53,7 @@ This is a library crate for building quiz game applications. To use it in your p
 
 ```toml
 [dependencies]
-fuiz = { git = "https://gitlab.com/fuiz/game.git" }
+fuiz = { git = "https://gitlab.com/fuiz/game-logic.git" }
 ```
 
 ## Library Usage
