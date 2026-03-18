@@ -4,7 +4,7 @@ Host live quizzes freely
 
 <img src="https://gitlab.com/fuiz/website/-/raw/main/static/favicon.svg?ref_type=heads" width="128" height="128" alt="Fuiz icon">
 
-[![License](https://img.shields.io/gitlab/license/fuiz/hosted-server?style=for-the-badge)](https://gitlab.com/fuiz/hosted-server/-/raw/main/LICENSE)
+[![License](https://img.shields.io/gitlab/license/fuiz/game-server?style=for-the-badge)](https://gitlab.com/fuiz/game-server/-/raw/main/LICENSE)
 
 ## Developing
 

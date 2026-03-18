@@ -7,7 +7,7 @@ edition = "2021"
 expose-network = []
 
 [dependencies]
-fuiz = { git = "https://gitlab.com/fuiz/game.git" }
+fuiz = { git = "https://gitlab.com/fuiz/game-logic.git" }
 actix-cors = "0.7"
 actix-web = "4"
 actix-ws = "0.4"

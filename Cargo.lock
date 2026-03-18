@@ -627,7 +627,7 @@ dependencies = [
 [[package]]
 name = "fuiz"
 version = "0.1.0"
-source = "git+https://gitlab.com/fuiz/game.git#4c98f3a867d966a0962adf83de89117b74dba3bf"
+source = "git+https://gitlab.com/fuiz/game-logic.git#9dee6e05f32647445b6adf16e2e2346ba4a2aa72"
 dependencies = [
  "derive-where",
  "derive_more",
