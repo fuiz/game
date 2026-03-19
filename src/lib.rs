@@ -28,9 +28,10 @@ fn read_image_as_frames(bytes: &[u8]) -> ImageResult<Vec<Frame>> {
                 Ok(vec![Frame::new(image)])
             }
         }
-        ImageFormat::WebP => image::codecs::webp::WebPDecoder::new(reader.into_inner())?
-            .into_frames()
-            .collect_frames(),
+        // TODO: Uncomment when this issue is resolved: https://github.com/image-rs/image/issues/2761
+        // ImageFormat::WebP => image::codecs::webp::WebPDecoder::new(reader.into_inner())?
+        //     .into_frames()
+        //     .collect_frames(),
         _ => {
             let image = reader.decode()?.to_rgba8();
             Ok(vec![Frame::new(image)])
