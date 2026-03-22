@@ -1,9 +1,12 @@
+//! Corkboard Cloudflare worker.
+
 use serde_hex::{SerHex, Strict};
 use serde_json::json;
 use worker::*;
 
 const IMAGE_EXPIRATION: std::time::Duration = std::time::Duration::from_hours(24);
 
+/// Handles incoming fetch events.
 #[event(fetch)]
 pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Response> {
     let router = Router::new();

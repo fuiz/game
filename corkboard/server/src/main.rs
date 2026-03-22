@@ -1,3 +1,5 @@
+//! Corkboard image server.
+
 use actix_multipart::form::{MultipartForm, MultipartFormConfig};
 use actix_web::{App, HttpResponse, HttpServer, Responder, error::ErrorNotFound, get, http::StatusCode, post, web};
 use image::ImageError;

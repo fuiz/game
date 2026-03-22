@@ -5,19 +5,6 @@
 //! leaderboards, and real-time synchronization between players and hosts.
 
 #![cfg_attr(all(coverage_nightly, test), feature(coverage_attribute))]
-#![deny(missing_docs)]
-#![deny(rustdoc::missing_crate_level_docs)]
-#![warn(clippy::pedantic)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::similar_names)]
-#![allow(clippy::must_use_candidate)]
-#![allow(clippy::cast_sign_loss)]
-#![allow(clippy::cast_possible_truncation)]
-#![allow(clippy::cast_precision_loss)]
-#![allow(clippy::ignored_unit_patterns)]
-#![allow(clippy::struct_field_names)]
-#![allow(clippy::doc_markdown)]
-#![allow(clippy::wildcard_imports)]
 use derive_where::derive_where;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};

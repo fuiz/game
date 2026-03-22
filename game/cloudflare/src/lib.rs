@@ -1,3 +1,5 @@
+//! Fuiz game Cloudflare worker.
+
 mod game;
 mod game_manager;
 
@@ -7,9 +9,12 @@ use serde_json::json;
 use wasm_bindgen_futures::wasm_bindgen::JsValue;
 use worker::*;
 
+/// A game manager durable object instance reference.
 #[derive(Serialize, Deserialize)]
 pub struct GameManagerInstance {
+    /// The durable object ID.
     pub id: String,
+    /// When the instance was created.
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 

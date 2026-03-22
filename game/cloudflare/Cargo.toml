@@ -6,6 +6,9 @@ license.workspace = true
 authors = ["Khaleel Al-Adhami <khaleel.aladhami@gmail.com>"]
 
 
+[lints]
+workspace = true
+
 [lib]
 crate-type = ["cdylib"]
 

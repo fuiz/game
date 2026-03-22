@@ -1,3 +1,5 @@
+//! Fuiz game server.
+
 mod clashmap;
 mod game_manager;
 
@@ -34,12 +36,14 @@ extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
 
+/// A WebSocket session wrapper.
 #[derive(Clone)]
 pub struct Session {
     session: actix_ws::Session,
 }
 
 impl Session {
+    /// Creates a new session from an actix WebSocket session.
     pub fn new(session: actix_ws::Session) -> Self {
         Self { session }
     }

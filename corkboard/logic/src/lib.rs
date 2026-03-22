@@ -1,8 +1,11 @@
+//! Corkboard image processing library.
+
 use image::{AnimationDecoder, Frame, ImageFormat, ImageReader, ImageResult};
 use num_integer::Integer;
 
 pub use png;
 
+/// Reads an image from bytes and returns its frames.
 pub fn read_image_as_frames(bytes: &[u8]) -> ImageResult<Vec<Frame>> {
     let reader = ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()?;
     match reader.format().ok_or_else(|| {
@@ -36,6 +39,7 @@ pub fn read_image_as_frames(bytes: &[u8]) -> ImageResult<Vec<Frame>> {
     }
 }
 
+/// Encodes a sequence of frames as an animated PNG.
 pub fn encode_frames_as_png(frames: Vec<Frame>) -> Result<Vec<u8>, png::EncodingError> {
     let mut output: Vec<u8> = Vec::new();
 

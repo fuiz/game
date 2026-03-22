@@ -9,6 +9,25 @@ members = [
     "corkboard/cloudflare",
 ]
 
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
+missing_docs = "deny"
+[workspace.lints.rustdoc]
+missing_crate_level_docs = "deny"
+
+[workspace.lints.clippy]
+pedantic = "warn"
+too_many_arguments = "allow"
+similar_names = "allow"
+must_use_candidate = "allow"
+cast_sign_loss = "allow"
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+ignored_unit_patterns = "allow"
+struct_field_names = "allow"
+doc_markdown = "allow"
+wildcard_imports = "allow"
+
 [workspace.package]
 version = "0.1.0"
 edition = "2024"

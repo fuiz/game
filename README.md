@@ -14,10 +14,11 @@ A Rust monorepo for the Fuiz live quiz platform — real-time quiz games with mu
 
 ### [`corkboard/`](corkboard/) — Image Storage
 
-| Crate                                        | Description                                        |
-| -------------------------------------------- | -------------------------------------------------- |
-| [`corkboard/server`](corkboard/server/)      | Self-hostable image storage server (actix-web)     |
-| [`corkboard/cloudflare`](corkboard/cloudflare/) | Serverless image storage on Cloudflare Workers  |
+| Crate                                            | Description                                        |
+| ------------------------------------------------ | -------------------------------------------------- |
+| [`corkboard/logic`](corkboard/logic/)            | Image processing library                           |
+| [`corkboard/server`](corkboard/server/)          | Self-hostable image storage server (actix-web)     |
+| [`corkboard/cloudflare`](corkboard/cloudflare/) | Serverless image storage on Cloudflare Workers      |
 
 ## Getting Started
 

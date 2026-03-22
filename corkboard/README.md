@@ -6,6 +6,7 @@ Temporary image storage service for Fuiz. Handles image uploads, retrieval, and 
 
 | Crate                          | Description                                        |
 | ------------------------------ | -------------------------------------------------- |
+| [`logic`](logic/)              | Image processing library                           |
 | [`server`](server/)            | Self-hostable image storage server (actix-web)     |
 | [`cloudflare`](cloudflare/)    | Serverless image storage on Cloudflare Workers     |
 
