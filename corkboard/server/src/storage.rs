@@ -1,36 +1,31 @@
 use actix_web::web::Bytes;
 use dashmap::DashMap;
 use mime::Mime;
+use serde::{Deserialize, Serialize};
+use serde_hex::{SerHex, Strict};
 
-pub trait Storage<T>: Default {
-    fn store(&self, media_id: T, bytes: Bytes, content_type: Mime);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct MediaId(#[serde(with = "SerHex::<Strict>")] u64);
 
-    fn retrieve(&self, object_id: &T) -> Option<(Bytes, Mime)>;
-
-    fn delete(&self, object_id: &T);
-}
-
-pub struct Memory<T: std::hash::Hash + Eq>(DashMap<T, (Bytes, Mime)>);
-
-impl<T: std::hash::Hash + Eq> Default for Memory<T> {
-    fn default() -> Self {
-        Self(DashMap::new())
+impl MediaId {
+    pub fn new() -> Self {
+        Self(getrandom::u64().expect("failed to generate random media id"))
     }
 }
 
-impl<T> Storage<T> for Memory<T>
-where
-    T: std::hash::Hash + Eq,
-{
-    fn retrieve(&self, object_id: &T) -> Option<(Bytes, Mime)> {
-        self.0.get(object_id).map(|x| x.clone())
-    }
+#[derive(Default)]
+pub struct Memory(DashMap<MediaId, (Bytes, Mime)>);
 
-    fn store(&self, media_id: T, bytes: Bytes, content_type: Mime) {
+impl Memory {
+    pub fn store(&self, media_id: MediaId, bytes: Bytes, content_type: Mime) {
         self.0.insert(media_id, (bytes, content_type));
     }
 
-    fn delete(&self, object_id: &T) {
-        self.0.remove(object_id);
+    pub fn retrieve(&self, media_id: &MediaId) -> Option<(Bytes, Mime)> {
+        self.0.get(media_id).map(|x| x.clone())
+    }
+
+    pub fn delete(&self, media_id: &MediaId) {
+        self.0.remove(media_id);
     }
 }

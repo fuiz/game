@@ -20,6 +20,7 @@ thiserror = "2.0"
 pretty_env_logger = "0.5"
 actix-cors = "0.7"
 mime = "0.3"
+corkboard = { path = "../logic" }
 image = { version = "0.25", default-features = false, features = [
     "avif",
     "gif",
@@ -30,5 +31,3 @@ image = { version = "0.25", default-features = false, features = [
     "webp",
 ] }
 getrandom = "0.4.1"
-png = "0.18.1"
-num-integer = "0.1.46"

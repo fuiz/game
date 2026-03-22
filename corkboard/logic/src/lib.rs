@@ -1,6 +1,8 @@
 use image::{AnimationDecoder, Frame, ImageFormat, ImageReader, ImageResult};
 use num_integer::Integer;
 
+pub use png;
+
 pub fn read_image_as_frames(bytes: &[u8]) -> ImageResult<Vec<Frame>> {
     let reader = ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()?;
     match reader.format().ok_or_else(|| {
@@ -23,9 +25,10 @@ pub fn read_image_as_frames(bytes: &[u8]) -> ImageResult<Vec<Frame>> {
                 Ok(vec![Frame::new(image)])
             }
         }
-        ImageFormat::WebP => image::codecs::webp::WebPDecoder::new(reader.into_inner())?
-            .into_frames()
-            .collect_frames(),
+        // TODO: Uncomment when this issue is resolved: https://github.com/image-rs/image/issues/2761
+        // ImageFormat::WebP => image::codecs::webp::WebPDecoder::new(reader.into_inner())?
+        //     .into_frames()
+        //     .collect_frames(),
         _ => {
             let image = reader.decode()?.to_rgba8();
             Ok(vec![Frame::new(image)])
