@@ -7,12 +7,8 @@ license.workspace = true
 [lints]
 workspace = true
 
-[features]
-https = []
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+figment = { version = "0.10", features = ["env"] }
 actix-web = "4"
 actix-multipart = "0.7"
 serde = { version = "1.0", features = ["derive"] }
@@ -34,3 +30,6 @@ image = { version = "0.25", default-features = false, features = [
     "webp",
 ] }
 getrandom = "0.4.1"
+
+[dev-dependencies]
+figment = { version = "0.10", features = ["test"] }

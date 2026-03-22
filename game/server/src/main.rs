@@ -9,6 +9,10 @@ use actix_web::{
     post,
     web::{self, Data},
 };
+use figment::{
+    Figment,
+    providers::{Env, Serialized},
+};
 use fuiz::game::{IncomingGhostMessage, Options};
 use fuiz::{
     fuiz::config::Fuiz,
@@ -20,9 +24,9 @@ use fuiz::{
 use futures_util::StreamExt;
 use game_manager::GameManager;
 use garde::Validate;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
-    env,
     sync::{
         Arc, OnceLock,
         atomic::{AtomicU64, Ordering},
@@ -33,6 +37,27 @@ use std::{
 extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
+
+/// Server configuration loaded from environment variables with sensible defaults.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ServerConfig {
+    /// Hostname to bind to.
+    hostname: String,
+    /// Port to bind to.
+    port: u16,
+    /// Allowed CORS origins. Empty means permissive.
+    allowed_origins: Vec<String>,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            hostname: "0.0.0.0".into(),
+            port: 8080,
+            allowed_origins: Vec::new(),
+        }
+    }
+}
 
 /// A WebSocket session wrapper.
 #[derive(Clone)]
@@ -286,16 +311,34 @@ async fn watch(
     Ok(response)
 }
 
+fn server_figment() -> Figment {
+    Figment::new()
+        .merge(Serialized::defaults(ServerConfig::default()))
+        .merge(Env::prefixed("FUIZ_"))
+}
+
+fn settings_figment() -> Figment {
+    Figment::new()
+        .merge(fuiz::settings::Settings::default())
+        .merge(Env::prefixed("FUIZ_SETTINGS_").split("__"))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     pretty_env_logger::init();
 
-    let settings = fuiz::settings::Settings::default();
+    let server_config: ServerConfig = server_figment()
+        .extract()
+        .expect("server configuration should be valid");
+
+    let settings: fuiz::settings::Settings = settings_figment().extract().expect("game settings should be valid");
 
     let app_state = web::Data::new(AppState {
         game_manager: GameManager::default(),
         settings,
     });
+
+    let origins = server_config.allowed_origins;
 
     HttpServer::new(move || {
         let app = App::new()
@@ -306,32 +349,87 @@ async fn main() -> std::io::Result<()> {
             .service(add)
             .service(watch);
 
-        if cfg!(feature = "expose-network") {
-            let cors = actix_cors::Cors::default()
-                .allowed_origin(&env::var("NETWORK_ORIGIN").unwrap_or_else(|_| "*".to_string()))
-                .allowed_methods(vec!["GET", "POST"])
-                .allowed_headers(vec![
-                    actix_web::http::header::AUTHORIZATION,
-                    actix_web::http::header::ACCEPT,
-                ])
-                .allowed_header(actix_web::http::header::CONTENT_TYPE);
-            app.wrap(cors)
+        let mut cors = actix_cors::Cors::default()
+            .allowed_methods(vec!["GET", "POST"])
+            .allowed_headers(vec![
+                actix_web::http::header::AUTHORIZATION,
+                actix_web::http::header::ACCEPT,
+            ])
+            .allowed_header(actix_web::http::header::CONTENT_TYPE);
+        if origins.is_empty() {
+            cors = cors.allow_any_origin();
         } else {
-            let cors = actix_cors::Cors::permissive();
-            app.wrap(cors)
+            for origin in &origins {
+                cors = cors.allowed_origin(origin);
+            }
         }
+        app.wrap(cors)
     })
-    .bind((
-        if cfg!(feature = "expose-network") {
-            "127.0.0.1"
-        } else {
-            "0.0.0.0"
-        },
-        env::var("PORT")
-            .ok()
-            .and_then(|port| port.parse::<u16>().ok())
-            .unwrap_or(8080),
-    ))?
+    .bind((server_config.hostname.as_str(), server_config.port))?
     .run()
     .await
+}
+
+#[cfg(test)]
+#[allow(clippy::result_large_err)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_config_defaults() {
+        figment::Jail::expect_with(|_| {
+            let config: ServerConfig = server_figment().extract()?;
+            assert_eq!(config.hostname, "0.0.0.0");
+            assert_eq!(config.port, 8080);
+            assert!(config.allowed_origins.is_empty());
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn server_config_from_env() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("FUIZ_HOSTNAME", "127.0.0.1");
+            jail.set_env("FUIZ_PORT", "9000");
+
+            let config: ServerConfig = server_figment().extract()?;
+            assert_eq!(config.hostname, "127.0.0.1");
+            assert_eq!(config.port, 9000);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn server_config_multiple_origins() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("FUIZ_ALLOWED_ORIGINS", r#"["https://fuiz.us","https://example.com"]"#);
+
+            let config: ServerConfig = server_figment().extract()?;
+            assert_eq!(config.allowed_origins, vec!["https://fuiz.us", "https://example.com"]);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn settings_defaults() {
+        figment::Jail::expect_with(|_| {
+            let settings: fuiz::settings::Settings = settings_figment().extract()?;
+            assert_eq!(settings.fuiz.max_player_count, 1000);
+            assert_eq!(settings.question.max_time_limit, 240);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn settings_from_env() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("FUIZ_SETTINGS_FUIZ__MAX_PLAYER_COUNT", "500");
+            jail.set_env("FUIZ_SETTINGS_QUESTION__MAX_TIME_LIMIT", "300");
+
+            let settings: fuiz::settings::Settings = settings_figment().extract()?;
+            assert_eq!(settings.fuiz.max_player_count, 500);
+            assert_eq!(settings.question.max_time_limit, 300);
+            Ok(())
+        });
+    }
 }
