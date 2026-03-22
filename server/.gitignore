@@ -1,0 +1,4 @@
+/target
+.env
+/.vscode
+stats.txt
