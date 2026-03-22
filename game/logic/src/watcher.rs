@@ -155,6 +155,7 @@ impl PlayerValue {
 #[derive(Deserialize)]
 struct WatchersSerde {
     mapping: HashMap<Id, Value>,
+    max_player_count: usize,
 }
 
 /// Manages all participants (watchers) in a game session
@@ -162,7 +163,7 @@ struct WatchersSerde {
 /// This struct tracks all connected participants, their roles, and provides
 /// functionality for sending messages, managing state, and organizing
 /// participants by type.
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(from = "WatchersSerde")]
 pub struct Watchers {
     /// Primary mapping from participant ID to their value/state
@@ -171,6 +172,9 @@ pub struct Watchers {
     /// Reverse mapping organized by participant type for efficient filtering
     #[serde(skip_serializing)]
     reverse_mapping: EnumMap<ValueKind, HashSet<Id>>,
+
+    /// Maximum number of players allowed in a single game session
+    max_player_count: usize,
 }
 
 impl From<WatchersSerde> for Watchers {
@@ -179,7 +183,10 @@ impl From<WatchersSerde> for Watchers {
     /// This rebuilds the reverse mapping from the primary mapping,
     /// which is necessary since the reverse mapping is not serialized.
     fn from(serde: WatchersSerde) -> Self {
-        let WatchersSerde { mapping } = serde;
+        let WatchersSerde {
+            mapping,
+            max_player_count,
+        } = serde;
         let mut reverse_mapping: EnumMap<ValueKind, HashSet<Id>> = EnumMap::default();
         for (id, value) in &mapping {
             reverse_mapping[value.kind()].insert(*id);
@@ -187,6 +194,7 @@ impl From<WatchersSerde> for Watchers {
         Self {
             mapping,
             reverse_mapping,
+            max_player_count,
         }
     }
 }
@@ -200,16 +208,22 @@ pub enum Error {
 }
 
 impl Watchers {
-    /// Creates a new Watchers instance with a host already assigned
+    /// Creates a new empty Watchers instance with the given maximum player count.
+    pub fn new(max_player_count: usize) -> Self {
+        Self {
+            mapping: HashMap::default(),
+            reverse_mapping: EnumMap::default(),
+            max_player_count,
+        }
+    }
+
+    /// Creates a new Watchers instance with a host already assigned.
     ///
     /// # Arguments
     ///
     /// * `host_id` - The ID of the host participant
-    ///
-    /// # Returns
-    ///
-    /// A new Watchers instance with the specified host already registered
-    pub fn with_host_id(host_id: Id) -> Self {
+    /// * `max_player_count` - The maximum number of players allowed
+    pub fn with_host_id(host_id: Id, max_player_count: usize) -> Self {
         Self {
             mapping: {
                 let mut map = HashMap::default();
@@ -221,6 +235,7 @@ impl Watchers {
                 map[ValueKind::Host].insert(host_id);
                 map
             },
+            max_player_count,
         }
     }
 
@@ -297,7 +312,7 @@ impl Watchers {
     pub fn add_watcher(&mut self, watcher_id: Id, watcher_value: Value) -> Result<(), Error> {
         let kind = watcher_value.kind();
 
-        if self.mapping.len() >= crate::constants::fuiz::MAX_PLAYER_COUNT {
+        if self.mapping.len() >= self.max_player_count {
             return Err(Error::MaximumPlayers);
         }
 
@@ -626,7 +641,7 @@ mod tests {
 
     #[test]
     fn test_watchers_default() {
-        let watchers = Watchers::default();
+        let watchers = Watchers::new(1000);
         assert_eq!(watchers.specific_count(ValueKind::Unassigned), 0);
         assert_eq!(watchers.specific_count(ValueKind::Host), 0);
         assert_eq!(watchers.specific_count(ValueKind::Player), 0);
@@ -635,7 +650,7 @@ mod tests {
     #[test]
     fn test_watchers_with_host_id() {
         let host_id = Id::new();
-        let watchers = Watchers::with_host_id(host_id);
+        let watchers = Watchers::with_host_id(host_id, 1000);
 
         assert_eq!(watchers.specific_count(ValueKind::Host), 1);
         assert_eq!(watchers.specific_count(ValueKind::Player), 0);
@@ -646,7 +661,7 @@ mod tests {
 
     #[test]
     fn test_add_watcher() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let watcher_id = Id::new();
 
         let result = watchers.add_watcher(watcher_id, Value::Unassigned);
@@ -659,7 +674,7 @@ mod tests {
 
     #[test]
     fn test_add_player_watcher() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let player_id = Id::new();
         let player_value = Value::Player(PlayerValue::Individual {
             name: "Alice".to_string(),
@@ -676,7 +691,7 @@ mod tests {
 
     #[test]
     fn test_add_team_player_watcher() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let player_id = Id::new();
         let team_id = Id::new();
         let player_value = Value::Player(PlayerValue::Team {
@@ -696,10 +711,10 @@ mod tests {
 
     #[test]
     fn test_maximum_players_error() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
 
         // Add players up to the maximum
-        for i in 0..crate::constants::fuiz::MAX_PLAYER_COUNT {
+        for i in 0..crate::settings::FuizSettings::default().max_player_count {
             let watcher_id = Id::new();
             let result = watchers.add_watcher(watcher_id, Value::Unassigned);
             assert!(result.is_ok(), "Failed to add player {i}");
@@ -713,7 +728,7 @@ mod tests {
 
     #[test]
     fn test_update_watcher_value() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let watcher_id = Id::new();
 
         // Start as unassigned
@@ -734,7 +749,7 @@ mod tests {
 
     #[test]
     fn test_update_nonexistent_watcher() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let nonexistent_id = Id::new();
 
         // This should not panic and should be a no-op
@@ -744,7 +759,7 @@ mod tests {
 
     #[test]
     fn test_vec_with_tunnels() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let mut tunnels = HashMap::new();
 
         // Add some watchers
@@ -782,7 +797,7 @@ mod tests {
 
     #[test]
     fn test_specific_vec() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let mut tunnels = HashMap::new();
 
         let host_id = Id::new();
@@ -820,7 +835,7 @@ mod tests {
 
     #[test]
     fn test_specific_vec_with_missing_tunnels() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let mut tunnels = HashMap::new();
 
         let player1_id = Id::new();
@@ -871,7 +886,7 @@ mod tests {
 
     #[test]
     fn test_is_alive() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let mut tunnels = HashMap::new();
 
         let id1 = Id::new();
@@ -918,7 +933,7 @@ mod tests {
 
     #[test]
     fn test_send_message() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let mut tunnels = HashMap::new();
 
         let id = Id::new();
@@ -938,7 +953,7 @@ mod tests {
 
     #[test]
     fn test_send_message_no_tunnel() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let watcher_id = Id::new();
 
         watchers.add_watcher(watcher_id, Value::Host).unwrap();
@@ -955,7 +970,7 @@ mod tests {
 
     #[test]
     fn test_send_state() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let mut tunnels = HashMap::new();
 
         let id = Id::new();
@@ -975,7 +990,7 @@ mod tests {
 
     #[test]
     fn test_send_state_no_tunnel() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let watcher_id = Id::new();
 
         watchers.add_watcher(watcher_id, Value::Host).unwrap();
@@ -992,7 +1007,7 @@ mod tests {
 
     #[test]
     fn test_get_name_for_non_player() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let host_id = Id::new();
         let unassigned_id = Id::new();
 
@@ -1005,7 +1020,7 @@ mod tests {
 
     #[test]
     fn test_get_team_name_for_non_team_player() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let individual_id = Id::new();
         let host_id = Id::new();
 
@@ -1025,7 +1040,7 @@ mod tests {
 
     #[test]
     fn test_announce() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let mut tunnels = HashMap::new();
 
         let host_id = Id::new();
@@ -1066,7 +1081,7 @@ mod tests {
 
     #[test]
     fn test_announce_specific() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let mut tunnels = HashMap::new();
 
         let host_id = Id::new();
@@ -1101,7 +1116,7 @@ mod tests {
 
     #[test]
     fn test_announce_with() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let mut tunnels = HashMap::new();
 
         let host_id = Id::new();
@@ -1143,7 +1158,7 @@ mod tests {
 
     #[test]
     fn test_serde_roundtrip() {
-        let mut watchers = Watchers::default();
+        let mut watchers = Watchers::new(1000);
         let host_id = Id::new();
         let player_id = Id::new();
 

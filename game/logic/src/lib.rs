@@ -9,7 +9,7 @@ use derive_where::derive_where;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-pub mod constants;
+pub mod settings;
 
 pub mod fuiz;
 pub mod game;

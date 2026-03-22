@@ -7,7 +7,12 @@ license.workspace = true
 [lib]
 crate-type = ["lib"]
 
+[features]
+figment = ["dep:figment"] # Enable figment Provider impl for Settings
+
 [dependencies]
+# Configuration
+figment = { version = "0.10", optional = true } # Composable configuration library
 # Core serialization and data structures
 derive-where = "1" # Conditional derive macros
 enum-map = { version = "2", features = [

@@ -7,11 +7,9 @@ license.workspace = true
 [lints]
 workspace = true
 
-[features]
-expose-network = []
-
 [dependencies]
-fuiz = { path = "../logic" }
+fuiz = { path = "../logic", features = ["figment"] }
+figment = { version = "0.10", features = ["env"] }
 actix-cors = "0.7"
 actix-web = "4"
 actix-ws = "0.4"
@@ -30,3 +28,6 @@ garde-actix-web = "0.12"
 garde = "0.22"
 parking_lot = "0.12"
 bytes = "1.5"
+
+[dev-dependencies]
+figment = { version = "0.10", features = ["test"] }

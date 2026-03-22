@@ -8,15 +8,24 @@ Self-hostable game server built with actix-web.
 cargo run -p fuiz-server
 ```
 
-Listens on port 8080 (or the `PORT` environment variable).
+## Configuration
 
-To expose on the local network:
+Server settings are loaded from environment variables prefixed with `FUIZ_`:
+
+| Variable               | Default   | Description                       |
+| ---------------------- | --------- | --------------------------------- |
+| `FUIZ_HOSTNAME`        | `0.0.0.0` | Address to bind to                |
+| `FUIZ_PORT`            | `8080`    | Port to listen on                 |
+| `FUIZ_ALLOWED_ORIGINS` | `[]`      | Allowed CORS origins (JSON array) |
+
+When `FUIZ_ALLOWED_ORIGINS` is empty, CORS is fully permissive.
+
+Game-logic settings use the `FUIZ_SETTINGS_` prefix with `__` as the nesting separator:
 
 ```bash
-cargo run -p fuiz-server --features expose-network
+FUIZ_SETTINGS_FUIZ__MAX_PLAYER_COUNT=500
+FUIZ_SETTINGS_QUESTION__MAX_TIME_LIMIT=300
 ```
-
-Set `NETWORK_ORIGIN` to the exposed URL if you encounter CORS issues.
 
 ## API
 

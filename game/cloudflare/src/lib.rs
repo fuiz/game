@@ -25,7 +25,7 @@ async fn fetch_instance(env: &Env, game_id: &str) -> Result<GameManagerInstance>
         .get_stub()?;
 
     let mut response = game_manager
-        .fetch_with_str(&format!("https://example.com/{}", game_id))
+        .fetch_with_str(&format!("https://example.com/{game_id}"))
         .await?;
 
     let game_manager_instance = response.json().await?;
@@ -70,6 +70,7 @@ async fn start_instance(env: &Env, game_manager_instance: &GameManagerInstance) 
 }
 
 #[event(fetch)]
+#[allow(clippy::too_many_lines)]
 async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let router = Router::new();
 
@@ -83,7 +84,8 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 Error::RustError("Invalid request".to_string())
             })?;
 
-            if let Err(e) = game_request.validate() {
+            let settings = fuiz::settings::Settings::default();
+            if let Err(e) = game_request.validate_with(&settings) {
                 return Response::error(e.to_string(), 400);
             }
 

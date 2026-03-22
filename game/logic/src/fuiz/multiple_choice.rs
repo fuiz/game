@@ -22,11 +22,10 @@ use crate::{
 };
 
 use super::{
-    super::constants::multiple_choice::*,
     super::game::IncomingPlayerMessage,
     common::{
         AnswerHandler, QuestionReceiveMessage, SlideStateManager, SlideTimer, add_scores_to_leaderboard,
-        all_players_answered, get_answered_count, validate_duration,
+        all_players_answered, get_answered_count,
     },
     config::TextOrMedia,
     media::Media,
@@ -51,26 +50,27 @@ pub use super::common::SlideState;
 /// a multiple choice question, including timing, content, scoring, and
 /// the available answer options.
 #[derive(Debug, Clone, Serialize, serde::Deserialize, Validate)]
+#[garde(context(crate::settings::Settings as ctx))]
 pub struct SlideConfig {
     /// The question text that will be displayed to players
-    #[garde(length(min = MIN_TITLE_LENGTH, max = MAX_TITLE_LENGTH))]
+    #[garde(length(min = ctx.question.min_title_length, max = ctx.question.max_title_length))]
     title: String,
     /// Optional media content (images, etc.) to accompany the question
     #[garde(dive)]
     media: Option<Media>,
     /// Duration to display the question before revealing answer options
-    #[garde(custom(validate_duration::<MIN_INTRODUCE_QUESTION, MAX_INTRODUCE_QUESTION>))]
+    #[garde(custom(|val, ctx: &crate::settings::Settings| ctx.question.validate_introduce_question(val)))]
     #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
     introduce_question: Duration,
     /// Duration players have to select their answer once options are revealed
-    #[garde(custom(validate_duration::<MIN_TIME_LIMIT, MAX_TIME_LIMIT>))]
+    #[garde(custom(|val, ctx: &crate::settings::Settings| ctx.question.validate_time_limit(val)))]
     #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
     time_limit: Duration,
     /// Maximum points awarded for a correct answer (decreases linearly over time)
     #[garde(skip)]
     points_awarded: u64,
     /// The available answer choices for this question
-    #[garde(length(max = MAX_ANSWER_COUNT))]
+    #[garde(length(max = ctx.multiple_choice.max_answer_count))]
     answers: Vec<AnswerChoice>,
     /// Whether the question accepts single or multiple answer selections
     #[garde(skip)]

@@ -14,11 +14,12 @@ use fuiz::{
 };
 
 #[derive(Debug, serde::Deserialize, garde::Validate, Serialize)]
+#[garde(context(fuiz::settings::Settings))]
 pub struct GameRequest {
     #[garde(dive)]
-    config: fuiz::fuiz::config::Fuiz,
+    pub config: fuiz::fuiz::config::Fuiz,
     #[garde(dive)]
-    options: fuiz::game::Options,
+    pub options: fuiz::game::Options,
 }
 
 struct WebSocketTunnel(WebSocket);
@@ -82,7 +83,7 @@ async fn load_game(storage: &worker::durable::Storage) -> Option<fuiz::game::Gam
     let mut game_bytes = Vec::new();
 
     for i in 0..count {
-        let array_buffer: Result<Option<GameBytes>> = storage.get(&format!("chunk_{}", i)).await;
+        let array_buffer: Result<Option<GameBytes>> = storage.get(&format!("chunk_{i}")).await;
         match array_buffer {
             Err(e) => {
                 console_error!("Error loading chunk: {:?}", e);
@@ -129,7 +130,7 @@ async fn store_game(storage: &mut worker::durable::Storage, game_bytes: &[u8]) -
     storage.put("count", &chunks_of_64kb.len()).await?;
 
     for (i, chunk) in chunks_of_64kb.into_iter().enumerate() {
-        if let Err(e) = storage.put(&format!("chunk_{}", i), &chunk).await {
+        if let Err(e) = storage.put(&format!("chunk_{i}"), &chunk).await {
             console_error!("Error storing chunk: {:?}", e);
         }
     }
@@ -140,13 +141,13 @@ const GAME_EXPIRY: Duration = Duration::from_hours(1);
 
 impl Game {
     fn borrow_game_mut(&self) -> Option<RefMut<'_, fuiz::game::Game>> {
-        let game = RefMut::filter_map(self.game.borrow_mut(), |game_state| game_state.as_mut());
+        let game = RefMut::filter_map(self.game.borrow_mut(), std::option::Option::as_mut);
 
         game.ok()
     }
 
     fn borrow_game(&self) -> Option<std::cell::Ref<'_, fuiz::game::Game>> {
-        let game = std::cell::Ref::filter_map(self.game.borrow(), |game_state| game_state.as_ref());
+        let game = std::cell::Ref::filter_map(self.game.borrow(), std::option::Option::as_ref);
 
         game.ok()
     }
@@ -260,7 +261,7 @@ impl DurableObject for Game {
                 .await?;
             }
             _ => {}
-        };
+        }
 
         Response::ok("")
     }
@@ -273,10 +274,12 @@ impl DurableObject for Game {
 
             let host_id = watcher::Id::new();
 
+            let settings = fuiz::settings::Settings::default();
             self.game.replace(Some(fuiz::game::Game::new(
                 game_request.config,
                 game_request.options,
                 host_id,
+                &settings,
             )));
             return Response::ok(host_id.to_string());
         }
@@ -286,10 +289,10 @@ impl DurableObject for Game {
                 return Response::ok("false");
             };
 
-            return Response::ok(if !matches!(game.state, game::State::Done) {
-                "true"
-            } else {
+            return Response::ok(if matches!(game.state, game::State::Done) {
                 "false"
+            } else {
+                "true"
             });
         }
 
@@ -299,7 +302,7 @@ impl DurableObject for Game {
             .url()?
             .path_segments()
             .and_then(|mut ps| ps.next_back())
-            .and_then(|s| watcher::Id::from_str(s).to_owned().ok())
+            .and_then(|s| watcher::Id::from_str(s).clone().ok())
             .unwrap_or(watcher::Id::new());
 
         close_connections_with_tag(&self.state, &claimed_id);
@@ -427,6 +430,7 @@ fn close_connections_with_tag(state: &State, tag: &watcher::Id) {
         .for_each(close_web_socket);
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn close_web_socket(web_socket: WebSocket) {
     let _ = web_socket.close(Some(4141), None::<String>);
 }

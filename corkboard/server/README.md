@@ -8,6 +8,18 @@ Self-hostable image storage server built with actix-web.
 cargo run -p corkboard-server
 ```
 
+## Configuration
+
+Server settings are loaded from environment variables prefixed with `CORKBOARD_`:
+
+| Variable                    | Default   | Description                       |
+| --------------------------- | --------- | --------------------------------- |
+| `CORKBOARD_HOSTNAME`        | `0.0.0.0` | Address to bind to                |
+| `CORKBOARD_PORT`            | `5040`    | Port to listen on                 |
+| `CORKBOARD_ALLOWED_ORIGINS` | `[]`      | Allowed CORS origins (JSON array) |
+
+When `CORKBOARD_ALLOWED_ORIGINS` is empty, CORS is fully permissive.
+
 ## REST API
 
 ### Upload

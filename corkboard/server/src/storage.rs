@@ -21,11 +21,11 @@ impl Memory {
         self.0.insert(media_id, (bytes, content_type));
     }
 
-    pub fn retrieve(&self, media_id: &MediaId) -> Option<(Bytes, Mime)> {
-        self.0.get(media_id).map(|x| x.clone())
+    pub fn retrieve(&self, media_id: MediaId) -> Option<(Bytes, Mime)> {
+        self.0.get(&media_id).map(|x| x.clone())
     }
 
-    pub fn delete(&self, media_id: &MediaId) {
-        self.0.remove(media_id);
+    pub fn delete(&self, media_id: MediaId) {
+        self.0.remove(&media_id);
     }
 }

@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 /// supported, but this structure allows for future expansion to include
 /// videos, audio, and other media formats.
 #[derive(Debug, Serialize, Deserialize, Clone, Validate)]
+#[garde(context(crate::settings::Settings as ctx))]
 pub enum Media {
     /// Image media content
     Image(#[garde(dive)] Image),
@@ -25,6 +26,7 @@ pub enum Media {
 /// be used in Fuiz questions. Different variants may have different
 /// storage mechanisms and validation requirements.
 #[derive(Debug, Serialize, Deserialize, Clone, Validate)]
+#[garde(context(crate::settings::Settings as ctx))]
 pub enum Image {
     /// An image stored in the Corkboard system
     ///
@@ -33,10 +35,10 @@ pub enum Image {
     /// and alt text for accessibility.
     Corkboard {
         /// Unique identifier for the image in the Corkboard system
-        #[garde(length(equal = crate::constants::corkboard::ID_LENGTH))]
+        #[garde(length(equal = ctx.corkboard.id_length))]
         id: String,
         /// Alternative text for accessibility and display fallbacks
-        #[garde(length(max = crate::constants::corkboard::MAX_ALT_LENGTH))]
+        #[garde(length(max = ctx.corkboard.max_alt_length))]
         alt: String,
     },
 }

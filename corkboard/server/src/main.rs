@@ -2,11 +2,37 @@
 
 use actix_multipart::form::{MultipartForm, MultipartFormConfig};
 use actix_web::{App, HttpResponse, HttpServer, Responder, error::ErrorNotFound, get, http::StatusCode, post, web};
+use figment::{
+    Figment,
+    providers::{Env, Serialized},
+};
 use image::ImageError;
+use serde::{Deserialize, Serialize};
 use storage::{MediaId, Memory};
 use thiserror::Error;
 
 mod storage;
+
+/// Server configuration loaded from environment variables with sensible defaults.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ServerConfig {
+    /// Hostname to bind to.
+    hostname: String,
+    /// Port to bind to.
+    port: u16,
+    /// Allowed CORS origins. Empty means permissive.
+    allowed_origins: Vec<String>,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            hostname: "0.0.0.0".into(),
+            port: 5040,
+            allowed_origins: Vec::new(),
+        }
+    }
+}
 
 #[derive(Default)]
 struct AppState {
@@ -15,7 +41,7 @@ struct AppState {
 
 #[get("/get/{media_id}")]
 async fn get_full(data: web::Data<AppState>, path: web::Path<MediaId>) -> impl Responder {
-    match data.storage.retrieve(&path.into_inner()) {
+    match data.storage.retrieve(path.into_inner()) {
         Some((bytes, content_type)) => Ok(HttpResponse::build(StatusCode::OK)
             .content_type(content_type)
             .body(bytes)),
@@ -76,17 +102,29 @@ async fn upload(data: web::Data<AppState>, image_upload: MultipartForm<ImageUplo
 
     actix_web::rt::spawn(async move {
         actix_web::rt::time::sleep(std::time::Duration::from_hours(1)).await;
-        data.storage.delete(&media_id);
+        data.storage.delete(media_id);
     });
 
     Ok::<actix_web::web::Json<MediaId>, ImageDecodingError>(web::Json(media_id))
+}
+
+fn server_figment() -> Figment {
+    Figment::new()
+        .merge(Serialized::defaults(ServerConfig::default()))
+        .merge(Env::prefixed("CORKBOARD_"))
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     pretty_env_logger::init();
 
+    let server_config: ServerConfig = server_figment()
+        .extract()
+        .expect("server configuration should be valid");
+
     let app_data = web::Data::new(AppState::default());
+
+    let origins = server_config.allowed_origins;
 
     HttpServer::new(move || {
         let app = App::new()
@@ -98,34 +136,54 @@ async fn main() -> std::io::Result<()> {
             .service(thumbnail)
             .service(upload);
 
-        #[cfg(feature = "https")]
-        {
-            let cors = actix_cors::Cors::default()
-                .allowed_origin_fn(|origin, _| origin.as_bytes().ends_with(b".fuiz.pages.dev"))
-                .allowed_origin("https://fuiz.us")
-                .allowed_methods(vec!["GET", "POST"])
-                .allowed_headers(vec![
-                    actix_web::http::header::AUTHORIZATION,
-                    actix_web::http::header::ACCEPT,
-                ])
-                .supports_credentials()
-                .allowed_header(actix_web::http::header::CONTENT_TYPE);
-            app.wrap(cors)
-        }
-        #[cfg(not(feature = "https"))]
-        {
-            let cors = actix_cors::Cors::permissive();
-            app.wrap(cors)
-        }
-    })
-    .bind((
-        if cfg!(feature = "https") {
-            "127.0.0.1"
+        let mut cors = actix_cors::Cors::default()
+            .allowed_methods(vec!["GET", "POST"])
+            .allowed_headers(vec![
+                actix_web::http::header::AUTHORIZATION,
+                actix_web::http::header::ACCEPT,
+            ])
+            .supports_credentials()
+            .allowed_header(actix_web::http::header::CONTENT_TYPE);
+        if origins.is_empty() {
+            cors = cors.allow_any_origin();
         } else {
-            "0.0.0.0"
-        },
-        5040,
-    ))?
+            for origin in &origins {
+                cors = cors.allowed_origin(origin);
+            }
+        }
+        app.wrap(cors)
+    })
+    .bind((server_config.hostname.as_str(), server_config.port))?
     .run()
     .await
+}
+
+#[cfg(test)]
+#[allow(clippy::result_large_err)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_config_defaults() {
+        figment::Jail::expect_with(|_| {
+            let config: ServerConfig = server_figment().extract()?;
+            assert_eq!(config.hostname, "0.0.0.0");
+            assert_eq!(config.port, 5040);
+            assert!(config.allowed_origins.is_empty());
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn server_config_from_env() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("CORKBOARD_HOSTNAME", "127.0.0.1");
+            jail.set_env("CORKBOARD_PORT", "6000");
+
+            let config: ServerConfig = server_figment().extract()?;
+            assert_eq!(config.hostname, "127.0.0.1");
+            assert_eq!(config.port, 6000);
+            Ok(())
+        });
+    }
 }

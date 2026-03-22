@@ -37,41 +37,6 @@ pub enum SlideState {
     AnswersResults,
 }
 
-/// Validation result type for duration validation
-type ValidationResult = garde::Result;
-
-/// Validates that a duration falls within specified bounds.
-///
-/// This is a custom validation function for use with the `garde` crate.
-/// It checks if the duration in seconds is within the inclusive range
-/// defined by `MIN_SECONDS` and `MAX_SECONDS`.
-///
-/// # Arguments
-///
-/// * `val` - The `Duration` to validate.
-/// * `_ctx` - The validation context (unused).
-///
-/// # Generics
-///
-/// * `MIN_SECONDS` - The minimum allowed duration in seconds (inclusive).
-/// * `MAX_SECONDS` - The maximum allowed duration in seconds (inclusive).
-///
-/// # Errors
-///
-/// Returns a `garde::Error` if the duration is outside the specified bounds.
-pub fn validate_duration<const MIN_SECONDS: u64, const MAX_SECONDS: u64>(
-    val: &Duration,
-    _ctx: &(),
-) -> ValidationResult {
-    if (MIN_SECONDS..=MAX_SECONDS).contains(&val.as_secs()) {
-        Ok(())
-    } else {
-        Err(garde::Error::new(format!(
-            "outside of bounds [{MIN_SECONDS},{MAX_SECONDS}]",
-        )))
-    }
-}
-
 /// Trait for basic slide state management functionality
 pub trait SlideStateManager {
     /// Get the current slide state
