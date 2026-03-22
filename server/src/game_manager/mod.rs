@@ -3,14 +3,14 @@ use std::time::Duration;
 use enum_map::EnumMap;
 use thiserror::Error;
 
-use crate::{clashmap::ClashMap, Session};
+use crate::{Session, clashmap::ClashMap};
 
 use fuiz::{
+    AlarmMessage,
     fuiz::config::Fuiz,
     game::{self, Game, IncomingMessage, Options},
     game_id::GameId,
     watcher::{self, Id},
-    AlarmMessage,
 };
 
 #[derive(Debug, Default)]

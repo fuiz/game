@@ -1,6 +1,6 @@
 use std::{borrow::Borrow, fmt::Debug};
 
-use dashmap::{mapref::entry::Entry, DashMap};
+use dashmap::{DashMap, mapref::entry::Entry};
 
 #[derive(Clone)]
 #[derive_where::derive_where(Default)]

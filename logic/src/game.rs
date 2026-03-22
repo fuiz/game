@@ -305,7 +305,7 @@ pub enum SummaryMessage {
         player_count: usize,
         /// Final results: (name, points) for all players
         results: Vec<(String, Vec<u64>)>,
-        /// Team composition mapping: (team_name, [player_names])
+        /// Team composition mapping: (team_name, \[player_names\])
         team_mapping: Vec<(String, Vec<String>)>,
         /// The game configuration that was played
         config: Fuiz,

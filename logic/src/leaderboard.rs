@@ -154,7 +154,6 @@ impl Leaderboard {
     /// # Arguments
     ///
     /// * `scores` - Slice of (player_id, points_earned) tuples for the round
-    /// ```
     pub fn add_scores(&mut self, scores: &[(Id, u64)]) {
         let mut summary: HashMap<Id, u64> = self
             .score_and_position

@@ -2,11 +2,10 @@ mod clashmap;
 mod game_manager;
 
 use actix_web::{
-    get,
+    App, HttpRequest, HttpResponse, HttpServer, Responder, get,
     middleware::Logger,
     post,
     web::{self, Data},
-    App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
 use fuiz::game::{IncomingGhostMessage, Options};
 use fuiz::{
@@ -23,8 +22,8 @@ use serde_json::json;
 use std::{
     env,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, OnceLock,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -138,10 +137,10 @@ fn websocket_heartbeat_verifier(mut session: actix_ws::Session) -> impl Fn(bytes
 
     move |bytes: bytes::Bytes| {
         let last_value = latest_value.load(Ordering::SeqCst);
-        if let Ok(actual_bytes) = bytes.into_iter().collect::<Vec<_>>().try_into() {
-            if u64::from_ne_bytes(actual_bytes) == last_value {
-                return false;
-            }
+        if let Ok(actual_bytes) = bytes.into_iter().collect::<Vec<_>>().try_into()
+            && u64::from_ne_bytes(actual_bytes) == last_value
+        {
+            return false;
         }
         true
     }
