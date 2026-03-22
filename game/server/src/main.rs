@@ -30,8 +30,6 @@ use std::{
     time::Duration,
 };
 
-use crate::game_manager::GameVanish;
-
 extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
@@ -81,9 +79,11 @@ impl fuiz::session::Tunnel for Session {
 
 struct AppState {
     game_manager: GameManager,
+    settings: fuiz::settings::Settings,
 }
 
 #[derive(serde::Deserialize, Validate)]
+#[garde(context(fuiz::settings::Settings))]
 struct GameRequest {
     #[garde(dive)]
     config: Fuiz,
@@ -92,20 +92,26 @@ struct GameRequest {
 }
 
 #[post("/add")]
-async fn add(data: Data<AppState>, request: garde_actix_web::web::Json<GameRequest>) -> impl Responder {
-    let GameRequest { config, options } = request.into_inner();
+async fn add(data: Data<AppState>, request: web::Json<GameRequest>) -> impl Responder {
+    let request = request.into_inner();
+
+    if let Err(e) = request.validate_with(&data.settings) {
+        return HttpResponse::BadRequest().body(e.to_string());
+    }
+
+    let GameRequest { config, options } = request;
 
     let host_id = Id::new();
-    let game_id = data.game_manager.add_game(config, options, host_id);
+    let game_id = data.game_manager.add_game(config, options, host_id, &data.settings);
 
     // Stale Detection
     actix_web::rt::spawn(async move {
         loop {
             actix_web::rt::time::sleep(Duration::from_secs(60)).await;
             match data.game_manager.is_game_done(game_id) {
-                Ok(false) => continue,
+                Ok(false) => {}
                 Ok(true) => {
-                    info!("clearing, {}", game_id);
+                    info!("clearing, {game_id}");
                     data.game_manager.remove_game(game_id);
                 }
                 _ => break,
@@ -113,10 +119,10 @@ async fn add(data: Data<AppState>, request: garde_actix_web::web::Json<GameReque
         }
     });
 
-    Ok::<_, GameVanish>(web::Json(json!({
+    HttpResponse::Ok().json(json!({
         "game_id": game_id,
         "watcher_id": host_id
-    })))
+    }))
 }
 
 #[get("/alive/{game_id}")]
@@ -151,6 +157,7 @@ fn websocket_heartbeat_verifier(mut session: actix_ws::Session) -> impl Fn(bytes
 }
 
 #[get("/watch/{game_id}/{watcher_id}")]
+#[allow(clippy::too_many_lines)]
 async fn watch(
     data: web::Data<AppState>,
     req: HttpRequest,
@@ -172,7 +179,7 @@ async fn watch(
     actix_web::rt::spawn(async move {
         let schedule_thread = data_thread.clone();
 
-        let schedule_message: Arc<OnceLock<MessageScheduler>> = Default::default();
+        let schedule_message: Arc<OnceLock<MessageScheduler>> = Arc::default();
 
         let thread_schedule_message = schedule_message.clone();
 
@@ -183,8 +190,8 @@ async fn watch(
                 actix_web::rt::time::sleep(duration).await;
                 let _ = schedule_thread
                     .game_manager
-                    .receive_alarm(game_id, alarm_message, |alarm, duration| {
-                        schedule_message.get().expect("schedule is unintialized")(alarm, duration)
+                    .receive_alarm(game_id, &alarm_message, |alarm, duration| {
+                        schedule_message.get().expect("schedule is unintialized")(alarm, duration);
                     });
             });
         };
@@ -255,7 +262,7 @@ async fn watch(
                                             |alarm, duration| {
                                                 schedule_message.get().expect("schedule is unintialized")(
                                                     alarm, duration,
-                                                )
+                                                );
                                             },
                                         );
                                     });
@@ -271,7 +278,7 @@ async fn watch(
         if let Some(watcher_id) = watcher_id {
             data.game_manager.remove_tunnel(watcher_id);
 
-            let _ = data.game_manager.remove_watcher_session(watcher_id);
+            data.game_manager.remove_watcher_session(watcher_id);
         }
         session.close(None).await.ok();
     });
@@ -283,8 +290,11 @@ async fn watch(
 async fn main() -> std::io::Result<()> {
     pretty_env_logger::init();
 
+    let settings = fuiz::settings::Settings::default();
+
     let app_state = web::Data::new(AppState {
         game_manager: GameManager::default(),
+        settings,
     });
 
     HttpServer::new(move || {

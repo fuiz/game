@@ -25,11 +25,10 @@ use crate::{
 };
 
 use super::{
-    super::constants::type_answer::*,
     super::game::IncomingPlayerMessage,
     common::{
         AnswerHandler, QuestionReceiveMessage, SlideStateManager, SlideTimer, add_scores_to_leaderboard,
-        all_players_answered, get_answered_count, validate_duration,
+        all_players_answered, get_answered_count,
     },
     media::Media,
 };
@@ -42,28 +41,29 @@ pub use super::common::SlideState;
 /// Contains all the settings and content for a single type answer question,
 /// including the question text, media, timing, and acceptable answers.
 #[derive(Debug, Clone, Serialize, serde::Deserialize, Validate)]
+#[garde(context(crate::settings::Settings as ctx))]
 pub struct SlideConfig {
     /// The question title, represents what's being asked
-    #[garde(length(chars, min = MIN_TITLE_LENGTH, max = MAX_TITLE_LENGTH))]
+    #[garde(length(chars, min = ctx.question.min_title_length, max = ctx.question.max_title_length))]
     title: String,
     /// Accompanying media
     #[garde(dive)]
     media: Option<Media>,
     /// Time before the answers are displayed
-    #[garde(custom(validate_duration::<MIN_INTRODUCE_QUESTION, MAX_INTRODUCE_QUESTION>))]
+    #[garde(custom(|val, ctx: &crate::settings::Settings| ctx.question.validate_introduce_question(val)))]
     #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
     #[serde(default)]
     introduce_question: Duration,
     /// Time where players can answer the question
-    #[garde(custom(validate_duration::<MIN_TIME_LIMIT, MAX_TIME_LIMIT>))]
+    #[garde(custom(|val, ctx: &crate::settings::Settings| ctx.question.validate_time_limit(val)))]
     #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
     time_limit: Duration,
     /// Maximum number of points awarded the question, decreases linearly to half the amount by the end of the slide
     #[garde(skip)]
     points_awarded: u64,
     /// List of acceptable text answers for this question
-    #[garde(length(max = MAX_ANSWER_COUNT),
-        inner(length(chars, max = crate::constants::answer_text::MAX_LENGTH))
+    #[garde(length(max = ctx.type_answer.max_answer_count),
+        inner(length(chars, max = ctx.answer_text.max_length))
     )]
     answers: Vec<String>,
     /// Whether answer matching should be case-sensitive

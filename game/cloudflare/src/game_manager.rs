@@ -86,8 +86,6 @@ impl DurableObject for GameManager {
                         }
 
                         break Response::from_json(&random_game_id);
-                    } else {
-                        continue;
                     }
                 }
             }

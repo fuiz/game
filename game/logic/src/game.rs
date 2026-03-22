@@ -51,6 +51,7 @@ pub enum State {
 ///
 /// This struct defines how teams are formed and managed within a game session.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Validate)]
+#[garde(context(crate::settings::Settings))]
 pub struct TeamOptions {
     /// Maximum initial size for teams
     #[garde(range(min = 1, max = 5))]
@@ -65,6 +66,7 @@ pub struct TeamOptions {
 /// These options affect the overall behavior of the game, including
 /// name generation, answer visibility, leaderboard display, and team formation.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Default, Validate)]
+#[garde(context(crate::settings::Settings))]
 pub struct Options {
     /// Style for automatically generated player names (None means players choose their own)
     #[garde(dive)]
@@ -512,16 +514,17 @@ impl Game {
     /// use fuiz::game::{Game, Options};
     /// use fuiz::fuiz::config::Fuiz;
     /// use fuiz::watcher::Id;
+    /// use fuiz::settings::Settings;
     ///
     /// let host_id = Id::new();
     /// let options = Options::default();
     /// let fuiz_config = Fuiz::default();
-    /// let game = Game::new(fuiz_config, options, host_id);
+    /// let game = Game::new(fuiz_config, options, host_id, &Settings::default());
     /// ```
-    pub fn new(fuiz: Fuiz, options: Options, host_id: Id) -> Self {
+    pub fn new(fuiz: Fuiz, options: Options, host_id: Id, settings: &crate::settings::Settings) -> Self {
         Self {
             fuiz_config: fuiz,
-            watchers: Watchers::with_host_id(host_id),
+            watchers: Watchers::with_host_id(host_id, settings.fuiz.max_player_count),
             names: Names::default(),
             leaderboard: Leaderboard::default(),
             state: State::WaitingScreen,
@@ -1307,6 +1310,10 @@ mod tests {
     use super::*;
     use serde_json;
 
+    fn test_settings() -> crate::settings::Settings {
+        crate::settings::Settings::default()
+    }
+
     #[test]
     fn test_state_serialization() {
         let waiting_state = State::WaitingScreen;
@@ -1344,13 +1351,13 @@ mod tests {
             size: 3,
             assign_random: false,
         };
-        assert!(valid_config.validate().is_ok());
+        assert!(valid_config.validate_with(&test_settings()).is_ok());
 
         let invalid_config = TeamOptions {
             size: 0, // Should be invalid
             assign_random: true,
         };
-        assert!(invalid_config.validate().is_err());
+        assert!(invalid_config.validate_with(&test_settings()).is_err());
     }
 
     #[test]
@@ -1436,7 +1443,7 @@ mod tests {
         };
         let host_id = crate::watcher::Id::new();
 
-        let game = Game::new(fuiz, options, host_id);
+        let game = Game::new(fuiz, options, host_id, &test_settings());
 
         assert!(matches!(game.state, State::WaitingScreen));
         assert!(!game.locked);
@@ -1460,7 +1467,7 @@ mod tests {
         };
         let host_id = crate::watcher::Id::new();
 
-        let game = Game::new(fuiz, options, host_id);
+        let game = Game::new(fuiz, options, host_id, &test_settings());
 
         assert!(matches!(game.state, State::WaitingScreen));
         assert!(!game.locked);
@@ -1474,7 +1481,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         assert!(matches!(game.state, State::WaitingScreen));
 
@@ -1490,7 +1497,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let game = Game::new(fuiz, options, host_id);
+        let game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let leaderboard_id = game.leaderboard_id(player_id);
@@ -1510,7 +1517,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let game = Game::new(fuiz, options, host_id);
+        let game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let leaderboard_id = game.leaderboard_id(player_id);
@@ -1524,7 +1531,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let game = Game::new(fuiz, options, host_id);
+        let game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let score = game.score(player_id);
@@ -1537,7 +1544,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let game = Game::new(fuiz, options, host_id);
+        let game = Game::new(fuiz, options, host_id, &test_settings());
 
         let debug_string = format!("{game:?}");
         assert!(debug_string.contains("Game"));
@@ -1596,7 +1603,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let unassigned_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -1619,7 +1626,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -1642,7 +1649,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
 
@@ -1672,7 +1679,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
         let mut schedule_called = false;
@@ -1692,7 +1699,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
@@ -1712,7 +1719,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let game = Game::new(fuiz, options, host_id);
+        let game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
@@ -1757,7 +1764,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player1 = crate::watcher::Id::new();
         let player2 = crate::watcher::Id::new();
@@ -1791,7 +1798,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let unassigned_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -1822,7 +1829,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -1849,7 +1856,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let nonexistent_id = crate::watcher::Id::new();
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
@@ -1870,7 +1877,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let unassigned_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -1895,7 +1902,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player1 = crate::watcher::Id::new();
         let player2 = crate::watcher::Id::new();
@@ -1931,7 +1938,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player1 = crate::watcher::Id::new();
         let player2 = crate::watcher::Id::new();
@@ -1964,7 +1971,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default(); // leaderboard enabled by default
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
@@ -1993,7 +2000,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
@@ -2012,7 +2019,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
@@ -2030,7 +2037,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let tunnel = MockTunnel::new();
         let tunnel_finder = |id: crate::watcher::Id| {
@@ -2056,7 +2063,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -2077,7 +2084,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let unassigned_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -2110,7 +2117,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         // Set state to TeamDisplay
         game.state = State::TeamDisplay;
@@ -2135,7 +2142,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         // Set state to TeamDisplay
         game.state = State::TeamDisplay;
@@ -2161,7 +2168,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         // Set state to Done
         game.state = State::Done;
@@ -2179,7 +2186,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         // Set state to Done
         game.state = State::Done;
@@ -2200,7 +2207,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         // Start game to get to a slide
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
@@ -2232,7 +2239,7 @@ mod tests {
 
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
@@ -2316,7 +2323,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let game = Game::new(fuiz, options, host_id);
+        let game = Game::new(fuiz, options, host_id, &test_settings());
 
         assert!(game.options.show_answers);
 
@@ -2354,7 +2361,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player1 = crate::watcher::Id::new();
         let player2 = crate::watcher::Id::new();
@@ -2389,7 +2396,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -2419,7 +2426,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -2490,7 +2497,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
@@ -2554,7 +2561,7 @@ mod tests {
         let fuiz: crate::fuiz::config::Fuiz = serde_json::from_str(multi_slide_fuiz_json).unwrap();
         let options = Options::default(); // Leaderboard enabled
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
@@ -2587,7 +2594,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let unassigned_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -2622,7 +2629,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let unassigned_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -2653,7 +2660,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player1 = crate::watcher::Id::new();
         let player2 = crate::watcher::Id::new();
@@ -2697,7 +2704,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player1 = crate::watcher::Id::new();
         let player2 = crate::watcher::Id::new();
@@ -2729,7 +2736,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         // Set to leaderboard state
         game.state = State::Leaderboard(0);
@@ -2748,7 +2755,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         // Set to leaderboard state
         game.state = State::Leaderboard(0);
@@ -2768,7 +2775,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         // Set to done state
         game.state = State::Done;
@@ -2790,7 +2797,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         // Set to done state
         game.state = State::Done;
@@ -2812,7 +2819,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let nonexistent_id = crate::watcher::Id::new();
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
@@ -2826,7 +2833,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -2853,7 +2860,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -2891,7 +2898,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player1 = crate::watcher::Id::new();
         let player2 = crate::watcher::Id::new();
@@ -2930,7 +2937,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let game = Game::new(fuiz, options, host_id);
+        let game = Game::new(fuiz, options, host_id, &test_settings());
 
         // Test that Game can be serialized (since it derives Serialize)
         let json = serde_json::to_string(&game).unwrap();
@@ -2951,7 +2958,7 @@ mod tests {
             size: 10, // Above max of 5
             assign_random: false,
         };
-        assert!(invalid_large.validate().is_err());
+        assert!(invalid_large.validate_with(&test_settings()).is_err());
     }
 
     #[test]
@@ -2967,7 +2974,7 @@ mod tests {
                 assign_random: true,
             }),
         };
-        assert!(valid_options.validate().is_ok());
+        assert!(valid_options.validate_with(&test_settings()).is_ok());
 
         let invalid_options = Options {
             random_names: Some(crate::names::NameStyle::default()),
@@ -2978,7 +2985,7 @@ mod tests {
                 assign_random: true,
             }),
         };
-        assert!(invalid_options.validate().is_err());
+        assert!(invalid_options.validate_with(&test_settings()).is_err());
     }
 
     #[test]
@@ -2986,7 +2993,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player1 = crate::watcher::Id::new();
         let player2 = crate::watcher::Id::new();
@@ -3016,7 +3023,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -3039,7 +3046,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
@@ -3064,7 +3071,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         // Keep game in WaitingScreen state
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
@@ -3088,7 +3095,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
@@ -3111,7 +3118,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default(); // No teams
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -3132,7 +3139,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -3162,7 +3169,7 @@ mod tests {
             ..Default::default()
         };
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let unassigned_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();
@@ -3187,7 +3194,7 @@ mod tests {
         let fuiz = create_test_fuiz();
         let options = Options::default();
         let host_id = crate::watcher::Id::new();
-        let mut game = Game::new(fuiz, options, host_id);
+        let mut game = Game::new(fuiz, options, host_id, &test_settings());
 
         let player_id = crate::watcher::Id::new();
         let tunnel = MockTunnel::new();

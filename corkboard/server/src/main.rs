@@ -15,7 +15,7 @@ struct AppState {
 
 #[get("/get/{media_id}")]
 async fn get_full(data: web::Data<AppState>, path: web::Path<MediaId>) -> impl Responder {
-    match data.storage.retrieve(&path.into_inner()) {
+    match data.storage.retrieve(path.into_inner()) {
         Some((bytes, content_type)) => Ok(HttpResponse::build(StatusCode::OK)
             .content_type(content_type)
             .body(bytes)),
@@ -76,7 +76,7 @@ async fn upload(data: web::Data<AppState>, image_upload: MultipartForm<ImageUplo
 
     actix_web::rt::spawn(async move {
         actix_web::rt::time::sleep(std::time::Duration::from_hours(1)).await;
-        data.storage.delete(&media_id);
+        data.storage.delete(media_id);
     });
 
     Ok::<actix_web::web::Json<MediaId>, ImageDecodingError>(web::Json(media_id))

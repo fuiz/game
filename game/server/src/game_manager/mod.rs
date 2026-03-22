@@ -69,8 +69,8 @@ impl GameManager {
         self.games[game_id].with_game_mut(f).ok_or(GameVanish {})
     }
 
-    pub fn add_game(&self, fuiz: Fuiz, options: Options, host_id: Id) -> GameId {
-        let shared_game = Box::new(Game::new(fuiz, options, host_id));
+    pub fn add_game(&self, fuiz: Fuiz, options: Options, host_id: Id, settings: &fuiz::settings::Settings) -> GameId {
+        let shared_game = Box::new(Game::new(fuiz, options, host_id, settings));
 
         loop {
             let game_id = GameId::new();
@@ -129,17 +129,16 @@ impl GameManager {
     pub fn receive_alarm<F: Fn(AlarmMessage, Duration)>(
         &self,
         game_id: GameId,
-        alarm_message: AlarmMessage,
+        alarm_message: &AlarmMessage,
         schedule_message: F,
     ) -> Result<(), GameVanish> {
         self.with_game_mut(game_id, |game| {
-            game.receive_alarm(&alarm_message, schedule_message, |id| self.tunnel_finder(id));
+            game.receive_alarm(alarm_message, schedule_message, |id| self.tunnel_finder(id));
         })
     }
 
-    pub fn remove_watcher_session(&self, watcher_id: Id) -> Result<(), GameVanish> {
+    pub fn remove_watcher_session(&self, watcher_id: Id) {
         fuiz::watcher::Watchers::remove_watcher_session(watcher_id, |id| self.tunnel_finder(id));
-        Ok(())
     }
 
     pub fn exists(&self, game_id: GameId) -> Result<(), GameVanish> {

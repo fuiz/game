@@ -7,6 +7,9 @@ use worker::*;
 const IMAGE_EXPIRATION: std::time::Duration = std::time::Duration::from_hours(24);
 
 /// Handles incoming fetch events.
+///
+/// # Errors
+/// Returns a [`worker::Error`] if the request cannot be processed.
 #[event(fetch)]
 pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Response> {
     let router = Router::new();
@@ -62,10 +65,7 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
                 Ok(frames) => frames,
                 Err(e) => {
                     return Response::error(
-                        format!(
-                            "Failed to decode image format, please use a supported format. Internal error: {}",
-                            e
-                        ),
+                        format!("Failed to decode image format, please use a supported format. Internal error: {e}"),
                         400,
                     );
                 }

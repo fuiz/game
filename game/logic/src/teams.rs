@@ -553,7 +553,7 @@ mod tests {
     fn test_team_distribution(num_players: usize, optimal_size: usize, team_sizes: &[usize]) {
         let mut manager = TeamManager::new(optimal_size, false, NameStyle::default());
         let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
         let mut names = names::Names::default();
         let tunnel = |_id| Some(MockTunnel {});
 
@@ -709,7 +709,7 @@ mod tests {
     fn test_team_names() {
         let mut manager = TeamManager::new(2, false, NameStyle::default());
         let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
         let mut names = names::Names::default();
         let tunnel = |_id| Some(MockTunnel {});
 
@@ -740,7 +740,7 @@ mod tests {
     fn test_add_player_after_finalization() {
         let mut manager = TeamManager::new(2, false, NameStyle::default());
         let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
         let mut names = names::Names::default();
         let tunnel = |_id| Some(MockTunnel {});
 
@@ -779,7 +779,7 @@ mod tests {
     fn test_add_player_already_assigned() {
         let mut manager = TeamManager::new(2, false, NameStyle::default());
         let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
         let mut names = names::Names::default();
         let tunnel = |_id| Some(MockTunnel {});
 
@@ -806,7 +806,7 @@ mod tests {
     fn test_team_index() {
         let mut manager = TeamManager::new(3, false, NameStyle::default());
         let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
         let mut names = names::Names::default();
         let tunnel = |_id| Some(MockTunnel {});
 
@@ -842,7 +842,7 @@ mod tests {
     fn test_team_index_player_filtered_out() {
         let mut manager = TeamManager::new(4, false, NameStyle::default());
         let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
         let mut names = names::Names::default();
         let tunnel = |_id| Some(MockTunnel {});
 
@@ -876,7 +876,7 @@ mod tests {
         assert_eq!(manager.all_ids(), Vec::<Id>::new());
 
         let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
         let mut names = names::Names::default();
         let tunnel = |_id| Some(MockTunnel {});
 
@@ -904,7 +904,7 @@ mod tests {
     fn test_preferences_with_mutual_preferences() {
         let mut manager = TeamManager::new(4, false, NameStyle::default());
         let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
         let mut names = names::Names::default();
         let tunnel = |_id| Some(MockTunnel {});
 
@@ -938,7 +938,7 @@ mod tests {
     fn test_complex_team_formation_with_preferences() {
         let mut manager = TeamManager::new(3, false, NameStyle::default());
         let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
         let mut names = names::Names::default();
         let tunnel = |_id| Some(MockTunnel {});
 
@@ -977,7 +977,7 @@ mod tests {
     fn test_single_player_teams_consolidation() {
         let mut manager = TeamManager::new(2, false, NameStyle::default());
         let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
         let mut names = names::Names::default();
         let tunnel = |_id| Some(MockTunnel {});
 
@@ -1013,7 +1013,7 @@ mod tests {
     fn test_empty_teams_edge_case() {
         let mut manager = TeamManager::new(2, false, NameStyle::default());
         let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
         let mut names = names::Names::default();
         let tunnel = |_id| Some(MockTunnel {});
 
@@ -1027,7 +1027,7 @@ mod tests {
     fn test_add_player_before_finalization() {
         let mut manager = TeamManager::new(2, false, NameStyle::default());
         let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
         let player = Id::new();
 
         watchers
@@ -1047,7 +1047,7 @@ mod tests {
     fn test_single_team_consolidation() {
         let mut manager = TeamManager::new(3, false, NameStyle::default());
         let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
         let mut names = names::Names::default();
         let tunnel = |_id| Some(MockTunnel {});
 
@@ -1088,7 +1088,7 @@ mod tests {
     fn test_single_member_team_consolidation() {
         let mut manager = TeamManager::new(4, false, NameStyle::default());
         let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
         let mut names = names::Names::default();
         let tunnel = |_id| Some(MockTunnel {});
 
@@ -1138,7 +1138,7 @@ mod tests {
         // This test covers when the closing brace when teams are already finalized
         let mut manager = TeamManager::new(2, false, NameStyle::default());
         let host_id = Id::new();
-        let mut watchers = Watchers::with_host_id(host_id);
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
         let mut names = names::Names::default();
         let tunnel = |_id| Some(MockTunnel {});
 
@@ -1615,7 +1615,7 @@ mod tests {
         fn test_assign_all_players_to_teams_empty_teams() {
             let mut manager = TeamManager::new(3, false, NameStyle::default());
             let host_id = Id::new();
-            let mut watchers = Watchers::with_host_id(host_id);
+            let mut watchers = Watchers::with_host_id(host_id, 1000);
             let names = names::Names::default();
 
             let teams = vec![];
@@ -1630,7 +1630,7 @@ mod tests {
         fn test_assign_all_players_to_teams_single_team() {
             let mut manager = TeamManager::new(3, false, NameStyle::default());
             let host_id = Id::new();
-            let mut watchers = Watchers::with_host_id(host_id);
+            let mut watchers = Watchers::with_host_id(host_id, 1000);
             let names = names::Names::default();
 
             let player1 = Id::new();
@@ -1666,7 +1666,7 @@ mod tests {
         fn test_assign_all_players_to_teams_multiple_teams() {
             let mut manager = TeamManager::new(2, false, NameStyle::default());
             let host_id = Id::new();
-            let mut watchers = Watchers::with_host_id(host_id);
+            let mut watchers = Watchers::with_host_id(host_id, 1000);
             let names = names::Names::default();
 
             let player1 = Id::new();
@@ -1714,7 +1714,7 @@ mod tests {
         fn test_assign_all_players_to_teams_single_player_teams() {
             let mut manager = TeamManager::new(3, false, NameStyle::default());
             let host_id = Id::new();
-            let mut watchers = Watchers::with_host_id(host_id);
+            let mut watchers = Watchers::with_host_id(host_id, 1000);
             let names = names::Names::default();
 
             let player1 = Id::new();
@@ -1758,7 +1758,7 @@ mod tests {
         fn test_assign_all_players_to_teams_updates_watchers() {
             let mut manager = TeamManager::new(2, false, NameStyle::default());
             let host_id = Id::new();
-            let mut watchers = Watchers::with_host_id(host_id);
+            let mut watchers = Watchers::with_host_id(host_id, 1000);
             let mut names = names::Names::default();
 
             let player1 = Id::new();
@@ -1808,7 +1808,7 @@ mod tests {
         fn test_assign_all_players_to_teams_empty_team() {
             let mut manager = TeamManager::new(3, false, NameStyle::default());
             let host_id = Id::new();
-            let mut watchers = Watchers::with_host_id(host_id);
+            let mut watchers = Watchers::with_host_id(host_id, 1000);
             let names = names::Names::default();
 
             let team_id = Id::new();

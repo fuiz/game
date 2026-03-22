@@ -22,6 +22,7 @@ use super::watcher::Id;
 /// When random names are enabled, this enum determines what type of
 /// names are generated for players who don't choose their own names.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, garde::Validate)]
+#[garde(context(crate::settings::Settings))]
 pub enum NameStyle {
     /// Roman-style names (praenomen + nomen, optionally + cognomen)
     Roman(#[garde(range(min = 2, max = 3))] usize),

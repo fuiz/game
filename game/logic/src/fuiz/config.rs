@@ -28,11 +28,12 @@ impl<T: FnOnce(AlarmMessage, std::time::Duration)> ScheduleMessageFn for T {}
 /// This enum allows questions and answers to include either plain text
 /// or rich media content like images, providing flexibility in question design.
 #[derive(Debug, Serialize, Deserialize, Clone, Validate)]
+#[garde(context(crate::settings::Settings as ctx))]
 pub enum TextOrMedia {
     /// Media content (images, etc.)
     Media(#[garde(skip)] Media),
     /// Plain text content with length validation
-    Text(#[garde(length(max = crate::constants::answer_text::MAX_LENGTH))] String),
+    Text(#[garde(length(max = ctx.answer_text.max_length))] String),
 }
 
 /// A complete Fuiz configuration containing all questions and settings
@@ -40,13 +41,14 @@ pub enum TextOrMedia {
 /// This is the main configuration structure that defines an entire quiz game,
 /// including the title and all slides/questions that will be presented to players.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, Validate)]
+#[garde(context(crate::settings::Settings as ctx))]
 pub struct Fuiz {
     /// The title of the Fuiz game (currently unused in gameplay)
-    #[garde(length(max = crate::constants::fuiz::MAX_TITLE_LENGTH))]
+    #[garde(length(max = ctx.fuiz.max_title_length))]
     pub title: String,
 
     /// The collection of slides/questions in the game
-    #[garde(length(max = crate::constants::fuiz::MAX_SLIDES_COUNT), dive)]
+    #[garde(length(max = ctx.fuiz.max_slides_count), dive)]
     pub slides: Vec<SlideConfig>,
 }
 
@@ -68,6 +70,7 @@ pub struct CurrentSlide {
 /// included in a Fuiz game. Each variant contains the specific configuration
 /// for that question type, including timing, content, and scoring parameters.
 #[derive(Debug, Serialize, Deserialize, Clone, Validate)]
+#[garde(context(crate::settings::Settings as ctx))]
 pub enum SlideConfig {
     /// A multiple choice question with predefined answer options
     MultipleChoice(#[garde(dive)] multiple_choice::SlideConfig),
@@ -451,7 +454,7 @@ mod tests {
     }
 
     fn create_mock_watchers() -> Watchers {
-        Watchers::default()
+        Watchers::new(1000)
     }
 
     fn create_mock_tunnel_finder() -> impl Fn(Id) -> Option<MockTunnel> {
@@ -712,7 +715,7 @@ mod tests {
         assert!(valid_text.validate().is_ok());
 
         // Text too long
-        let long_text = TextOrMedia::Text("x".repeat(crate::constants::answer_text::MAX_LENGTH + 1));
+        let long_text = TextOrMedia::Text("x".repeat(crate::settings::AnswerTextSettings::default().max_length + 1));
         assert!(long_text.validate().is_err());
     }
 
