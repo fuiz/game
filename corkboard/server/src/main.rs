@@ -1,25 +1,19 @@
 use actix_multipart::form::{MultipartForm, MultipartFormConfig};
-use actix_web::{
-    App, HttpResponse, HttpServer, Responder, error::ErrorNotFound, get, http::StatusCode, post,
-    web,
-};
+use actix_web::{App, HttpResponse, HttpServer, Responder, error::ErrorNotFound, get, http::StatusCode, post, web};
 use image::ImageError;
-use media_manager::{MediaId, MediaManager};
-use storage::Memory;
+use storage::{MediaId, Memory};
 use thiserror::Error;
 
-mod codec;
-mod media_manager;
 mod storage;
 
 #[derive(Default)]
 struct AppState {
-    media_manager: MediaManager<Memory<MediaId>>,
+    storage: Memory,
 }
 
 #[get("/get/{media_id}")]
 async fn get_full(data: web::Data<AppState>, path: web::Path<MediaId>) -> impl Responder {
-    match data.media_manager.retrieve(path.into_inner()) {
+    match data.storage.retrieve(&path.into_inner()) {
         Some((bytes, content_type)) => Ok(HttpResponse::build(StatusCode::OK)
             .content_type(content_type)
             .body(bytes)),
@@ -40,7 +34,7 @@ enum ImageDecodingError {
     #[error("image decoding error")]
     ImageError(#[from] ImageError),
     #[error("encoding error")]
-    EncodingError(#[from] png::EncodingError),
+    EncodingError(#[from] corkboard::png::EncodingError),
 }
 
 impl actix_web::error::ResponseError for ImageDecodingError {}
@@ -55,10 +49,7 @@ async fn thumbnail(image_upload: MultipartForm<ImageUpload>) -> impl Responder {
         .resize(400, 400, image::imageops::FilterType::Nearest);
 
     let mut thumbnail_bytes: Vec<u8> = Vec::new();
-    decoded_image.write_to(
-        &mut std::io::Cursor::new(&mut thumbnail_bytes),
-        image::ImageFormat::Png,
-    )?;
+    decoded_image.write_to(&mut std::io::Cursor::new(&mut thumbnail_bytes), image::ImageFormat::Png)?;
 
     Ok::<HttpResponse, ImageDecodingError>(
         HttpResponse::build(StatusCode::OK)
@@ -68,25 +59,22 @@ async fn thumbnail(image_upload: MultipartForm<ImageUpload>) -> impl Responder {
 }
 
 #[post("/upload")]
-async fn upload(
-    data: web::Data<AppState>,
-    image_upload: MultipartForm<ImageUpload>,
-) -> impl Responder {
+async fn upload(data: web::Data<AppState>, image_upload: MultipartForm<ImageUpload>) -> impl Responder {
     let ImageUpload { image } = image_upload.into_inner();
 
     let (bytes, content_type) = {
-        let frames = codec::read_image_as_frames(&image.data)?;
-        let bytes = codec::encode_frames_as_png(frames)?;
+        let frames = corkboard::read_image_as_frames(&image.data)?;
+        let bytes = corkboard::encode_frames_as_png(frames)?;
         (bytes, mime::IMAGE_PNG)
     };
 
-    let media_id = data
-        .media_manager
-        .store(actix_web::web::Bytes::from(bytes), content_type);
+    let media_id = MediaId::new();
+    data.storage
+        .store(media_id, actix_web::web::Bytes::from(bytes), content_type);
 
     actix_web::rt::spawn(async move {
         actix_web::rt::time::sleep(std::time::Duration::from_hours(1)).await;
-        data.media_manager.delete(media_id);
+        data.storage.delete(&media_id);
     });
 
     Ok::<actix_web::web::Json<MediaId>, ImageDecodingError>(web::Json(media_id))

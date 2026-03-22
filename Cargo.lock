@@ -645,14 +645,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "corkboard-cloudflare"
+name = "corkboard"
 version = "0.1.0"
 dependencies = [
- "getrandom 0.4.2",
- "http 1.4.0",
  "image",
  "num-integer",
  "png",
+]
+
+[[package]]
+name = "corkboard-cloudflare"
+version = "0.1.0"
+dependencies = [
+ "corkboard",
+ "getrandom 0.4.2",
+ "http 1.4.0",
+ "image",
  "serde",
  "serde-hex",
  "serde_json",
@@ -667,12 +675,11 @@ dependencies = [
  "actix-cors",
  "actix-multipart",
  "actix-web",
+ "corkboard",
  "dashmap",
  "getrandom 0.4.2",
  "image",
  "mime",
- "num-integer",
- "png",
  "pretty_env_logger",
  "serde",
  "serde-hex",

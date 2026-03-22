@@ -1,6 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["game/logic", "game/server", "game/cloudflare", "corkboard/server", "corkboard/cloudflare"]
+members = [
+    "game/logic",
+    "game/server",
+    "game/cloudflare",
+    "corkboard/logic",
+    "corkboard/server",
+    "corkboard/cloudflare",
+]
 
 [workspace.package]
 version = "0.1.0"
