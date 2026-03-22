@@ -89,10 +89,7 @@ struct GameRequest {
 }
 
 #[post("/add")]
-async fn add(
-    data: Data<AppState>,
-    request: garde_actix_web::web::Json<GameRequest>,
-) -> impl Responder {
+async fn add(data: Data<AppState>, request: garde_actix_web::web::Json<GameRequest>) -> impl Responder {
     let GameRequest { config, options } = request.into_inner();
 
     let host_id = Id::new();
@@ -121,10 +118,7 @@ async fn add(
 
 #[get("/alive/{game_id}")]
 async fn alive(data: web::Data<AppState>, game_id: web::Path<GameId>) -> impl Responder {
-    data.game_manager
-        .exists(game_id.into_inner())
-        .is_ok()
-        .to_string()
+    data.game_manager.exists(game_id.into_inner()).is_ok().to_string()
 }
 
 fn websocket_heartbeat_verifier(mut session: actix_ws::Session) -> impl Fn(bytes::Bytes) -> bool {
@@ -184,13 +178,11 @@ async fn watch(
             let schedule_message = thread_schedule_message.clone();
             actix_web::rt::spawn(async move {
                 actix_web::rt::time::sleep(duration).await;
-                let _ = schedule_thread.game_manager.receive_alarm(
-                    game_id,
-                    alarm_message,
-                    |alarm, duration| {
+                let _ = schedule_thread
+                    .game_manager
+                    .receive_alarm(game_id, alarm_message, |alarm, duration| {
                         schedule_message.get().expect("schedule is unintialized")(alarm, duration)
-                    },
-                );
+                    });
             });
         };
 
@@ -220,18 +212,11 @@ async fn watch(
                         match watcher_id {
                             None => match message {
                                 IncomingMessage::Ghost(IncomingGhostMessage::ClaimId(id))
-                                    if matches!(
-                                        data_thread.game_manager.watcher_exists(game_id, id),
-                                        Ok(true)
-                                    ) =>
+                                    if matches!(data_thread.game_manager.watcher_exists(game_id, id), Ok(true)) =>
                                 {
                                     data_thread.game_manager.set_tunnel(id, own_session.clone());
 
-                                    if data_thread
-                                        .game_manager
-                                        .update_session(game_id, id)
-                                        .is_err()
-                                    {
+                                    if data_thread.game_manager.update_session(game_id, id).is_err() {
                                         break;
                                     }
 
@@ -241,12 +226,9 @@ async fn watch(
                                     let new_id = Id::new();
                                     watcher_id = Some(new_id);
 
-                                    own_session
-                                        .send_message(&UpdateMessage::IdAssign(new_id).into());
+                                    own_session.send_message(&UpdateMessage::IdAssign(new_id).into());
 
-                                    data_thread
-                                        .game_manager
-                                        .set_tunnel(new_id, own_session.clone());
+                                    data_thread.game_manager.set_tunnel(new_id, own_session.clone());
 
                                     match data_thread.game_manager.add_unassigned(game_id, new_id) {
                                         Err(_) | Ok(Err(_)) => {
@@ -268,9 +250,7 @@ async fn watch(
                                             watcher_id,
                                             message,
                                             |alarm, duration| {
-                                                schedule_message
-                                                    .get()
-                                                    .expect("schedule is unintialized")(
+                                                schedule_message.get().expect("schedule is unintialized")(
                                                     alarm, duration,
                                                 )
                                             },

@@ -1,65 +1,48 @@
-# Fuiz
+# Fuiz Server
 
-Host live quizzes freely
+Self-hostable game server built with actix-web.
 
-<img src="https://gitlab.com/fuiz/website/-/raw/main/static/favicon.svg?ref_type=heads" width="128" height="128" alt="Fuiz icon">
-
-[![License](https://img.shields.io/gitlab/license/fuiz/game-server?style=for-the-badge)](https://gitlab.com/fuiz/game-server/-/raw/main/LICENSE)
-
-## Developing
-
-This is a self-hostable version of the backend component. It can be run with:
+## Running
 
 ```bash
-cargo run
+cargo run -p fuiz-server
 ```
 
-This will open a server listening to port 8080 (or the enviroment variable `PORT`).
+Listens on port 8080 (or the `PORT` environment variable).
 
-You can also pass the feature flag:
+To expose on the local network:
 
 ```bash
-cargo run --features expose-network
+cargo run -p fuiz-server --features expose-network
 ```
 
-This will open a server listening to local network as well. You can also set the environment variable `NETWORK_ORIGIN` to be the exposed URL in case you encounter CORS issues.
+Set `NETWORK_ORIGIN` to the exposed URL if you encounter CORS issues.
 
-### Creating a game
+## API
+
+### Create a game
 
 ```http
 POST /add
 ```
 
-| Parameter | Type          | Description                                                                                               |
-| :-------- | :------------ | :-------------------------------------------------------------------------------------------------------- |
-| `config`  | `FuizConfig`  | **Required**. Config as defined in [src/game_manager/fuiz/config.rs](src/game_manager/fuiz/config.rs#L31) |
-| `options` | `FuizOptions` | **Required**. Options as defined in [src/game_manager/game.rs](src/game_manager/game.rs#L41)              |
+| Parameter | Type          | Description        |
+| --------- | ------------- | ------------------ |
+| `config`  | `FuizConfig`  | Quiz configuration |
+| `options` | `FuizOptions` | Game options       |
 
-#### Response
+Returns `{ "game_id": string, "watcher_id": string }`.
 
-```javascript
-{
-  "game_id"    : string,
-  "watcher_id" : string
-}
-```
-
-### Checking if game is alive
+### Check if a game is alive
 
 ```http
 GET /alive/:gameid
 ```
 
-#### Response
+Returns `true` or `false`.
 
-```javascript
-true | false;
-```
-
-### Joining a game (using WS protocol)
+### Join a game (WebSocket)
 
 ```http
 GET /watch/:gameid
 ```
-
-This establishes a websocket connection.

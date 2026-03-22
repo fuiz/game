@@ -40,9 +40,7 @@ async fn start_instance(env: &Env, game_manager_instance: &GameManagerInstance) 
                 headers.append("content-type", "application/json")?;
                 headers
             },
-            body: Some(JsValue::from_str(&serde_json::to_string(
-                &game_manager_instance,
-            )?)),
+            body: Some(JsValue::from_str(&serde_json::to_string(&game_manager_instance)?)),
             ..RequestInit::default()
         },
     )?;
@@ -95,12 +93,10 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 created_at: chrono::Utc::now(),
             };
 
-            let game_id = start_instance(&ctx.env, &game_manager_instance)
-                .await
-                .map_err(|e| {
-                    console_error!("Error storing game instance: {:?}", e);
-                    Error::RustError("Failed to store game instance".to_string())
-                })?;
+            let game_id = start_instance(&ctx.env, &game_manager_instance).await.map_err(|e| {
+                console_error!("Error storing game instance: {:?}", e);
+                Error::RustError("Failed to store game instance".to_string())
+            })?;
 
             console_log!("Created game with ID: {}", game_id);
 

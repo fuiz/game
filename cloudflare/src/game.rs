@@ -123,9 +123,7 @@ fn get_serialized_game(game: &fuiz::game::Game) -> Result<Vec<u8>> {
 async fn store_game(storage: &mut worker::durable::Storage, game_bytes: &[u8]) -> Result<()> {
     let chunks_of_64kb = game_bytes
         .chunks(64 * 1024)
-        .map(|chunk| GameBytes {
-            bytes: chunk.to_vec(),
-        })
+        .map(|chunk| GameBytes { bytes: chunk.to_vec() })
         .collect::<Vec<_>>();
 
     storage.put("count", &chunks_of_64kb.len()).await?;
@@ -191,18 +189,14 @@ impl Game {
         store_game(&mut self.state.storage(), &game_bytes?).await?;
 
         if let Some((message, duration)) = alarm_message_duration {
-            self.alarm_message
-                .replace(Some(AlarmMessage::Game(message)));
+            self.alarm_message.replace(Some(AlarmMessage::Game(message)));
             self.state.storage().set_alarm(duration).await?;
         } else if self.state.storage().get_alarm().await.unwrap().is_none() {
             self.alarm_message.replace(Some(AlarmMessage::DeleteGame));
             self.state.storage().set_alarm(GAME_EXPIRY).await?;
         }
 
-        self.state
-            .storage()
-            .put("alarm", &self.alarm_message)
-            .await?;
+        self.state.storage().put("alarm", &self.alarm_message).await?;
 
         Ok(())
     }
@@ -316,11 +310,7 @@ impl DurableObject for Game {
         Response::from_websocket(client)
     }
 
-    async fn websocket_message(
-        &self,
-        ws: WebSocket,
-        message: WebSocketIncomingMessage,
-    ) -> Result<()> {
+    async fn websocket_message(&self, ws: WebSocket, message: WebSocketIncomingMessage) -> Result<()> {
         self.load_state().await;
 
         {
@@ -343,10 +333,7 @@ impl DurableObject for Game {
                         session.send_message(&game::UpdateMessage::IdAssign(watcher_id).into());
 
                         self.with_mut_game_update_storage(|game| {
-                            if game
-                                .add_unassigned(watcher_id, self.tunnel_finder())
-                                .is_err()
-                            {
+                            if game.add_unassigned(watcher_id, self.tunnel_finder()).is_err() {
                                 session.close();
                             }
                         })
@@ -372,17 +359,11 @@ impl DurableObject for Game {
                         self.with_mut_game_alarm_message_update_storage(|game| {
                             let mut alarm_message_duration = None;
 
-                            let schedule_message =
-                                |message: fuiz::AlarmMessage, duration: Duration| {
-                                    alarm_message_duration = Some((message, duration));
-                                };
+                            let schedule_message = |message: fuiz::AlarmMessage, duration: Duration| {
+                                alarm_message_duration = Some((message, duration));
+                            };
 
-                            game.receive_message(
-                                watcher_id,
-                                message,
-                                schedule_message,
-                                self.tunnel_finder(),
-                            );
+                            game.receive_message(watcher_id, message, schedule_message, self.tunnel_finder());
 
                             alarm_message_duration
                         })
@@ -426,13 +407,7 @@ impl DurableObject for Game {
         Ok(())
     }
 
-    async fn websocket_close(
-        &self,
-        _ws: WebSocket,
-        _code: usize,
-        _reason: String,
-        _was_clean: bool,
-    ) -> Result<()> {
+    async fn websocket_close(&self, _ws: WebSocket, _code: usize, _reason: String, _was_clean: bool) -> Result<()> {
         Ok(())
     }
 }

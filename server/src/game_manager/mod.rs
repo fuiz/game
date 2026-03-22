@@ -65,11 +65,7 @@ impl GameManager {
         self.games[game_id].with_game(f).ok_or(GameVanish {})
     }
 
-    fn with_game_mut<R>(
-        &self,
-        game_id: GameId,
-        f: impl FnOnce(&mut Game) -> R,
-    ) -> Result<R, GameVanish> {
+    fn with_game_mut<R>(&self, game_id: GameId, f: impl FnOnce(&mut Game) -> R) -> Result<R, GameVanish> {
         self.games[game_id].with_game_mut(f).ok_or(GameVanish {})
     }
 
@@ -102,11 +98,7 @@ impl GameManager {
         self.watcher_mapping.remove(&watcher_id).map(|(_, s)| s)
     }
 
-    pub fn add_unassigned(
-        &self,
-        game_id: GameId,
-        watcher_id: Id,
-    ) -> Result<Result<(), watcher::Error>, GameVanish> {
+    pub fn add_unassigned(&self, game_id: GameId, watcher_id: Id) -> Result<Result<(), watcher::Error>, GameVanish> {
         self.with_game_mut(game_id, |game| {
             game.add_unassigned(watcher_id, |id| self.tunnel_finder(id))
         })
@@ -130,9 +122,7 @@ impl GameManager {
         schedule_message: F,
     ) -> Result<(), GameVanish> {
         self.with_game_mut(game_id, |game| {
-            game.receive_message(watcher_id, message, schedule_message, |id| {
-                self.tunnel_finder(id)
-            });
+            game.receive_message(watcher_id, message, schedule_message, |id| self.tunnel_finder(id));
         })
     }
 
@@ -143,9 +133,7 @@ impl GameManager {
         schedule_message: F,
     ) -> Result<(), GameVanish> {
         self.with_game_mut(game_id, |game| {
-            game.receive_alarm(&alarm_message, schedule_message, |id| {
-                self.tunnel_finder(id)
-            });
+            game.receive_alarm(&alarm_message, schedule_message, |id| self.tunnel_finder(id));
         })
     }
 

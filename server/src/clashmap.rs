@@ -46,10 +46,7 @@ where
     }
 
     pub fn _vec(&self) -> Vec<(K, V)> {
-        self.0
-            .iter()
-            .map(|e| (e.key().clone(), e.value().clone()))
-            .collect()
+        self.0.iter().map(|e| (e.key().clone(), e.value().clone())).collect()
     }
 
     // pub fn insert_if_vacant(&self, key: K, value: V) -> Option<(K, V)> {
