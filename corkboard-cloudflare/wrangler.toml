@@ -1,0 +1,10 @@
+name = "corkboard-cloudflare"
+main = "build/worker/shim.mjs"
+compatibility_date = "2024-11-17"
+
+kv_namespaces = [
+    { binding = "IMAGES", id = "17bb70c345e54133b0a33164054607f7" },
+]
+
+[build]
+command = "cargo install -q worker-build && worker-build --release"
