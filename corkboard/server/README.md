@@ -1,16 +1,22 @@
-# Corkboard
+# Corkboard Server
 
-Service to store images temporarily.
+Self-hostable image storage server built with actix-web.
+
+## Running
+
+```bash
+cargo run -p corkboard-server
+```
 
 ## REST API
 
 ### Upload
 
 ```http
-POST -F image=bytes /upload
+POST /upload
 ```
 
-Ok Response: `"MediaID"`. The image stays availble for an hour.
+Accepts a multipart form with an `image` field. Returns a `MediaID`. The image stays available for an hour.
 
 ### Retrieve
 
@@ -18,12 +24,12 @@ Ok Response: `"MediaID"`. The image stays availble for an hour.
 GET /get/{media_id}
 ```
 
-It responds with bytes of content-type: `image/png`.
+Returns the image as `image/png`.
 
 ### Compute Thumbnail
 
 ```http
-POST -F image=bytes /thumbnail
+POST /thumbnail
 ```
 
-It responds with bytes of content-type: `image/png`.
+Accepts a multipart form with an `image` field. Returns a thumbnail as `image/png`.

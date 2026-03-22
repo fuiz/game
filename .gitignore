@@ -2,3 +2,6 @@
 .env
 /.vscode
 stats.txt
+.wrangler
+node_modules
+build

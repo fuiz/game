@@ -1,7 +1,8 @@
 [package]
-name = "corkboard"
-version = "0.1.0"
-edition = "2024"
+name = "corkboard-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [features]
 https = []

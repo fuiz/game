@@ -13,7 +13,7 @@ Uses two [Durable Objects](https://developers.cloudflare.com/durable-objects/):
 - **Game instance** — manages a single game and its WebSocket connections
 - **Coordinator** — generates and retrieves game IDs
 
-An image server is also required — see [corkboard-cloudflare](https://gitlab.com/fuiz/corkboard-cloudflare).
+An image server is also required — see [`corkboard/cloudflare`](../../corkboard/cloudflare/).
 
 ## Development
 
