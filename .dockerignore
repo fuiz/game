@@ -1,0 +1,6 @@
+target
+.env
+.vscode
+.wrangler
+node_modules
+.git
