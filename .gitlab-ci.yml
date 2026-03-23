@@ -18,6 +18,7 @@ stages:
   - lint
   - doc
   - test
+  - build
 
 # Before script to install necessary components
 before_script:
@@ -63,3 +64,29 @@ test:
       junit: test-results.xml
     expire_in: 1 week
   allow_failure: false
+
+.build-image:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+build-fuiz-server:
+  extends: .build-image
+  script:
+    - docker build --pull --target fuiz-server -t $CI_REGISTRY_IMAGE/fuiz-server:$CI_COMMIT_SHORT_SHA -t $CI_REGISTRY_IMAGE/fuiz-server:latest .
+    - docker push $CI_REGISTRY_IMAGE/fuiz-server:$CI_COMMIT_SHORT_SHA
+    - docker push $CI_REGISTRY_IMAGE/fuiz-server:latest
+
+build-corkboard-server:
+  extends: .build-image
+  script:
+    - docker build --pull --target corkboard-server -t $CI_REGISTRY_IMAGE/corkboard-server:$CI_COMMIT_SHORT_SHA -t $CI_REGISTRY_IMAGE/corkboard-server:latest .
+    - docker push $CI_REGISTRY_IMAGE/corkboard-server:$CI_COMMIT_SHORT_SHA
+    - docker push $CI_REGISTRY_IMAGE/corkboard-server:latest
