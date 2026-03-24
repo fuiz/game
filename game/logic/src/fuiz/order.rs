@@ -63,14 +63,16 @@ pub struct SlideConfig {
     /// Accompanying media
     #[garde(dive)]
     media: Option<Media>,
-    /// Time before the question is displayed
+    /// Time before the question is displayed.
+    /// `None` means host-paced: the host must manually advance.
     #[garde(custom(|val, ctx: &crate::settings::Settings| ctx.question.validate_introduce_question(val)))]
-    #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
-    introduce_question: Duration,
-    /// Time where players can answer the question
+    #[serde(default, with = "serde_with::As::<Option<DurationMilliSeconds<u64>>>")]
+    introduce_question: Option<Duration>,
+    /// Time where players can answer the question.
+    /// `None` means host-paced: no timer, host advances manually.
     #[garde(custom(|val, ctx: &crate::settings::Settings| ctx.question.validate_time_limit(val)))]
-    #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
-    time_limit: Duration,
+    #[serde(default, with = "serde_with::As::<Option<DurationMilliSeconds<u64>>>")]
+    time_limit: Option<Duration>,
     /// Maximum number of points awarded the question, decreases linearly to half the amount by the end of the slide
     #[garde(skip)]
     points_awarded: u64,
@@ -138,9 +140,9 @@ pub enum UpdateMessage {
         question: String,
         /// Accompanying media
         media: Option<Media>,
-        /// Time before answers will be release
-        #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
-        duration: Duration,
+        /// Time before answers will be released, or `None` for host-paced
+        #[serde(with = "serde_with::As::<Option<DurationMilliSeconds<u64>>>")]
+        duration: Option<Duration>,
     },
     /// Announcement of the question with its answers
     AnswersAnnouncement {
@@ -148,9 +150,9 @@ pub enum UpdateMessage {
         axis_labels: AxisLabels,
         /// Answers in a shuffled order
         answers: Vec<String>,
-        /// Time where players can answer the question
-        #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
-        duration: Duration,
+        /// Time where players can answer the question, or `None` for host-paced
+        #[serde(with = "serde_with::As::<Option<DurationMilliSeconds<u64>>>")]
+        duration: Option<Duration>,
     },
     /// (HOST ONLY): Number of players who answered the question
     AnswersCount(usize),
@@ -193,9 +195,9 @@ pub enum SyncMessage {
         question: String,
         /// Optional media content accompanying the question
         media: Option<Media>,
-        /// Remaining time for the question to be displayed without its answers
-        #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
-        duration: Duration,
+        /// Remaining time for the question to be displayed without its answers, or `None` for host-paced
+        #[serde(with = "serde_with::As::<Option<DurationMilliSeconds<u64>>>")]
+        duration: Option<Duration>,
     },
     /// Announcement of the question with its answers
     AnswersAnnouncement {
@@ -211,9 +213,9 @@ pub enum SyncMessage {
         media: Option<Media>,
         /// Items to be ordered in shuffled arrangement
         answers: Vec<String>,
-        /// Time where players can answer the question
-        #[serde(with = "serde_with::As::<DurationMilliSeconds<u64>>")]
-        duration: Duration,
+        /// Time where players can answer the question, or `None` for host-paced
+        #[serde(with = "serde_with::As::<Option<DurationMilliSeconds<u64>>>")]
+        duration: Option<Duration>,
     },
     /// Results of the game including correct answers and statistics of how many they got chosen
     AnswersResults {
@@ -276,7 +278,7 @@ impl AnswerHandler<Vec<String>> for State {
         self.config.points_awarded
     }
 
-    fn time_limit(&self) -> Duration {
+    fn time_limit(&self) -> Option<Duration> {
         self.config.time_limit
     }
 }
@@ -353,17 +355,19 @@ impl State {
                 &tunnel_finder,
             );
 
-            if self.config.introduce_question.is_zero() {
-                self.send_answers_announcements(watchers, tunnel_finder, schedule_message, index, count);
-            } else {
-                schedule_message(
-                    AlarmMessage::ProceedFromSlideIntoSlide {
-                        index,
-                        to: SlideState::Answers,
-                    }
-                    .into(),
-                    self.config.introduce_question,
-                );
+            if let Some(d) = self.config.introduce_question {
+                if d.is_zero() {
+                    self.send_answers_announcements(watchers, tunnel_finder, schedule_message, index, count);
+                } else {
+                    schedule_message(
+                        AlarmMessage::ProceedFromSlideIntoSlide {
+                            index,
+                            to: SlideState::Answers,
+                        }
+                        .into(),
+                        d,
+                    );
+                }
             }
         }
     }
@@ -411,14 +415,17 @@ impl State {
                 tunnel_finder,
             );
 
-            schedule_message(
-                AlarmMessage::ProceedFromSlideIntoSlide {
-                    index,
-                    to: SlideState::AnswersResults,
-                }
-                .into(),
-                self.config.time_limit,
-            );
+            if let Some(time_limit) = self.config.time_limit {
+                schedule_message(
+                    AlarmMessage::ProceedFromSlideIntoSlide {
+                        index,
+                        to: SlideState::AnswersResults,
+                    }
+                    .into(),
+                    time_limit,
+                );
+            }
+            // None = host-paced: no timer, host must press Next
         }
     }
 
@@ -491,7 +498,7 @@ impl State {
                 count,
                 question: self.config.title.clone(),
                 media: self.config.media.clone(),
-                duration: self.config.introduce_question.saturating_sub(self.elapsed()),
+                duration: self.config.introduce_question.map(|d| d.saturating_sub(self.elapsed())),
             },
             SlideState::Answers => SyncMessage::AnswersAnnouncement {
                 index,
@@ -500,7 +507,7 @@ impl State {
                 axis_labels: self.config.axis_labels.clone(),
                 media: self.config.media.clone(),
                 answers: self.shuffled_answers.clone(),
-                duration: self.config.time_limit.saturating_sub(self.elapsed()),
+                duration: self.config.time_limit.map(|d| d.saturating_sub(self.elapsed())),
             },
             SlideState::AnswersResults => SyncMessage::AnswersResults {
                 index,

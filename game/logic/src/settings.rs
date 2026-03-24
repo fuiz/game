@@ -183,8 +183,11 @@ impl QuestionSettings {
     /// # Errors
     ///
     /// Returns a [`garde::Error`] if the duration is outside the configured bounds.
-    pub fn validate_time_limit(&self, val: &Duration) -> garde::Result {
-        validate_duration_range(val, self.min_time_limit, self.max_time_limit)
+    pub fn validate_time_limit(&self, val: &Option<Duration>) -> garde::Result {
+        match val {
+            None => Ok(()),
+            Some(d) => validate_duration_range(d, self.min_time_limit, self.max_time_limit),
+        }
     }
 
     /// Validate that a duration is within the introduce-question bounds.
@@ -192,8 +195,11 @@ impl QuestionSettings {
     /// # Errors
     ///
     /// Returns a [`garde::Error`] if the duration is outside the configured bounds.
-    pub fn validate_introduce_question(&self, val: &Duration) -> garde::Result {
-        validate_duration_range(val, self.min_introduce_question, self.max_introduce_question)
+    pub fn validate_introduce_question(&self, val: &Option<Duration>) -> garde::Result {
+        match val {
+            None => Ok(()),
+            Some(d) => validate_duration_range(d, self.min_introduce_question, self.max_introduce_question),
+        }
     }
 }
 

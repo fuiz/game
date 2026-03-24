@@ -72,8 +72,20 @@ pub trait SlideTimer {
 }
 
 /// Calculate score based on timing - shared function used by all slide types
-pub fn calculate_slide_score(full_duration: Duration, taken_duration: Duration, full_points_awarded: u64) -> u64 {
-    (full_points_awarded as f64 * (1. - (taken_duration.as_secs_f64() / full_duration.as_secs_f64() / 2.))) as u64
+///
+/// When `full_duration` is `None` (host-paced mode), full points are awarded
+/// regardless of how long the player took to answer.
+pub fn calculate_slide_score(
+    full_duration: Option<Duration>,
+    taken_duration: Duration,
+    full_points_awarded: u64,
+) -> u64 {
+    match full_duration {
+        Some(full) => {
+            (full_points_awarded as f64 * (1. - (taken_duration.as_secs_f64() / full.as_secs_f64() / 2.))) as u64
+        }
+        None => full_points_awarded,
+    }
 }
 
 /// Trait for slides that handle answers and scoring
@@ -132,8 +144,8 @@ pub trait AnswerHandler<AnswerType> {
     /// Get the maximum points for this slide
     fn max_points(&self) -> u64;
 
-    /// Get the time limit for answers
-    fn time_limit(&self) -> Duration;
+    /// Get the time limit for answers, or `None` for host-paced (no timer)
+    fn time_limit(&self) -> Option<Duration>;
 }
 
 /// Helper function to add scores to leaderboard (common across all slide types)
