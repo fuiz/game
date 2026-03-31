@@ -8,6 +8,7 @@ use figment::{
 };
 use image::ImageError;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use storage::{MediaId, Memory};
 use thiserror::Error;
 
@@ -22,6 +23,10 @@ struct ServerConfig {
     port: u16,
     /// Allowed CORS origins. Empty means permissive.
     allowed_origins: Vec<String>,
+    /// Directory for storing uploaded images on disk.
+    storage_dir: PathBuf,
+    /// Maximum in-memory cache size in bytes.
+    cache_size: u64,
 }
 
 impl Default for ServerConfig {
@@ -30,18 +35,19 @@ impl Default for ServerConfig {
             hostname: "0.0.0.0".into(),
             port: 5040,
             allowed_origins: Vec::new(),
+            storage_dir: PathBuf::from("./corkboard-data"),
+            cache_size: 256 * 1024 * 1024, // 256 MiB
         }
     }
 }
 
-#[derive(Default)]
 struct AppState {
     storage: Memory,
 }
 
 #[get("/get/{media_id}")]
 async fn get_full(data: web::Data<AppState>, path: web::Path<MediaId>) -> impl Responder {
-    match data.storage.retrieve(path.into_inner()) {
+    match data.storage.retrieve(path.into_inner()).await {
         Some((bytes, content_type)) => Ok(HttpResponse::build(StatusCode::OK)
             .content_type(content_type)
             .body(bytes)),
@@ -98,11 +104,12 @@ async fn upload(data: web::Data<AppState>, image_upload: MultipartForm<ImageUplo
 
     let media_id = MediaId::new();
     data.storage
-        .store(media_id, actix_web::web::Bytes::from(bytes), content_type);
+        .store(media_id, actix_web::web::Bytes::from(bytes), content_type)
+        .await?;
 
     actix_web::rt::spawn(async move {
         actix_web::rt::time::sleep(std::time::Duration::from_hours(1)).await;
-        data.storage.delete(media_id);
+        data.storage.delete(media_id).await;
     });
 
     Ok::<actix_web::web::Json<MediaId>, ImageDecodingError>(web::Json(media_id))
@@ -122,7 +129,9 @@ async fn main() -> std::io::Result<()> {
         .extract()
         .expect("server configuration should be valid");
 
-    let app_data = web::Data::new(AppState::default());
+    let storage = Memory::new(&server_config.storage_dir, server_config.cache_size)
+        .expect("failed to initialize storage directory");
+    let app_data = web::Data::new(AppState { storage });
 
     let origins = server_config.allowed_origins;
 

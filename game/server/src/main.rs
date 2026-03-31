@@ -402,10 +402,10 @@ mod tests {
     #[test]
     fn server_config_multiple_origins() {
         figment::Jail::expect_with(|jail| {
-            jail.set_env("FUIZ_ALLOWED_ORIGINS", r#"["https://fuiz.us","https://example.com"]"#);
+            jail.set_env("FUIZ_ALLOWED_ORIGINS", r#"["https://fuiz.org","https://example.com"]"#);
 
             let config: ServerConfig = server_figment().extract()?;
-            assert_eq!(config.allowed_origins, vec!["https://fuiz.us", "https://example.com"]);
+            assert_eq!(config.allowed_origins, vec!["https://fuiz.org", "https://example.com"]);
             Ok(())
         });
     }
