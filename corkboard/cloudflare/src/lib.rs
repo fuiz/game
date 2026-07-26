@@ -26,22 +26,9 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
                 FormEntry::Field(_) => return Response::error("image has to be a file", 400),
             };
 
-            let Some(decoded_image) = image::ImageReader::new(std::io::Cursor::new(data))
-                .with_guessed_format()?
-                .decode()
-                .ok()
-                .map(|image| image.resize(400, 400, image::imageops::FilterType::Nearest))
-            else {
-                return Response::error("image format not supported", 400);
+            let Ok(thumbnail_bytes) = corkboard::generate_thumbnail(&data) else {
+                return Response::error("failed to generate thumbnail", 500);
             };
-
-            let mut thumbnail_bytes: Vec<u8> = Vec::new();
-            if decoded_image
-                .write_to(&mut std::io::Cursor::new(&mut thumbnail_bytes), image::ImageFormat::Png)
-                .is_err()
-            {
-                return Response::error("failed to encode image", 500);
-            }
 
             Ok(
                 Response::from_body(worker::ResponseBody::Body(thumbnail_bytes))?.with_headers({
@@ -75,8 +62,6 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
                 return Response::error("failed to encode image", 500);
             };
 
-            let content_type = image::ImageFormat::Png.to_mime_type();
-
             let kv = ctx.kv("IMAGES")?;
 
             let Ok(random_key) = getrandom::u64() else {
@@ -88,7 +73,7 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
             };
 
             kv.put_bytes(&key, &bytes)?
-                .metadata(content_type)?
+                .metadata("image/png")?
                 .expiration_ttl(IMAGE_EXPIRATION.as_secs())
                 .execute()
                 .await?;
@@ -107,7 +92,7 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
             Ok(Response::from_bytes(bytes.unwrap_or_default())?.with_headers({
                 Headers::from_iter([(
                     "content-type".to_string(),
-                    content_type.unwrap_or(image::ImageFormat::Png.to_mime_type().to_string()),
+                    content_type.unwrap_or("image/png".to_string()),
                 )])
             }))
         })

@@ -15,7 +15,7 @@ actix-web = "4"
 actix-ws = "0.4"
 dashmap = "6"
 derive-where = "1"
-enum-map = { version = "2", features = ["serde"] }
+enum-map = { version = "3", features = ["serde"] }
 fastrand = "2"
 futures-util = "0.3"
 log = "0.4"

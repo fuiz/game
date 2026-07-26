@@ -6,7 +6,7 @@
 
 use std::{fmt::Display, num::ParseIntError, str::FromStr};
 
-use enum_map::{Enum, EnumArray};
+use enum_map::Enum;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Minimum value for generated game IDs (in octal: 10000)
@@ -84,9 +84,12 @@ impl FromStr for GameId {
     }
 }
 
+impl GameId {
+    const COUNT: usize = (MAX_VALUE - MIN_VALUE) as usize;
+}
+
 impl Enum for GameId {
-    /// Total number of possible game IDs
-    const LENGTH: usize = (MAX_VALUE - MIN_VALUE) as usize;
+    type Array<V> = [V; Self::COUNT];
 
     /// Creates a game ID from a usize index
     ///
@@ -102,13 +105,8 @@ impl Enum for GameId {
     /// The returned value is clamped to the valid range to prevent
     /// array access violations.
     fn into_usize(self) -> usize {
-        usize::from(self.0.saturating_sub(MIN_VALUE)).min(GameId::LENGTH - 1)
+        usize::from(self.0.saturating_sub(MIN_VALUE)).min(Self::COUNT - 1)
     }
-}
-
-impl<V> EnumArray<V> for GameId {
-    /// Array type for storing values indexed by `GameId`
-    type Array = [V; Self::LENGTH];
 }
 
 #[cfg(test)]
@@ -182,7 +180,7 @@ mod tests {
         assert_eq!(original, converted);
 
         // Test boundary values
-        let max_index = GameId::LENGTH - 1;
+        let max_index = GameId::COUNT - 1;
         let id_from_max = GameId::from_usize(max_index);
         assert_eq!(id_from_max.into_usize(), max_index);
     }
@@ -192,7 +190,7 @@ mod tests {
         // Test that values outside range are clamped
         let out_of_range = GameId(MAX_VALUE + 100);
         let index = out_of_range.into_usize();
-        assert_eq!(index, GameId::LENGTH - 1);
+        assert_eq!(index, GameId::COUNT - 1);
     }
 
     #[test]

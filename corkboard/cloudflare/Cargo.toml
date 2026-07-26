@@ -15,15 +15,6 @@ worker = { version = "0.8", features = ['http'] }
 worker-macros = { version = "0.8", features = ['http'] }
 http = "1.4"
 corkboard = { path = "../logic" }
-image = { version = "0.25", default-features = false, features = [
-    "avif",
-    "gif",
-    "hdr",
-    "jpeg",
-    "png",
-    "tiff",
-    "webp",
-] }
 serde = { version = "1.0", features = ["derive"] }
 serde-hex = "0.1"
 serde_json = "1.0"

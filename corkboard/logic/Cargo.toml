@@ -8,7 +8,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-image = { version = "0.25", default-features = false, features = [
+image = { git = "https://github.com/image-rs/image.git", branch="main", default-features = false, features = [
     "avif",
     "gif",
     "hdr",

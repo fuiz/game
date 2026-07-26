@@ -6,7 +6,6 @@ use figment::{
     Figment,
     providers::{Env, Serialized},
 };
-use image::ImageError;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use storage::{MediaId, Memory};
@@ -66,9 +65,9 @@ enum ImageDecodingError {
     #[error("type is not recognizable")]
     NotRecognizable(#[from] std::io::Error),
     #[error("image decoding error")]
-    ImageError(#[from] ImageError),
+    ImageError(#[from] corkboard::ImageDecodingError),
     #[error("encoding error")]
-    EncodingError(#[from] corkboard::png::EncodingError),
+    EncodingError(#[from] corkboard::PngEncodingError),
 }
 
 impl actix_web::error::ResponseError for ImageDecodingError {}
@@ -77,13 +76,7 @@ impl actix_web::error::ResponseError for ImageDecodingError {}
 async fn thumbnail(image_upload: MultipartForm<ImageUpload>) -> impl Responder {
     let ImageUpload { image } = image_upload.into_inner();
 
-    let decoded_image = image::ImageReader::new(std::io::Cursor::new(image.data))
-        .with_guessed_format()?
-        .decode()?
-        .resize(400, 400, image::imageops::FilterType::Nearest);
-
-    let mut thumbnail_bytes: Vec<u8> = Vec::new();
-    decoded_image.write_to(&mut std::io::Cursor::new(&mut thumbnail_bytes), image::ImageFormat::Png)?;
+    let thumbnail_bytes = corkboard::generate_thumbnail(&image.data)?;
 
     Ok::<HttpResponse, ImageDecodingError>(
         HttpResponse::build(StatusCode::OK)
