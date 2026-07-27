@@ -13,8 +13,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     fuiz::{
+        brainstorm,
         config::{CurrentSlide, ScheduleMessageFn, SlideAction},
-        order, type_answer,
+        free_text, info_slide, order, pin, poll, scale, slider, type_answer,
     },
     watcher::Value,
 };
@@ -197,8 +198,18 @@ pub enum IncomingPlayerMessage {
     IndexArrayAnswer(Vec<usize>),
     /// Text answer submitted (for type answer questions)
     StringAnswer(String),
-    /// Array of strings submitted (for order questions)
+    /// Array of strings submitted (for order, word cloud and brainstorm questions)
     StringArrayAnswer(Vec<String>),
+    /// A numeric value submitted (for slider and scale questions)
+    NumberAnswer(f64),
+    /// A point on the slide's image, normalised to `0.0..=1.0` on both axes
+    /// (for pin answer and drop pin questions)
+    PointAnswer {
+        /// Horizontal position as a fraction of the image width.
+        x: f64,
+        /// Vertical position as a fraction of the image height.
+        y: f64,
+    },
     /// Substring search for a teammate. Sent while the player is on the
     /// preference-mode picker; the server resolves matches and responds with
     /// either [`UpdateMessage::TeammateSelected`] or
@@ -274,6 +285,55 @@ pub enum SlidePosition {
         /// The slide's current phase.
         phase: order::Phase,
     },
+    /// A slider slide at `index` showing `phase`.
+    Slider {
+        /// Index of the slide being shown.
+        index: usize,
+        /// The slide's current phase.
+        phase: slider::Phase,
+    },
+    /// A scale slide at `index` showing `phase`.
+    Scale {
+        /// Index of the slide being shown.
+        index: usize,
+        /// The slide's current phase.
+        phase: scale::Phase,
+    },
+    /// A poll slide at `index` showing `phase`.
+    Poll {
+        /// Index of the slide being shown.
+        index: usize,
+        /// The slide's current phase.
+        phase: poll::Phase,
+    },
+    /// A pin slide at `index` showing `phase`.
+    Pin {
+        /// Index of the slide being shown.
+        index: usize,
+        /// The slide's current phase.
+        phase: pin::Phase,
+    },
+    /// A free-text slide at `index` showing `phase`.
+    FreeText {
+        /// Index of the slide being shown.
+        index: usize,
+        /// The slide's current phase.
+        phase: free_text::Phase,
+    },
+    /// A brainstorm slide at `index` showing `phase`.
+    Brainstorm {
+        /// Index of the slide being shown.
+        index: usize,
+        /// The slide's current phase.
+        phase: brainstorm::Phase,
+    },
+    /// An info slide at `index` showing `phase`.
+    InfoSlide {
+        /// Index of the slide being shown.
+        index: usize,
+        /// The slide's current phase.
+        phase: info_slide::Phase,
+    },
 }
 
 /// Messages that can be sent by the game host
@@ -290,6 +350,26 @@ pub enum IncomingHostMessage {
     /// reconnect comes back as a fresh unnamed participant rather than the
     /// kicked one.
     Kick(String),
+    /// Ask for who answered the current slide and what they said.
+    ///
+    /// Pulled rather than pushed: the host only wants this when they open the
+    /// list, and pushing a row per player with every result would put the
+    /// largest payload of the game on the wire for a panel nobody may open.
+    RequestResponses,
+}
+
+/// How many individual responses the host's list carries. Beyond this the count
+/// is still exact; only the rows are cut, the same bargain the leaderboard and
+/// waiting screen already make.
+const MAX_REPORTED_RESPONSES: usize = 500;
+
+/// One player's answer to the current slide, for the host's response list.
+#[derive(Debug, Serialize, Clone)]
+pub struct PlayerResponse<'a> {
+    /// The player's name.
+    pub name: &'a str,
+    /// What they answered, phrased by the slide that asked.
+    pub answer: String,
 }
 
 /// Outcome of a reconnection attempt via [`Game::update_session`].
@@ -327,6 +407,9 @@ pub enum UpdateMessage<'a> {
     CannotJoin(watcher::Error),
     /// Update the team display screen
     TeamDisplay(TruncatedVec<&'a str>),
+    /// (HOST ONLY): who answered the current slide, and what they answered.
+    /// Sent in reply to [`IncomingHostMessage::RequestResponses`].
+    PlayerResponses(TruncatedVec<PlayerResponse<'a>>),
     /// Prompt the participant to choose a name
     NameChoose,
     /// Confirm a name assignment
@@ -569,6 +652,37 @@ impl Game {
 }
 
 impl Game {
+    /// Answer the host's request for who said what on the current slide.
+    ///
+    /// Names come from the game's table and the answers from the slide, so this
+    /// is the only place the two can be joined. Sorted by name because a host
+    /// scanning for one player shouldn't have to hunt.
+    fn send_player_responses<F: TunnelFinder>(&self, host_id: Id, tunnel_finder: F) {
+        let State::Slide(current_slide) = &self.state else {
+            return;
+        };
+
+        let mut responses = current_slide
+            .state
+            .player_answers()
+            .into_iter()
+            .filter_map(|(id, answer)| self.names.get_name(&id).map(|name| PlayerResponse { name, answer }))
+            .collect_vec();
+        responses.sort_unstable_by(|a, b| a.name.cmp(b.name));
+
+        let exact_count = responses.len();
+        Watchers::send_message(
+            &UpdateMessage::PlayerResponses(TruncatedVec::new(
+                responses.into_iter(),
+                MAX_REPORTED_RESPONSES,
+                exact_count,
+            ))
+            .into(),
+            host_id,
+            tunnel_finder,
+        );
+    }
+
     /// Creates a new game instance with the provided configuration
     ///
     /// Initializes a new Fuiz game session with the given quiz configuration,
@@ -703,7 +817,9 @@ impl Game {
     /// * `S` - Function type for scheduling alarm messages
     pub fn finish_slide<F: TunnelFinder, S: ScheduleMessageFn>(&mut self, schedule_message: S, tunnel_finder: F) {
         if let State::Slide(current_slide) = &self.state {
-            if self.options.no_leaderboard {
+            // Opinion and info slides score nothing, so a standings screen after
+            // them would just repeat the previous one — skip straight ahead.
+            if self.options.no_leaderboard || !current_slide.state.awards_points() {
                 let next_index = current_slide.index + 1;
                 if let Some(next_slide) = self.fuiz_config.slides.get(next_index) {
                     let mut state = next_slide.to_state();
@@ -1140,6 +1256,9 @@ impl Game {
                     self.kick_watcher(target_id, &tunnel_finder);
                 }
             }
+            IncomingMessage::Host(IncomingHostMessage::RequestResponses) => {
+                self.send_player_responses(watcher_id, &tunnel_finder);
+            }
             IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest(s))
                 if self.options.random_names.is_none() =>
             {
@@ -1230,34 +1349,35 @@ impl Game {
         schedule_message: S,
         tunnel_finder: F,
     ) {
-        match message {
-            AlarmMessage::MultipleChoice(multiple_choice::AlarmMessage {
-                index: slide_index,
-                to: _,
-            })
-            | AlarmMessage::TypeAnswer(type_answer::AlarmMessage {
-                index: slide_index,
-                to: _,
-            })
-            | AlarmMessage::Order(order::AlarmMessage {
-                index: slide_index,
-                to: _,
-            }) => match &mut self.state {
-                State::Slide(current_slide) if current_slide.index == *slide_index => {
-                    if let SlideAction::Next { schedule_message } = current_slide.state.receive_alarm(
-                        &self.watchers,
-                        self.team_manager.as_ref(),
-                        schedule_message,
-                        &tunnel_finder,
-                        message,
-                        current_slide.index,
-                        self.fuiz_config.len(),
-                    ) {
-                        self.finish_slide(schedule_message, tunnel_finder);
-                    }
+        let slide_index = match message {
+            AlarmMessage::MultipleChoice(multiple_choice::AlarmMessage { index, to: _ })
+            | AlarmMessage::TypeAnswer(type_answer::AlarmMessage { index, to: _ })
+            | AlarmMessage::Order(order::AlarmMessage { index, to: _ })
+            | AlarmMessage::Slider(slider::AlarmMessage { index, to: _ })
+            | AlarmMessage::Scale(scale::AlarmMessage { index, to: _ })
+            | AlarmMessage::Poll(poll::AlarmMessage { index, to: _ })
+            | AlarmMessage::Pin(pin::AlarmMessage { index, to: _ })
+            | AlarmMessage::FreeText(free_text::AlarmMessage { index, to: _ })
+            | AlarmMessage::Brainstorm(brainstorm::AlarmMessage { index, to: _ })
+            | AlarmMessage::InfoSlide(info_slide::AlarmMessage { index, to: _ }) => *index,
+        };
+
+        match &mut self.state {
+            State::Slide(current_slide) if current_slide.index == slide_index => {
+                if let SlideAction::Next { schedule_message } = current_slide.state.receive_alarm(
+                    &mut self.leaderboard,
+                    &self.watchers,
+                    self.team_manager.as_ref(),
+                    schedule_message,
+                    &tunnel_finder,
+                    message,
+                    current_slide.index,
+                    self.fuiz_config.len(),
+                ) {
+                    self.finish_slide(schedule_message, tunnel_finder);
                 }
-                _ => (),
-            },
+            }
+            _ => (),
         }
     }
 
@@ -2226,6 +2346,73 @@ mod tests {
             Err(crate::watcher::Error::Locked)
         );
         assert!(!game.watchers.has_watcher(player_id));
+    }
+
+    /// The host's response list is the only place a name and an answer meet:
+    /// the slide knows what was answered but not by whom, and the game knows the
+    /// names but not the answers. This walks the whole path — join, name, answer,
+    /// request — and checks the reply carries both.
+    #[test]
+    fn requested_responses_name_the_players_who_answered() {
+        let fuiz = create_test_fuiz();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, Options::default(), host_id, &test_settings());
+
+        let host_tunnel = MockTunnel::new();
+        let player_id = crate::watcher::Id::new();
+        let player_tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| {
+            if id == host_id {
+                Some(host_tunnel.clone())
+            } else if id == player_id {
+                Some(player_tunnel.clone())
+            } else {
+                None
+            }
+        };
+
+        game.watchers
+            .add_watcher(host_id, crate::watcher::Value::Host)
+            .expect("host joins");
+        game.watchers
+            .add_watcher(player_id, crate::watcher::Value::Unassigned)
+            .expect("player joins");
+        game.assign_player_name(player_id, "Ada", tunnel_finder)
+            .expect("name is free");
+
+        // Start the question and answer it.
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
+        game.play(schedule_message, tunnel_finder);
+        let screen = game.current_host_screen();
+        game.receive_message(
+            host_id,
+            IncomingMessage::Host(IncomingHostMessage::Next(screen)),
+            schedule_message,
+            tunnel_finder,
+        );
+        game.receive_message(
+            player_id,
+            IncomingMessage::Player(IncomingPlayerMessage::IndexAnswer(0)),
+            schedule_message,
+            tunnel_finder,
+        );
+
+        game.receive_message(
+            host_id,
+            IncomingMessage::Host(IncomingHostMessage::RequestResponses),
+            schedule_message,
+            tunnel_finder,
+        );
+
+        let sent = host_tunnel.messages.lock().unwrap().clone();
+        let responses = sent
+            .iter()
+            .find(|message| message.contains("PlayerResponses"))
+            .expect("the host is told who answered");
+        assert!(responses.contains("Ada"), "the answer is attributed: {responses}");
+
+        // And a player who never answered is never listed.
+        assert!(!responses.contains("Unknown"), "only real names: {responses}");
     }
 
     #[test]

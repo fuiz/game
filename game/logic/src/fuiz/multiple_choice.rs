@@ -25,8 +25,8 @@ use crate::{
 use super::{
     super::game::IncomingPlayerMessage,
     common::{
-        AnswerHandler, HasSlideCore, PhasedSlide, ProceedFromSlideIntoSlide, QuestionReceiveMessage, SlideCore,
-        SlideStateManager, SlideTimer, get_answered_count,
+        AnswerHandler, PhasedSlide, ProceedFromSlideIntoSlide, QuestionReceiveMessage, SlideCore, SlideStateManager,
+        SlideTimer, get_answered_count, impl_slide_core,
     },
     config::{TextOrMedia, TextOrMediaRef},
     media::Media,
@@ -324,17 +324,7 @@ pub struct AnswerChoiceResult {
     count: usize,
 }
 
-impl HasSlideCore for State {
-    type Phase = Phase;
-
-    fn slide_core(&self) -> &SlideCore<Phase> {
-        &self.core
-    }
-
-    fn slide_core_mut(&mut self) -> &mut SlideCore<Phase> {
-        &mut self.core
-    }
-}
+impl_slide_core!(State, Phase);
 
 impl AnswerHandler<Vec<usize>> for State {
     fn user_answers(&self) -> &FxHashMap<Id, (Vec<usize>, Timestamp)> {
@@ -366,6 +356,18 @@ impl AnswerHandler<Vec<usize>> for State {
             }
             AnswerMode::MultipleAnswers => self.compute_score_multiplier(answer),
         }
+    }
+
+    fn describe_answer(&self, answer: &Vec<usize>) -> String {
+        answer
+            .iter()
+            .map(|choice| match self.config.answers.get(*choice).map(|a| &a.content) {
+                Some(TextOrMedia::Text(text)) => text.clone(),
+                // An image option has no words of its own to quote.
+                Some(TextOrMedia::Media(_)) | None => format!("#{}", choice + 1),
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     fn max_points(&self) -> u64 {

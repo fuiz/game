@@ -41,6 +41,20 @@ pub struct Settings {
     pub type_answer: TypeAnswerSettings,
     /// Order-question-specific limits.
     pub order: OrderSettings,
+    /// Slider-specific limits.
+    pub slider: SliderSettings,
+    /// Scale-specific limits.
+    pub scale: ScaleSettings,
+    /// Poll-specific limits.
+    pub poll: PollSettings,
+    /// Pin-specific limits.
+    pub pin: PinSettings,
+    /// Free-text (word cloud / open ended) limits.
+    pub free_text: FreeTextSettings,
+    /// Brainstorm-specific limits.
+    pub brainstorm: BrainstormSettings,
+    /// Info-slide-specific limits.
+    pub info_slide: InfoSlideSettings,
     /// Corkboard (media) limits.
     pub corkboard: CorkboardSettings,
     /// Answer text limits.
@@ -100,6 +114,75 @@ pub struct OrderSettings {
     pub max_answer_count: usize,
     /// Maximum length of an axis label.
     pub max_label_length: usize,
+}
+
+/// Slider-specific limits.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SliderSettings {
+    /// Maximum length of the unit label shown next to the value.
+    pub max_unit_length: usize,
+    /// Maximum number of distinct values a slider may expose, i.e.
+    /// `(max - min) / step + 1`. Keeps a malicious config from asking clients
+    /// to render a billion tick marks.
+    pub max_steps: usize,
+}
+
+/// Scale-specific limits (agreement scales and NPS).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScaleSettings {
+    /// Maximum length of an endpoint/midpoint label.
+    pub max_label_length: usize,
+    /// Maximum number of points on the scale.
+    pub max_points_count: usize,
+}
+
+/// Poll-specific limits.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PollSettings {
+    /// Maximum number of poll options.
+    pub max_answer_count: usize,
+}
+
+/// Pin-specific limits (pin answer and drop pin).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PinSettings {
+    /// Maximum number of individual pins echoed back in the results payload.
+    /// Beyond this the results carry only the aggregated heat grid.
+    pub max_reported_pins: usize,
+    /// Maximum number of points in a freehand target outline. Traces are
+    /// simplified client-side; this is the backstop.
+    pub max_polygon_points: usize,
+}
+
+/// Free-text limits, shared by word cloud and open-ended slides.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FreeTextSettings {
+    /// Maximum number of entries a single player may submit.
+    pub max_entries_per_player: usize,
+    /// Maximum length of a single entry in characters.
+    pub max_entry_length: usize,
+    /// Maximum number of distinct entries reported in the results.
+    pub max_reported_entries: usize,
+}
+
+/// Brainstorm-specific limits.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrainstormSettings {
+    /// Maximum number of ideas a single player may contribute.
+    pub max_ideas_per_player: usize,
+    /// Maximum number of ideas collected across the whole room.
+    pub max_ideas_total: usize,
+    /// Maximum number of votes a single player may cast.
+    pub max_votes_per_player: usize,
+    /// Maximum length of an idea in characters.
+    pub max_idea_length: usize,
+}
+
+/// Info-slide-specific limits.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InfoSlideSettings {
+    /// Maximum length of the slide body in characters.
+    pub max_body_length: usize,
 }
 
 /// Corkboard (media storage) limits.
@@ -163,6 +246,76 @@ impl Default for OrderSettings {
             max_answer_count: 8,
             max_label_length: 250,
         }
+    }
+}
+
+impl Default for SliderSettings {
+    fn default() -> Self {
+        Self {
+            max_unit_length: 20,
+            max_steps: 10_000,
+        }
+    }
+}
+
+impl Default for ScaleSettings {
+    fn default() -> Self {
+        Self {
+            max_label_length: 250,
+            max_points_count: 11,
+        }
+    }
+}
+
+impl Default for PollSettings {
+    fn default() -> Self {
+        Self { max_answer_count: 8 }
+    }
+}
+
+/// Default cap on the number of individual pins echoed back in pin results.
+/// Exposed as a constant because the slide state builds its results payload
+/// without a handle on the runtime [`Settings`].
+pub const DEFAULT_MAX_REPORTED_PINS: usize = 500;
+
+impl Default for PinSettings {
+    fn default() -> Self {
+        Self {
+            max_reported_pins: DEFAULT_MAX_REPORTED_PINS,
+            max_polygon_points: 200,
+        }
+    }
+}
+
+/// Default cap on the number of distinct entries echoed back in free-text
+/// results. Exposed as a constant for the same reason as
+/// [`DEFAULT_MAX_REPORTED_PINS`].
+pub const DEFAULT_MAX_REPORTED_ENTRIES: usize = 200;
+
+impl Default for FreeTextSettings {
+    fn default() -> Self {
+        Self {
+            max_entries_per_player: 5,
+            max_entry_length: 200,
+            max_reported_entries: DEFAULT_MAX_REPORTED_ENTRIES,
+        }
+    }
+}
+
+impl Default for BrainstormSettings {
+    fn default() -> Self {
+        Self {
+            max_ideas_per_player: 3,
+            max_ideas_total: 200,
+            max_votes_per_player: 3,
+            max_idea_length: 200,
+        }
+    }
+}
+
+impl Default for InfoSlideSettings {
+    fn default() -> Self {
+        Self { max_body_length: 2000 }
     }
 }
 

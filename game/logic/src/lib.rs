@@ -35,6 +35,20 @@ pub enum SyncMessage<'a> {
     TypeAnswer(fuiz::type_answer::SyncMessage<'a>),
     /// Order question synchronization
     Order(fuiz::order::SyncMessage<'a>),
+    /// Slider question synchronization
+    Slider(fuiz::slider::SyncMessage<'a>),
+    /// Scale (agreement / NPS) question synchronization
+    Scale(fuiz::scale::SyncMessage<'a>),
+    /// Poll synchronization
+    Poll(fuiz::poll::SyncMessage<'a>),
+    /// Pin (pin answer / drop pin) question synchronization
+    Pin(fuiz::pin::SyncMessage<'a>),
+    /// Free-text (word cloud / open ended) question synchronization
+    FreeText(fuiz::free_text::SyncMessage<'a>),
+    /// Brainstorm synchronization
+    Brainstorm(fuiz::brainstorm::SyncMessage<'a>),
+    /// Info slide synchronization
+    InfoSlide(fuiz::info_slide::SyncMessage<'a>),
 }
 
 /// Messages sent to update specific aspects of the game state
@@ -51,6 +65,20 @@ pub enum UpdateMessage<'a> {
     TypeAnswer(fuiz::type_answer::UpdateMessage<'a>),
     /// Order question updates
     Order(fuiz::order::UpdateMessage<'a>),
+    /// Slider question updates
+    Slider(fuiz::slider::UpdateMessage<'a>),
+    /// Scale (agreement / NPS) question updates
+    Scale(fuiz::scale::UpdateMessage<'a>),
+    /// Poll updates
+    Poll(fuiz::poll::UpdateMessage<'a>),
+    /// Pin (pin answer / drop pin) question updates
+    Pin(fuiz::pin::UpdateMessage<'a>),
+    /// Free-text (word cloud / open ended) question updates
+    FreeText(fuiz::free_text::UpdateMessage<'a>),
+    /// Brainstorm updates
+    Brainstorm(fuiz::brainstorm::UpdateMessage<'a>),
+    /// Info slide updates
+    InfoSlide(fuiz::info_slide::UpdateMessage<'a>),
 }
 
 /// Alarm messages for timed events in different question types
@@ -65,6 +93,20 @@ pub enum AlarmMessage {
     TypeAnswer(fuiz::type_answer::AlarmMessage),
     /// Order question alarms
     Order(fuiz::order::AlarmMessage),
+    /// Slider question alarms
+    Slider(fuiz::slider::AlarmMessage),
+    /// Scale (agreement / NPS) question alarms
+    Scale(fuiz::scale::AlarmMessage),
+    /// Poll alarms
+    Poll(fuiz::poll::AlarmMessage),
+    /// Pin (pin answer / drop pin) question alarms
+    Pin(fuiz::pin::AlarmMessage),
+    /// Free-text (word cloud / open ended) question alarms
+    FreeText(fuiz::free_text::AlarmMessage),
+    /// Brainstorm alarms
+    Brainstorm(fuiz::brainstorm::AlarmMessage),
+    /// Info slide alarms
+    InfoSlide(fuiz::info_slide::AlarmMessage),
 }
 
 /// A truncated vector that maintains the exact count while limiting displayed items

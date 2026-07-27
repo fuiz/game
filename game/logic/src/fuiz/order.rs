@@ -25,8 +25,8 @@ use crate::{
 use super::{
     super::game::IncomingPlayerMessage,
     common::{
-        AnswerHandler, HasSlideCore, PhasedSlide, ProceedFromSlideIntoSlide, QuestionReceiveMessage, SlideCore,
-        SlideStateManager, SlideTimer,
+        AnswerHandler, PhasedSlide, ProceedFromSlideIntoSlide, QuestionReceiveMessage, SlideCore, SlideStateManager,
+        SlideTimer, impl_slide_core,
     },
     media::Media,
 };
@@ -283,17 +283,7 @@ pub enum SyncMessage<'a> {
     },
 }
 
-impl HasSlideCore for State {
-    type Phase = Phase;
-
-    fn slide_core(&self) -> &SlideCore<Phase> {
-        &self.core
-    }
-
-    fn slide_core_mut(&mut self) -> &mut SlideCore<Phase> {
-        &mut self.core
-    }
-}
+impl_slide_core!(State, Phase);
 
 impl AnswerHandler<Vec<String>> for State {
     fn user_answers(&self) -> &FxHashMap<Id, (Vec<String>, Timestamp)> {
@@ -306,6 +296,10 @@ impl AnswerHandler<Vec<String>> for State {
 
     fn is_correct_answer(&self, answer: &Vec<String>) -> bool {
         answer == &self.config.answers
+    }
+
+    fn describe_answer(&self, answer: &Vec<String>) -> String {
+        answer.join(" → ")
     }
 
     fn max_points(&self) -> u64 {

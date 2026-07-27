@@ -8,7 +8,10 @@
 use garde::Validate;
 use serde::{Deserialize, Serialize};
 
-use super::{super::game::IncomingMessage, media::Media, multiple_choice, order, type_answer};
+use super::{
+    super::game::IncomingMessage, brainstorm, free_text, info_slide, media::Media, multiple_choice, order, pin, poll,
+    scale, slider, type_answer,
+};
 use crate::fuiz::common::QuestionReceiveMessage;
 use crate::{
     AlarmMessage, SyncMessage,
@@ -103,6 +106,20 @@ pub enum SlideConfig {
     TypeAnswer(#[garde(dive)] type_answer::SlideConfig),
     /// An order question where players arrange items in sequence
     Order(#[garde(dive)] order::SlideConfig),
+    /// A slider question where players estimate a value on a numeric range
+    Slider(#[garde(dive)] slider::SlideConfig),
+    /// A scale question where players rate on an agreement or NPS scale
+    Scale(#[garde(dive)] scale::SlideConfig),
+    /// A poll where players vote between options with no right answer
+    Poll(#[garde(dive)] poll::SlideConfig),
+    /// A pin question where players drop a marker on an image
+    Pin(#[garde(dive)] pin::SlideConfig),
+    /// A free-text question collecting a word cloud or open-ended responses
+    FreeText(#[garde(dive)] free_text::SlideConfig),
+    /// A brainstorm where players contribute ideas and then vote on them
+    Brainstorm(#[garde(dive)] brainstorm::SlideConfig),
+    /// An info slide that presents content without asking anything
+    InfoSlide(#[garde(dive)] info_slide::SlideConfig),
 }
 
 impl SlideConfig {
@@ -119,6 +136,13 @@ impl SlideConfig {
             Self::MultipleChoice(s) => SlideState::MultipleChoice(s.to_state()),
             Self::TypeAnswer(s) => SlideState::TypeAnswer(s.to_state()),
             Self::Order(s) => SlideState::Order(s.to_state()),
+            Self::Slider(s) => SlideState::Slider(s.to_state()),
+            Self::Scale(s) => SlideState::Scale(s.to_state()),
+            Self::Poll(s) => SlideState::Poll(s.to_state()),
+            Self::Pin(s) => SlideState::Pin(s.to_state()),
+            Self::FreeText(s) => SlideState::FreeText(s.to_state()),
+            Self::Brainstorm(s) => SlideState::Brainstorm(s.to_state()),
+            Self::InfoSlide(s) => SlideState::InfoSlide(s.to_state()),
         }
     }
 }
@@ -137,6 +161,41 @@ pub enum SlideState {
     TypeAnswer(type_answer::State),
     /// Runtime state for an order question
     Order(order::State),
+    /// Runtime state for a slider question
+    Slider(slider::State),
+    /// Runtime state for a scale question
+    Scale(scale::State),
+    /// Runtime state for a poll
+    Poll(poll::State),
+    /// Runtime state for a pin question
+    Pin(pin::State),
+    /// Runtime state for a free-text question
+    FreeText(free_text::State),
+    /// Runtime state for a brainstorm
+    Brainstorm(brainstorm::State),
+    /// Runtime state for an info slide
+    InfoSlide(info_slide::State),
+}
+
+/// Runs the same expression against whichever slide type `$slide` holds.
+///
+/// Most of [`SlideState`]'s methods forward an identical call to every variant;
+/// spelling out ten arms per method buries the one line that matters.
+macro_rules! dispatch_slide {
+    ($slide:expr, $inner:ident => $call:expr) => {
+        match $slide {
+            SlideState::MultipleChoice($inner) => $call,
+            SlideState::TypeAnswer($inner) => $call,
+            SlideState::Order($inner) => $call,
+            SlideState::Slider($inner) => $call,
+            SlideState::Scale($inner) => $call,
+            SlideState::Poll($inner) => $call,
+            SlideState::Pin($inner) => $call,
+            SlideState::FreeText($inner) => $call,
+            SlideState::Brainstorm($inner) => $call,
+            SlideState::InfoSlide($inner) => $call,
+        }
+    };
 }
 
 impl Fuiz {
@@ -193,6 +252,48 @@ impl SlideState {
                 index,
                 phase: s.state(),
             },
+            Self::Slider(s) => SlidePosition::Slider {
+                index,
+                phase: s.state(),
+            },
+            Self::Scale(s) => SlidePosition::Scale {
+                index,
+                phase: s.state(),
+            },
+            Self::Poll(s) => SlidePosition::Poll {
+                index,
+                phase: s.state(),
+            },
+            Self::Pin(s) => SlidePosition::Pin {
+                index,
+                phase: s.state(),
+            },
+            Self::FreeText(s) => SlidePosition::FreeText {
+                index,
+                phase: s.state(),
+            },
+            Self::Brainstorm(s) => SlidePosition::Brainstorm {
+                index,
+                phase: s.state(),
+            },
+            Self::InfoSlide(s) => SlidePosition::InfoSlide {
+                index,
+                phase: s.state(),
+            },
+        }
+    }
+
+    /// Whether finishing this slide is worth a standings screen.
+    ///
+    /// Opinion slides (poll, scale, drop pin, word cloud, open ended,
+    /// brainstorm) and info slides score nothing, so the leaderboard after them
+    /// would be identical to the previous one. A pin slide with a target and a
+    /// slider both score, so they keep theirs.
+    pub(crate) fn awards_points(&self) -> bool {
+        use crate::fuiz::common::AnswerHandler;
+        match self {
+            Self::InfoSlide(_) => false,
+            other => dispatch_slide!(other, s => s.max_points() > 0),
         }
     }
 
@@ -227,6 +328,27 @@ impl SlideState {
                 s.play(watchers, schedule_message, tunnel_finder, index, count);
             }
             Self::Order(s) => {
+                s.play(watchers, schedule_message, tunnel_finder, index, count);
+            }
+            Self::Slider(s) => {
+                s.play(watchers, schedule_message, tunnel_finder, index, count);
+            }
+            Self::Scale(s) => {
+                s.play(watchers, schedule_message, tunnel_finder, index, count);
+            }
+            Self::Poll(s) => {
+                s.play(watchers, schedule_message, tunnel_finder, index, count);
+            }
+            Self::Pin(s) => {
+                s.play(watchers, schedule_message, tunnel_finder, index, count);
+            }
+            Self::FreeText(s) => {
+                s.play(watchers, schedule_message, tunnel_finder, index, count);
+            }
+            Self::Brainstorm(s) => {
+                s.play(watchers, schedule_message, tunnel_finder, index, count);
+            }
+            Self::InfoSlide(s) => {
                 s.play(watchers, schedule_message, tunnel_finder, index, count);
             }
         }
@@ -265,41 +387,17 @@ impl SlideState {
         index: usize,
         count: usize,
     ) -> SlideAction<S> {
-        match self {
-            Self::MultipleChoice(s) => s.receive_message(
-                watcher_id,
-                message,
-                leaderboard,
-                watchers,
-                team_manager,
-                schedule_message,
-                tunnel_finder,
-                index,
-                count,
-            ),
-            Self::TypeAnswer(s) => s.receive_message(
-                watcher_id,
-                message,
-                leaderboard,
-                watchers,
-                team_manager,
-                schedule_message,
-                tunnel_finder,
-                index,
-                count,
-            ),
-            Self::Order(s) => s.receive_message(
-                watcher_id,
-                message,
-                leaderboard,
-                watchers,
-                team_manager,
-                schedule_message,
-                tunnel_finder,
-                index,
-                count,
-            ),
-        }
+        dispatch_slide!(self, s => s.receive_message(
+            watcher_id,
+            message,
+            leaderboard,
+            watchers,
+            team_manager,
+            schedule_message,
+            tunnel_finder,
+            index,
+            count,
+        ))
     }
 
     /// Generates a state synchronization message for a specific participant
@@ -340,6 +438,13 @@ impl SlideState {
             )),
             Self::TypeAnswer(s) => SyncMessage::TypeAnswer(s.state_message(index, count)),
             Self::Order(s) => SyncMessage::Order(s.state_message(index, count)),
+            Self::Slider(s) => SyncMessage::Slider(s.state_message(index, count)),
+            Self::Scale(s) => SyncMessage::Scale(s.state_message(index, count)),
+            Self::Poll(s) => SyncMessage::Poll(s.state_message(index, count)),
+            Self::Pin(s) => SyncMessage::Pin(s.state_message(index, count)),
+            Self::FreeText(s) => SyncMessage::FreeText(s.state_message(index, count)),
+            Self::Brainstorm(s) => SyncMessage::Brainstorm(s.state_message(index, count)),
+            Self::InfoSlide(s) => SyncMessage::InfoSlide(s.state_message(index, count)),
         }
     }
 
@@ -365,6 +470,7 @@ impl SlideState {
     /// A `SlideAction` indicating whether to stay on the current slide or advance
     pub(crate) fn receive_alarm<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
+        leaderboard: &mut Leaderboard,
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: S,
@@ -385,29 +491,44 @@ impl SlideState {
             ),
             Self::TypeAnswer(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
             Self::Order(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
+            Self::Slider(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
+            Self::Scale(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
+            Self::Poll(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
+            Self::Pin(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
+            Self::FreeText(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
+            Self::Brainstorm(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
+            // The info slide's timer ends the slide rather than advancing a
+            // phase, so it needs the leaderboard to record its zero scores.
+            Self::InfoSlide(s) => s.receive_alarm(
+                leaderboard,
+                watchers,
+                team_manager,
+                schedule_message,
+                tunnel_finder,
+                message,
+            ),
         }
+    }
+
+    /// Every answer on file for this slide, as display text against the id that
+    /// gave it. The game turns the ids into names — it owns the name table.
+    pub(crate) fn player_answers(&self) -> Vec<(crate::watcher::Id, String)> {
+        use crate::fuiz::common::AnswerHandler;
+        dispatch_slide!(self, s => s.player_answers())
     }
 
     /// Notify the active slide that a watcher has gone offline so it can
     /// keep its live-answered counter in sync.
     pub(crate) fn mark_watcher_left(&mut self, id: crate::watcher::Id) {
         use crate::fuiz::common::AnswerHandler;
-        match self {
-            Self::MultipleChoice(s) => s.mark_watcher_left(id),
-            Self::TypeAnswer(s) => s.mark_watcher_left(id),
-            Self::Order(s) => s.mark_watcher_left(id),
-        }
+        dispatch_slide!(self, s => s.mark_watcher_left(id));
     }
 
     /// Notify the active slide that a watcher has reconnected so it can
     /// keep its live-answered counter in sync.
     pub(crate) fn mark_watcher_returned(&mut self, id: crate::watcher::Id) {
         use crate::fuiz::common::AnswerHandler;
-        match self {
-            Self::MultipleChoice(s) => s.mark_watcher_returned(id),
-            Self::TypeAnswer(s) => s.mark_watcher_returned(id),
-            Self::Order(s) => s.mark_watcher_returned(id),
-        }
+        dispatch_slide!(self, s => s.mark_watcher_returned(id));
     }
 }
 
@@ -762,6 +883,7 @@ mod tests {
         });
 
         let _result = state.receive_alarm(
+            &mut create_mock_leaderboard(),
             &watchers,
             None,
             &mut schedule_message,
@@ -788,6 +910,7 @@ mod tests {
         });
 
         let _result = state.receive_alarm(
+            &mut create_mock_leaderboard(),
             &watchers,
             None,
             &mut schedule_message,
@@ -814,6 +937,7 @@ mod tests {
         });
 
         let _result = state.receive_alarm(
+            &mut create_mock_leaderboard(),
             &watchers,
             None,
             &mut schedule_message,
@@ -824,5 +948,243 @@ mod tests {
         );
 
         // Test completed successfully - receive_alarm was called on MultipleChoice variant
+    }
+
+    // ---------- the collect-opinions and present-info slide types ----------
+
+    /// Each of these doubles as a check that the wire format the website sends
+    /// still deserializes into the slide config it is meant to.
+    fn parse_slide(json: &str) -> SlideConfig {
+        serde_json::from_str(json).expect("slide config should deserialize")
+    }
+
+    /// A config paired with the predicate that recognises what it should
+    /// become — a state variant, a sync message kind, and so on.
+    type SlideCase<T> = (SlideConfig, fn(&T) -> bool);
+
+    /// Same idea for sync messages, but the predicate has to be valid for any
+    /// borrow of the state it was built from — hence the explicit `for<'a>`.
+    type SyncCase = (SlideConfig, for<'a> fn(&SyncMessage<'a>) -> bool);
+
+    fn create_test_slider_config() -> SlideConfig {
+        parse_slide(
+            r#"{"Slider": {
+                "title": "How tall is the Eiffel Tower?",
+                "media": null,
+                "introduce_question": 2000,
+                "time_limit": 30000,
+                "points_awarded": 1000,
+                "range": {"min": 0.0, "max": 500.0, "step": 5.0},
+                "correct": 330.0,
+                "tolerance": 10.0,
+                "unit": "m"
+            }}"#,
+        )
+    }
+
+    fn create_test_scale_config() -> SlideConfig {
+        parse_slide(
+            r#"{"Scale": {
+                "title": "How was the lesson?",
+                "media": null,
+                "points_awarded": 0,
+                "min": 1,
+                "max": 5,
+                "style": "Agreement",
+                "labels": {"low": "Awful", "mid": null, "high": "Great"}
+            }}"#,
+        )
+    }
+
+    fn create_test_poll_config() -> SlideConfig {
+        parse_slide(
+            r#"{"Poll": {
+                "title": "Which should we do next?",
+                "media": null,
+                "points_awarded": 0,
+                "answers": [{"Text": "Revision"}, {"Text": "New topic"}]
+            }}"#,
+        )
+    }
+
+    fn create_test_pin_config() -> SlideConfig {
+        parse_slide(
+            r#"{"Pin": {
+                "title": "Where is Rome?",
+                "media": null,
+                "points_awarded": 1000,
+                "correct_area": {
+                    "Ellipse": {
+                        "center": {"x": 0.5, "y": 0.4},
+                        "radius_x": 0.08,
+                        "radius_y": 0.12
+                    }
+                }
+            }}"#,
+        )
+    }
+
+    fn create_test_free_text_config() -> SlideConfig {
+        parse_slide(
+            r#"{"FreeText": {
+                "title": "One word for today?",
+                "media": null,
+                "points_awarded": 0,
+                "mode": "WordCloud",
+                "max_entries": 3,
+                "max_entry_length": 40
+            }}"#,
+        )
+    }
+
+    fn create_test_brainstorm_config() -> SlideConfig {
+        parse_slide(
+            r#"{"Brainstorm": {
+                "title": "How do we cut waste?",
+                "media": null,
+                "points_awarded": 0,
+                "idea_time_limit": 60000,
+                "vote_time_limit": 30000,
+                "max_ideas_per_player": 3,
+                "max_votes_per_player": 2,
+                "max_idea_length": 100
+            }}"#,
+        )
+    }
+
+    fn create_test_info_slide_config() -> SlideConfig {
+        parse_slide(
+            r#"{"InfoSlide": {
+                "title": "A word on photosynthesis",
+                "body": "Plants turn light into sugar.",
+                "media": null,
+                "duration": 10000
+            }}"#,
+        )
+    }
+
+    fn every_new_slide_config() -> Vec<SlideConfig> {
+        vec![
+            create_test_slider_config(),
+            create_test_scale_config(),
+            create_test_poll_config(),
+            create_test_pin_config(),
+            create_test_free_text_config(),
+            create_test_brainstorm_config(),
+            create_test_info_slide_config(),
+        ]
+    }
+
+    #[test]
+    fn every_new_slide_config_validates() {
+        let settings = crate::settings::Settings::default();
+        for config in every_new_slide_config() {
+            assert!(
+                config.validate_with(&settings).is_ok(),
+                "config should pass validation: {config:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_new_slide_config_maps_to_its_own_state() {
+        let pairs: Vec<SlideCase<SlideState>> = vec![
+            (create_test_slider_config(), |s| matches!(s, SlideState::Slider(_))),
+            (create_test_scale_config(), |s| matches!(s, SlideState::Scale(_))),
+            (create_test_poll_config(), |s| matches!(s, SlideState::Poll(_))),
+            (create_test_pin_config(), |s| matches!(s, SlideState::Pin(_))),
+            (create_test_free_text_config(), |s| matches!(s, SlideState::FreeText(_))),
+            (create_test_brainstorm_config(), |s| {
+                matches!(s, SlideState::Brainstorm(_))
+            }),
+            (create_test_info_slide_config(), |s| {
+                matches!(s, SlideState::InfoSlide(_))
+            }),
+        ];
+
+        for (config, is_expected_variant) in pairs {
+            let state = config.to_state();
+            assert!(is_expected_variant(&state), "unexpected state for {config:?}");
+        }
+    }
+
+    #[test]
+    fn every_new_slide_syncs_under_its_own_message_kind() {
+        let tunnel_finder = create_mock_tunnel_finder();
+        let checks: Vec<SyncCase> = vec![
+            (create_test_slider_config(), |m| matches!(m, SyncMessage::Slider(_))),
+            (create_test_scale_config(), |m| matches!(m, SyncMessage::Scale(_))),
+            (create_test_poll_config(), |m| matches!(m, SyncMessage::Poll(_))),
+            (create_test_pin_config(), |m| matches!(m, SyncMessage::Pin(_))),
+            (create_test_free_text_config(), |m| {
+                matches!(m, SyncMessage::FreeText(_))
+            }),
+            (create_test_brainstorm_config(), |m| {
+                matches!(m, SyncMessage::Brainstorm(_))
+            }),
+            (create_test_info_slide_config(), |m| {
+                matches!(m, SyncMessage::InfoSlide(_))
+            }),
+        ];
+
+        for (config, is_expected_kind) in checks {
+            let state = config.to_state();
+            let matched = {
+                let message = state.state_message(Id::new(), ValueKind::Player, None, &tunnel_finder, 0, 1);
+                is_expected_kind(&message)
+            };
+            assert!(matched, "unexpected sync message for {config:?}");
+        }
+    }
+
+    #[test]
+    fn every_new_slide_starts_without_panicking() {
+        for config in every_new_slide_config() {
+            let mut state = config.to_state();
+            let watchers = create_mock_watchers();
+            let mut scheduled = 0;
+            state.play(
+                None,
+                &watchers,
+                |_msg: AlarmMessage, _duration: std::time::Duration| scheduled += 1,
+                create_mock_tunnel_finder(),
+                0,
+                1,
+            );
+        }
+    }
+
+    #[test]
+    fn only_scoring_slides_earn_a_leaderboard_screen() {
+        assert!(create_test_slider_config().to_state().awards_points());
+        assert!(create_test_pin_config().to_state().awards_points());
+        assert!(create_test_multiple_choice_config().to_state().awards_points());
+
+        for opinion in [
+            create_test_scale_config(),
+            create_test_poll_config(),
+            create_test_free_text_config(),
+            create_test_brainstorm_config(),
+            create_test_info_slide_config(),
+        ] {
+            assert!(
+                !opinion.to_state().awards_points(),
+                "opinion and info slides skip the standings screen: {opinion:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_drop_pin_scores_nothing_while_a_pin_answer_does() {
+        let drop_pin = parse_slide(
+            r#"{"Pin": {
+                "title": "Where did you grow up?",
+                "media": null,
+                "points_awarded": 0,
+                "correct_area": null
+            }}"#,
+        );
+        assert!(!drop_pin.to_state().awards_points());
+        assert!(create_test_pin_config().to_state().awards_points());
     }
 }

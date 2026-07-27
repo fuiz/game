@@ -102,6 +102,29 @@ pub trait HasSlideCore {
     fn slide_core_mut(&mut self) -> &mut SlideCore<Self::Phase>;
 }
 
+/// Implements [`HasSlideCore`] for a slide whose runtime core lives in `self.core`.
+///
+/// Every slide's implementation was the same eleven lines handing back a field;
+/// spelling that out ten times buried the one thing that varies, which is the
+/// phase enum.
+macro_rules! impl_slide_core {
+    ($state:ty, $phase:ty) => {
+        impl $crate::fuiz::common::HasSlideCore for $state {
+            type Phase = $phase;
+
+            fn slide_core(&self) -> &$crate::fuiz::common::SlideCore<$phase> {
+                &self.core
+            }
+
+            fn slide_core_mut(&mut self) -> &mut $crate::fuiz::common::SlideCore<$phase> {
+                &mut self.core
+            }
+        }
+    };
+}
+
+pub(crate) use impl_slide_core;
+
 /// Trait for basic slide state management functionality
 pub trait SlideStateManager: HasSlideCore {
     /// Get the current slide state
@@ -278,6 +301,22 @@ pub trait AnswerHandler<AnswerType>: HasSlideCore {
 
     /// Check if an answer is correct
     fn is_correct_answer(&self, answer: &AnswerType) -> bool;
+
+    /// How this slide phrases one answer for the host's response list.
+    ///
+    /// Only the phrasing belongs to the slide — an index means nothing without
+    /// the option it points at — so the walk over the answers is defaulted
+    /// below rather than written out ten times.
+    fn describe_answer(&self, answer: &AnswerType) -> String;
+
+    /// Every answer on file, as display text against the id that gave it.
+    /// Keyed by watcher id because the slide has no name table; the game does.
+    fn player_answers(&self) -> Vec<(Id, String)> {
+        self.user_answers()
+            .iter()
+            .map(|(id, (answer, _))| (*id, self.describe_answer(answer)))
+            .collect()
+    }
 
     /// Returns a score multiplier for the given answer (0.0 to 1.0).
     /// Default implementation returns 1.0 for correct, 0.0 for incorrect.
@@ -622,7 +661,8 @@ pub(crate) trait QuestionReceiveMessage {
             crate::game::IncomingMessage::Host(
                 crate::game::IncomingHostMessage::Index(_)
                 | crate::game::IncomingHostMessage::Lock(_)
-                | crate::game::IncomingHostMessage::Kick(_),
+                | crate::game::IncomingHostMessage::Kick(_)
+                | crate::game::IncomingHostMessage::RequestResponses,
             )
             | crate::game::IncomingMessage::Ghost(_)
             | crate::game::IncomingMessage::Unassigned(_) => SlideAction::Stay,
@@ -700,6 +740,9 @@ mod tests {
         }
         fn is_correct_answer(&self, answer: &bool) -> bool {
             *answer
+        }
+        fn describe_answer(&self, answer: &bool) -> String {
+            answer.to_string()
         }
         fn max_points(&self) -> u64 {
             self.max_points
