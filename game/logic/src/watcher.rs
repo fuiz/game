@@ -601,7 +601,7 @@ mod tests {
 
     // Mock SyncMessage for testing
     fn mock_sync_message() -> SyncMessage<'static> {
-        SyncMessage::Game(crate::game::SyncMessage::WaitingScreen(crate::TruncatedVec::default()))
+        SyncMessage::Game(crate::game::SyncMessage::WaitingScreen(Vec::new()))
     }
 
     #[test]

@@ -21,7 +21,7 @@ use crate::{
 };
 
 use super::{
-    AlarmMessage, TruncatedVec,
+    AlarmMessage,
     fuiz::{config::Fuiz, multiple_choice},
     leaderboard::{HostSummary, Leaderboard, ScoreMessage},
     names::{self, Names, NamingScheme},
@@ -352,16 +352,12 @@ pub enum IncomingHostMessage {
     Kick(String),
     /// Ask for who answered the current slide and what they said.
     ///
-    /// Pulled rather than pushed: the host only wants this when they open the
-    /// list, and pushing a row per player with every result would put the
-    /// largest payload of the game on the wire for a panel nobody may open.
+    /// Pulled rather than pushed, so the traffic stays on the host's own socket
+    /// and off every player's. The host asks once per results screen, because
+    /// the join between names and answers is only available while the slide is
+    /// still up, and the end-of-game response log needs every slide's answers.
     RequestResponses,
 }
-
-/// How many individual responses the host's list carries. Beyond this the count
-/// is still exact; only the rows are cut, the same bargain the leaderboard and
-/// waiting screen already make.
-const MAX_REPORTED_RESPONSES: usize = 500;
 
 /// One player's answer to the current slide, for the host's response list.
 #[derive(Debug, Serialize, Clone)]
@@ -405,11 +401,15 @@ pub enum UpdateMessage<'a> {
     /// not join — the game is locked or at maximum players. The client should
     /// surface the reason and stop reconnecting.
     CannotJoin(watcher::Error),
-    /// Update the team display screen
-    TeamDisplay(TruncatedVec<&'a str>),
+    /// Update the team display screen with every team name
+    TeamDisplay(Vec<&'a str>),
     /// (HOST ONLY): who answered the current slide, and what they answered.
     /// Sent in reply to [`IncomingHostMessage::RequestResponses`].
-    PlayerResponses(TruncatedVec<PlayerResponse<'a>>),
+    ///
+    /// Every answer on file, never a sample: this backs the end-of-game response
+    /// export, where a dropped row is a missing answer rather than a longer
+    /// screen. One entry per player bounds it.
+    PlayerResponses(Vec<PlayerResponse<'a>>),
     /// Prompt the participant to choose a name
     NameChoose,
     /// Confirm a name assignment
@@ -456,13 +456,15 @@ pub enum UpdateMessage<'a> {
 /// needs to be completely synchronized with the current game state.
 #[derive(Debug, Serialize, Clone)]
 pub enum SyncMessage<'a> {
-    /// Sync waiting screen — `items` holds the full player-name list for the
-    /// host (no server-side truncation; client decides display), and is empty
-    /// for non-host roles (which only need `exact_count`). Incremental updates
-    /// flow via [`UpdateMessage::PlayerJoined`] / [`UpdateMessage::PlayerLeft`].
-    WaitingScreen(TruncatedVec<&'a str>),
-    /// Sync team display screen
-    TeamDisplay(TruncatedVec<&'a str>),
+    /// (HOST ONLY) Sync the lobby with every player's name, in join order.
+    /// Incremental updates flow via [`UpdateMessage::PlayerJoined`] /
+    /// [`UpdateMessage::PlayerLeft`].
+    WaitingScreen(Vec<&'a str>),
+    /// Sync the lobby for everyone else, who are shown how many have joined but
+    /// not who: names reach the host alone, the same as `PlayerJoined` does.
+    WaitingCount(usize),
+    /// Sync team display screen with every team name
+    TeamDisplay(Vec<&'a str>),
     /// Sync leaderboard view with position information
     Leaderboard {
         /// Current slide index
@@ -559,10 +561,10 @@ pub enum MetainfoMessage {
 /// for comparison and ranking visualization.
 #[derive(Debug, Serialize, Clone)]
 pub struct LeaderboardMessage<'a> {
-    /// Current leaderboard standings
-    pub current: TruncatedVec<(&'a str, u64)>,
+    /// Current leaderboard standings, whole and in descending score order
+    pub current: Vec<(&'a str, u64)>,
     /// Previous round's standings for comparison
-    pub prior: TruncatedVec<(&'a str, u64)>,
+    pub prior: Vec<(&'a str, u64)>,
 }
 
 // Convenience methods
@@ -608,24 +610,15 @@ impl Game {
         }
     }
 
-    /// `TruncatedVec` shape used for [`SyncMessage::WaitingScreen`].
+    /// Every player's name for [`SyncMessage::WaitingScreen`], in join order.
     ///
-    /// `items` is the full player-name list when `include_names` is true (host
-    /// sync), or empty when false (player/unassigned sync — those clients only
-    /// read `exact_count`). Either way, this is only called on rare state
-    /// syncs; per-join updates flow as `PlayerJoined` / `PlayerLeft` events.
-    fn waiting_screen_names<F: TunnelFinder>(&self, tunnel_finder: F, include_names: bool) -> TruncatedVec<&str> {
-        let exact_count = self.watchers.specific_count(ValueKind::Player);
-        if !include_names {
-            return TruncatedVec::new(std::iter::empty(), 0, exact_count);
-        }
-        TruncatedVec::new(
-            self.watchers
-                .specific_iter(ValueKind::Player, tunnel_finder)
-                .filter_map(|(id, _, _)| self.names.get_name(&id)),
-            exact_count,
-            exact_count,
-        )
+    /// Only called on the rare state sync; per-join updates flow as
+    /// `PlayerJoined` / `PlayerLeft` events.
+    fn waiting_screen_names<F: TunnelFinder>(&self, tunnel_finder: F) -> Vec<&str> {
+        self.watchers
+            .specific_iter(ValueKind::Player, tunnel_finder)
+            .filter_map(|(id, _, _)| self.names.get_name(&id))
+            .collect()
     }
 
     /// Creates a leaderboard message with current and previous standings
@@ -645,8 +638,8 @@ impl Game {
         let id_score_map = |(id, s)| (id_map(id), s);
 
         LeaderboardMessage {
-            current: current.map(id_score_map),
-            prior: prior.map(id_score_map),
+            current: current.into_iter().map(id_score_map).collect(),
+            prior: prior.into_iter().map(id_score_map).collect(),
         }
     }
 }
@@ -657,6 +650,10 @@ impl Game {
     /// Names come from the game's table and the answers from the slide, so this
     /// is the only place the two can be joined. Sorted by name because a host
     /// scanning for one player shouldn't have to hunt.
+    ///
+    /// Sent whole. One row per player, however many entries that player
+    /// submitted, so the game's player ceiling already bounds the payload, and
+    /// it goes to the host's own socket rather than to the room.
     fn send_player_responses<F: TunnelFinder>(&self, host_id: Id, tunnel_finder: F) {
         let State::Slide(current_slide) = &self.state else {
             return;
@@ -670,14 +667,8 @@ impl Game {
             .collect_vec();
         responses.sort_unstable_by(|a, b| a.name.cmp(b.name));
 
-        let exact_count = responses.len();
         Watchers::send_message(
-            &UpdateMessage::PlayerResponses(TruncatedVec::new(
-                responses.into_iter(),
-                MAX_REPORTED_RESPONSES,
-                exact_count,
-            ))
-            .into(),
+            &UpdateMessage::PlayerResponses(responses).into(),
             host_id,
             tunnel_finder,
         );
@@ -1425,13 +1416,12 @@ impl Game {
                     }
                     .into()
                 }
-                _ => SyncMessage::WaitingScreen(
-                    // `include_names` is true only for the host; player /
-                    // unassigned syncs return an empty `items` with the live
-                    // `exact_count` so existing player UIs keep working.
-                    self.waiting_screen_names(tunnel_finder, matches!(watcher_kind, ValueKind::Host)),
-                )
-                .into(),
+                // Only the host is told who has joined; everyone else is told
+                // how many, matching where `PlayerJoined` is announced.
+                _ if matches!(watcher_kind, ValueKind::Host) => {
+                    SyncMessage::WaitingScreen(self.waiting_screen_names(tunnel_finder)).into()
+                }
+                _ => SyncMessage::WaitingCount(self.watchers.specific_count(ValueKind::Player)).into(),
             },
             State::TeamDisplay => match watcher_kind {
                 ValueKind::Player => {
@@ -1932,8 +1922,8 @@ mod tests {
         let prior_data = [("Player1", 50u64)];
 
         let leaderboard_msg = LeaderboardMessage {
-            current: crate::TruncatedVec::new(current_data.into_iter(), 10, 1),
-            prior: crate::TruncatedVec::new(prior_data.into_iter(), 10, 1),
+            current: current_data.to_vec(),
+            prior: prior_data.to_vec(),
         };
 
         let json = serde_json::to_string(&leaderboard_msg).unwrap();
@@ -2116,11 +2106,16 @@ mod tests {
         let player_id = crate::watcher::Id::new();
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
 
-        let state_msg = game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
-
-        // Should return waiting screen message for initial state
+        // In the lobby a player is told how many have joined, and the host who.
+        let player_msg = game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
         assert!(matches!(
-            state_msg,
+            player_msg,
+            crate::SyncMessage::Game(SyncMessage::WaitingCount(_))
+        ));
+
+        let host_msg = game.state_message(host_id, crate::watcher::ValueKind::Host, tunnel_finder);
+        assert!(matches!(
+            host_msg,
             crate::SyncMessage::Game(SyncMessage::WaitingScreen(_))
         ));
     }
@@ -3683,11 +3678,10 @@ mod tests {
         assert!(game.assign_player_name(player1, "Player1", tunnel_finder).is_ok());
         assert!(game.assign_player_name(player2, "Player2", tunnel_finder).is_ok());
 
-        let names = game.waiting_screen_names(tunnel_finder, true);
-        assert_eq!(names.exact_count(), 2);
-        assert_eq!(names.items().len(), 2);
-        assert!(names.items().contains(&"Player1"));
-        assert!(names.items().contains(&"Player2"));
+        let names = game.waiting_screen_names(tunnel_finder);
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"Player1"));
+        assert!(names.contains(&"Player2"));
     }
 
     #[test]
@@ -3709,8 +3703,8 @@ mod tests {
 
         // Test leaderboard_message function
         let leaderboard_msg = game.leaderboard_message();
-        assert!(leaderboard_msg.current.items.is_empty()); // No scores yet
-        assert!(leaderboard_msg.prior.items.is_empty());
+        assert!(leaderboard_msg.current.is_empty()); // No scores yet
+        assert!(leaderboard_msg.prior.is_empty());
     }
 
     #[test]

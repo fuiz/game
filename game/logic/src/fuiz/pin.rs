@@ -66,9 +66,6 @@ impl super::common::Phase for Phase {
 
 /// How many individual pins the results payload carries. Beyond this the host
 /// sees the count but not every coordinate — a 1000-player room would otherwise
-/// ship far more geometry than a scatter plot can usefully show.
-const MAX_REPORTED_PINS: usize = crate::settings::DEFAULT_MAX_REPORTED_PINS;
-
 /// A point on the image, normalised to `0.0..=1.0` on both axes.
 ///
 /// The origin is the image's top-left corner, matching how the client reports
@@ -323,8 +320,9 @@ pub enum UpdateMessage<'a> {
     AnswersResults {
         /// The region that earned points, or `None` for drop pins
         correct_area: Option<&'a Shape>,
-        /// Aggregated player pins
-        results: Results,
+        /// Every player pin, for the host's map. Absent for everyone else,
+        /// whose screen shows only their own pin against the target.
+        results: Option<Results>,
     },
 }
 
@@ -394,8 +392,9 @@ pub enum SyncMessage<'a> {
         media: Option<&'a Media>,
         /// The region that earned points, or `None` for drop pins
         correct_area: Option<&'a Shape>,
-        /// Aggregated player pins
-        results: Results,
+        /// Every player pin, for the host's map. Absent for everyone else,
+        /// whose screen shows only their own pin against the target.
+        results: Option<Results>,
     },
 }
 
@@ -440,12 +439,17 @@ impl AnswerHandler<Point> for State {
 
     fn send_answers_results<F: TunnelFinder>(&mut self, watchers: &Watchers, tunnel_finder: F) {
         if self.change_state(Phase::Answers, Phase::AnswersResults) {
-            watchers.announce(
-                &UpdateMessage::AnswersResults {
-                    correct_area: self.config.correct_area.as_ref(),
-                    results: self.results(),
-                }
-                .into(),
+            let results = self.results();
+            watchers.announce_with(
+                |_, kind| {
+                    Some(
+                        UpdateMessage::AnswersResults {
+                            correct_area: self.config.correct_area.as_ref(),
+                            results: matches!(kind, ValueKind::Host).then(|| results.clone()),
+                        }
+                        .into(),
+                    )
+                },
                 tunnel_finder,
             );
         }
@@ -589,15 +593,11 @@ impl State {
         }
     }
 
-    /// Collects the pins for display, capped at the reporting limit.
+    /// Collects every pin. Sent to the host alone, so the room does not each
+    /// carry a copy of a payload only the host's map draws.
     fn results(&self) -> Results {
         Results {
-            pins: self
-                .user_answers
-                .values()
-                .map(|(point, _)| *point)
-                .take(MAX_REPORTED_PINS)
-                .collect_vec(),
+            pins: self.user_answers.values().map(|(point, _)| *point).collect_vec(),
             correct_count: self.config.correct_area.as_ref().map(|_| self.correct_count()),
             total_count: self.user_answers.len(),
         }
@@ -624,7 +624,7 @@ impl State {
     }
 
     /// Synchronization message for a newly connected watcher.
-    pub fn state_message(&self, index: usize, count: usize) -> SyncMessage<'_> {
+    pub fn state_message(&self, watcher_kind: ValueKind, index: usize, count: usize) -> SyncMessage<'_> {
         match self.state() {
             Phase::Unstarted => SyncMessage::SlideAnnouncement {
                 index,
@@ -661,7 +661,7 @@ impl State {
                 question: &self.config.title,
                 media: self.config.media.as_ref(),
                 correct_area: self.config.correct_area.as_ref(),
-                results: self.results(),
+                results: matches!(watcher_kind, ValueKind::Host).then(|| self.results()),
             },
         }
     }

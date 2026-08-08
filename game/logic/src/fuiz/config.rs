@@ -441,8 +441,8 @@ impl SlideState {
             Self::Slider(s) => SyncMessage::Slider(s.state_message(index, count)),
             Self::Scale(s) => SyncMessage::Scale(s.state_message(index, count)),
             Self::Poll(s) => SyncMessage::Poll(s.state_message(index, count)),
-            Self::Pin(s) => SyncMessage::Pin(s.state_message(index, count)),
-            Self::FreeText(s) => SyncMessage::FreeText(s.state_message(index, count)),
+            Self::Pin(s) => SyncMessage::Pin(s.state_message(watcher_kind, index, count)),
+            Self::FreeText(s) => SyncMessage::FreeText(s.state_message(watcher_kind, index, count)),
             Self::Brainstorm(s) => SyncMessage::Brainstorm(s.state_message(index, count)),
             Self::InfoSlide(s) => SyncMessage::InfoSlide(s.state_message(index, count)),
         }

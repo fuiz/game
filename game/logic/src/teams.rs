@@ -12,7 +12,6 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    TruncatedVec,
     game::Profanity,
     names,
     session::TunnelFinder,
@@ -333,18 +332,17 @@ impl<N: names::NamingScheme> TeamManager<N> {
 
     /// Gets the names of all formed teams
     ///
-    /// Returns a truncated list of team names that have been created during
-    /// the team formation process. This is used for displaying team information
-    /// to participants.
+    /// Returns every team name created during the team formation process, in
+    /// formation order, for the host's team display.
     ///
     /// # Returns
     ///
-    /// `Some(TruncatedVec<String>)` containing team names if teams have been
-    /// finalized, or `None` if team formation hasn't completed yet
-    pub fn team_names(&self) -> Option<TruncatedVec<&str>> {
+    /// `Some(Vec<&str>)` containing team names if teams have been finalized, or
+    /// `None` if team formation hasn't completed yet
+    pub fn team_names(&self) -> Option<Vec<&str>> {
         self.teams
             .as_ref()
-            .map(|v| TruncatedVec::new(v.iter().map(|(_, team_name)| team_name.as_str()), 50, v.len()))
+            .map(|v| v.iter().map(|(_, team_name)| team_name.as_str()).collect())
     }
 
     /// Gets the team ID for a specific player
@@ -793,8 +791,8 @@ mod tests {
         manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
 
         let team_names = manager.team_names().unwrap();
-        assert_eq!(team_names.exact_count(), 1);
-        assert!(!team_names.items().is_empty());
+        assert_eq!(team_names.len(), 1);
+        assert!(!team_names[0].is_empty(), "the team should have been given a name");
     }
 
     #[test]

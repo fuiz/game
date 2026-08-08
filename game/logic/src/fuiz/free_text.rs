@@ -36,9 +36,6 @@ use super::{
     media::Media,
 };
 
-/// How many distinct entries the results payload carries.
-const MAX_REPORTED_ENTRIES: usize = crate::settings::DEFAULT_MAX_REPORTED_ENTRIES;
-
 /// Lifecycle phases for a free-text slide.
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default, Serialize, Deserialize)]
 #[repr(u8)]
@@ -168,7 +165,7 @@ pub struct EntryCount {
 /// Aggregated results for a free-text slide.
 #[derive(Debug, Clone, Serialize)]
 pub struct Results {
-    /// Distinct entries, most frequent first, capped at the reporting limit.
+    /// Distinct entries, most frequent first.
     pub entries: Vec<EntryCount>,
     /// Total number of entries submitted, before deduplication.
     pub total_entries: usize,
@@ -225,8 +222,9 @@ pub enum UpdateMessage<'a> {
     AnswersResults {
         /// Which flavour of collection this was
         mode: Mode,
-        /// Aggregated entries
-        results: Results,
+        /// Every distinct entry, for the host's screen. Absent for everyone
+        /// else, who are shown only that their own answer was recorded.
+        results: Option<Results>,
     },
 }
 
@@ -300,8 +298,9 @@ pub enum SyncMessage<'a> {
         media: Option<&'a Media>,
         /// Which flavour of collection this was
         mode: Mode,
-        /// Aggregated entries
-        results: Results,
+        /// Every distinct entry, for the host's screen. Absent for everyone
+        /// else, who are shown only that their own answer was recorded.
+        results: Option<Results>,
     },
 }
 
@@ -349,12 +348,17 @@ impl AnswerHandler<Vec<String>> for State {
 
     fn send_answers_results<F: TunnelFinder>(&mut self, watchers: &Watchers, tunnel_finder: F) {
         if self.change_state(Phase::Answers, Phase::AnswersResults) {
-            watchers.announce(
-                &UpdateMessage::AnswersResults {
-                    mode: self.config.mode,
-                    results: self.results(),
-                }
-                .into(),
+            let results = self.results();
+            watchers.announce_with(
+                |_, kind| {
+                    Some(
+                        UpdateMessage::AnswersResults {
+                            mode: self.config.mode,
+                            results: matches!(kind, ValueKind::Host).then(|| results.clone()),
+                        }
+                        .into(),
+                    )
+                },
                 tunnel_finder,
             );
         }
@@ -531,7 +535,6 @@ impl State {
             entries: counts
                 .into_iter()
                 .sorted_by(|(a_text, a_count), (b_text, b_count)| b_count.cmp(a_count).then_with(|| a_text.cmp(b_text)))
-                .take(MAX_REPORTED_ENTRIES)
                 .map(|(text, count)| EntryCount {
                     text: text.to_string(),
                     count,
@@ -563,7 +566,7 @@ impl State {
     }
 
     /// Synchronization message for a newly connected watcher.
-    pub fn state_message(&self, index: usize, count: usize) -> SyncMessage<'_> {
+    pub fn state_message(&self, watcher_kind: ValueKind, index: usize, count: usize) -> SyncMessage<'_> {
         match self.state() {
             Phase::Unstarted => SyncMessage::SlideAnnouncement {
                 index,
@@ -602,7 +605,7 @@ impl State {
                 question: &self.config.title,
                 media: self.config.media.as_ref(),
                 mode: self.config.mode,
-                results: self.results(),
+                results: matches!(watcher_kind, ValueKind::Host).then(|| self.results()),
             },
         }
     }

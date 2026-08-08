@@ -23,7 +23,6 @@ serializable = []
 # Configuration
 figment = { version = "0.10", optional = true } # Composable configuration library
 # Core serialization and data structures
-derive-where = "1" # Conditional derive macros
 enum-map = { version = "3", features = [
     "serde",
 ] } # Efficient enum-to-value mappings

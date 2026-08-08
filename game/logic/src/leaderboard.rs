@@ -11,7 +11,7 @@ use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use serde::Serialize;
 
-use super::{TruncatedVec, watcher::Id};
+use super::watcher::Id;
 
 /// Summary of final game statistics and player performance
 ///
@@ -186,29 +186,17 @@ impl Leaderboard {
 
     /// Returns the current and previous leaderboard standings
     ///
-    /// Provides the last two sets of leaderboard standings (current and previous)
-    /// as truncated vectors suitable for display to clients. This allows showing
-    /// changes in position between rounds.
+    /// Provides the last two sets of leaderboard standings (current and previous),
+    /// whole and in descending score order, so a client can show where each
+    /// entrant moved between rounds. Bounded by the game's player ceiling, and
+    /// the leaderboard goes to the host alone rather than to the room.
     ///
     /// # Returns
     ///
-    /// An array containing [current_standings, previous_standings] as `TruncatedVec`
-    /// where each entry is (player_id, total_score)
-    pub fn last_two_scores_descending(&self) -> [TruncatedVec<(Id, u64)>; 2] {
-        const LIMIT: usize = 50;
-
-        [
-            TruncatedVec::new(
-                self.scores_descending.iter().copied(),
-                LIMIT,
-                self.scores_descending.len(),
-            ),
-            TruncatedVec::new(
-                self.previous_scores_descending.iter().copied(),
-                LIMIT,
-                self.previous_scores_descending.len(),
-            ),
-        ]
+    /// An array containing [current_standings, previous_standings] where each
+    /// entry is (player_id, total_score)
+    pub fn last_two_scores_descending(&self) -> [Vec<(Id, u64)>; 2] {
+        [self.scores_descending.clone(), self.previous_scores_descending.clone()]
     }
 
     /// Computes comprehensive final game statistics
@@ -466,16 +454,16 @@ mod tests {
         let [current, previous] = leaderboard.last_two_scores_descending();
 
         // Current should show id1 first (150 total)
-        assert_eq!(current.items()[0].0, id1);
-        assert_eq!(current.items()[0].1, 150);
-        assert_eq!(current.items()[1].0, id2);
-        assert_eq!(current.items()[1].1, 125);
+        assert_eq!(current[0].0, id1);
+        assert_eq!(current[0].1, 150);
+        assert_eq!(current[1].0, id2);
+        assert_eq!(current[1].1, 125);
 
         // Previous should show id2 first (100 total from first round)
-        assert_eq!(previous.items()[0].0, id2);
-        assert_eq!(previous.items()[0].1, 100);
-        assert_eq!(previous.items()[1].0, id1);
-        assert_eq!(previous.items()[1].1, 50);
+        assert_eq!(previous[0].0, id2);
+        assert_eq!(previous[0].1, 100);
+        assert_eq!(previous[1].0, id1);
+        assert_eq!(previous[1].1, 50);
     }
 
     #[test]
@@ -606,8 +594,8 @@ mod tests {
 
         // Check that cached data is rebuilt correctly
         let [current, previous] = deserialized.last_two_scores_descending();
-        assert_eq!(current.exact_count(), 2);
-        assert_eq!(previous.exact_count(), 2);
+        assert_eq!(current.len(), 2);
+        assert_eq!(previous.len(), 2);
     }
 
     #[test]
@@ -664,9 +652,9 @@ mod tests {
         let [_current, previous] = deserialized.last_two_scores_descending();
 
         // Previous round totals should be: id1=80 (50+30), id2=65 (25+40)
-        assert_eq!(previous.items().len(), 2);
-        let prev_id1_score = previous.items().iter().find(|(id, _)| *id == id1).unwrap().1;
-        let prev_id2_score = previous.items().iter().find(|(id, _)| *id == id2).unwrap().1;
+        assert_eq!(previous.len(), 2);
+        let prev_id1_score = previous.iter().find(|(id, _)| *id == id1).unwrap().1;
+        let prev_id2_score = previous.iter().find(|(id, _)| *id == id2).unwrap().1;
         assert_eq!(prev_id1_score, 80); // This tests the coalesce Ok branch for previous rounds
         assert_eq!(prev_id2_score, 65);
     }
