@@ -33,7 +33,7 @@ pub fn roman_name(config: &NameConfig) -> Vec<&'static str> {
 }
 
 /// Same as [`roman_name`] but draws the trailing cognomen from the
-/// pre-pluralized list (Latin plurals — e.g. "Aurelii", "Cicerones").
+/// pre-pluralized list (Latin plurals, e.g. "Aurelii", "Cicerones").
 pub fn roman_name_plural(config: &NameConfig) -> Vec<&'static str> {
     roman_name_inner(config, true)
 }

@@ -201,7 +201,7 @@ pub struct AnswerTextSettings {
     pub max_length: usize,
 }
 
-// --- Defaults (previously compile-time constants) ---
+// --- Defaults ---
 
 impl Default for FuizSettings {
     fn default() -> Self {

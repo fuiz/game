@@ -4,9 +4,9 @@
 //! share this module because both collect a bag of strings and report how often
 //! each was said; only the presentation and the normalisation differ:
 //!
-//! - [`Mode::WordCloud`] — short entries, several per player, matched
+//! - [`Mode::WordCloud`]: short entries, several per player, matched
 //!   case-insensitively so "Paris" and "paris" pile into the same word.
-//! - [`Mode::OpenEnded`] — one longer response per player, kept verbatim.
+//! - [`Mode::OpenEnded`]: one longer response per player, kept verbatim.
 //!
 //! Both collect opinions, so no answer is correct and no points are awarded.
 
@@ -83,7 +83,7 @@ pub struct SlideConfig {
     #[garde(dive)]
     media: Option<Media>,
     /// Duration of the slide-announcement intro shown before the question.
-    /// Absent → a default duration; `null` → host-paced.
+    /// Absent means a default duration; `null` means host-paced.
     #[garde(custom(|val, ctx: &crate::settings::Settings| ctx.question.validate_introduce_slide(val)))]
     #[serde(
         default = "crate::fuiz::common::default_introduce_slide",
@@ -366,8 +366,8 @@ impl AnswerHandler<Vec<String>> for State {
 }
 
 impl SlideConfig {
-    /// Trims an entry, truncates it to the configured length, and — for word
-    /// clouds — lowercases it so casing variants pile into one word.
+    /// Trims an entry, truncates it to the configured length, and, for word
+    /// clouds, lowercases it so casing variants pile into one word.
     fn normalize(&self, entry: &str) -> String {
         let trimmed = entry.trim();
         let truncated: String = trimmed.chars().take(self.max_entry_length).collect();

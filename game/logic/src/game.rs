@@ -237,7 +237,7 @@ pub enum IncomingGhostMessage {
 
 /// The host-facing screen a "Next" command was issued from.
 ///
-/// Echoed back by the client so the server can ignore a stale "Next" — e.g.
+/// Echoed back by the client so the server can ignore a stale "Next", e.g.
 /// an impatient double-click made before the new screen rendered, which would
 /// otherwise advance the slide twice (the answering window getting skipped).
 /// A "Next" is acted on only when its screen still matches the live game state
@@ -371,7 +371,7 @@ pub struct PlayerResponse<'a> {
 /// Outcome of a reconnection attempt via [`Game::update_session`].
 ///
 /// Returned rather than swallowed so callers cannot silently no-op when the
-/// watcher is gone (e.g. after a kick) — they must decide what to do with a
+/// watcher is gone (e.g. after a kick); they must decide what to do with a
 /// [`Reconnect::NotFound`].
 #[must_use]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -390,15 +390,15 @@ pub enum Reconnect {
 pub enum UpdateMessage<'a> {
     /// Assign a unique ID to a participant
     IdAssign(Id),
-    /// A player joined the waiting screen — host-only incremental event.
-    /// Replaces the prior full-list `WaitingScreen` push.
+    /// A player joined the waiting screen; host-only incremental event.
+    /// Carries just the one name, not a full `WaitingScreen` roster.
     PlayerJoined(&'a str),
-    /// A player left the waiting screen — host-only incremental event.
+    /// A player left the waiting screen; host-only incremental event.
     PlayerLeft(&'a str),
     /// Sent to a participant just before they are forcibly removed by the host
     Kicked,
     /// Sent just before the connection is closed because the participant could
-    /// not join — the game is locked or at maximum players. The client should
+    /// not join: the game is locked or at maximum players. The client should
     /// surface the reason and stop reconnecting.
     CannotJoin(watcher::Error),
     /// Update the team display screen with every team name
@@ -809,7 +809,7 @@ impl Game {
     pub fn finish_slide<F: TunnelFinder, S: ScheduleMessageFn>(&mut self, schedule_message: S, tunnel_finder: F) {
         if let State::Slide(current_slide) = &self.state {
             // Opinion and info slides score nothing, so a standings screen after
-            // them would just repeat the previous one — skip straight ahead.
+            // them would just repeat the previous one, so skip straight ahead.
             if self.options.no_leaderboard || !current_slide.state.awards_points() {
                 let next_index = current_slide.index + 1;
                 if let Some(next_slide) = self.fuiz_config.slides.get(next_index) {
@@ -1228,7 +1228,7 @@ impl Game {
             return;
         }
 
-        // Ignore a "Next" whose screen the game has already advanced past —
+        // Ignore a "Next" whose screen the game has already advanced past,
         // e.g. a double-click issued before the new screen rendered. Acting on
         // it would advance the slide twice (skipping the answering window).
         if let IncomingMessage::Host(IncomingHostMessage::Next(screen)) = &message
@@ -1575,7 +1575,7 @@ impl Game {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     pub fn update_session<F: TunnelFinder>(&mut self, watcher_id: Id, tunnel_finder: F) -> Reconnect {
-        // Cheap kind probe — Copy value, borrow ends on this line.
+        // Cheap kind probe: Copy value, borrow ends on this line.
         let Some(kind) = self.watchers.get_watcher_value_ref(watcher_id).map(Value::kind) else {
             return Reconnect::NotFound;
         };
@@ -1589,7 +1589,7 @@ impl Game {
             current_slide.state.mark_watcher_returned(watcher_id);
         }
 
-        // Re-fetch as a ref now that mutations are done — no clone.
+        // Re-fetch as a ref now that mutations are done, with no clone.
         let Some(watcher_value) = self.watchers.get_watcher_value_ref(watcher_id) else {
             return Reconnect::NotFound;
         };
@@ -1645,8 +1645,8 @@ impl Game {
     /// Reclaims the existing watcher when one still holds the id; otherwise
     /// (e.g. after a kick) admits a fresh unassigned participant under the same
     /// id so the client is prompted to pick a name instead of being stranded
-    /// with no instructions. The id's origin — a server-assigned value or a
-    /// client-supplied routing tag — stays the transport's concern.
+    /// with no instructions. The id's origin, a server-assigned value or a
+    /// client-supplied routing tag, stays the transport's concern.
     ///
     /// Reclaiming an existing watcher always succeeds.
     ///
@@ -2273,7 +2273,7 @@ mod tests {
             tunnel_finder,
         );
 
-        // Watcher fully removed — reconnect attempts hit `has_watcher` and miss.
+        // Watcher fully removed; reconnect attempts hit `has_watcher` and miss.
         assert!(!game.watchers.has_watcher(player_id));
         // Name freed so someone else can claim it.
         let new_id = crate::watcher::Id::new();
@@ -2345,8 +2345,8 @@ mod tests {
 
     /// The host's response list is the only place a name and an answer meet:
     /// the slide knows what was answered but not by whom, and the game knows the
-    /// names but not the answers. This walks the whole path — join, name, answer,
-    /// request — and checks the reply carries both.
+    /// names but not the answers. This walks the whole path (join, name, answer,
+    /// request) and checks the reply carries both.
     #[test]
     fn requested_responses_name_the_players_who_answered() {
         let fuiz = create_test_fuiz();
@@ -2443,7 +2443,7 @@ mod tests {
             }
         };
 
-        // Players cannot kick anyone — `follows` rejects the Host message.
+        // Players cannot kick anyone; `follows` rejects the Host message.
         assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
         let other = crate::watcher::Id::new();
         let other_finder = |_: crate::watcher::Id| Some(player_tunnel.clone());

@@ -86,9 +86,9 @@ pub struct SlideConfig {
     /// Accompanying media
     #[garde(dive)]
     media: Option<Media>,
-    /// Duration of the slide-announcement intro shown before the question — an
-    /// animation naming the question type and its scoring. Absent → a default
-    /// duration; `null` → host-paced (must skip manually); a value → auto-advance
+    /// Duration of the slide-announcement intro shown before the question: an
+    /// animation naming the question type and its scoring. Absent means a
+    /// default duration; `null` is host-paced (skip manually); a value auto-advances
     /// after it. The host can always skip early.
     #[garde(custom(|val, ctx: &crate::settings::Settings| ctx.question.validate_introduce_slide(val)))]
     #[serde(
@@ -422,7 +422,7 @@ impl PhasedSlide<Vec<String>> for State {
 
 impl State {
     /// Announces the upcoming question's type and scoring (the `Unstarted`
-    /// phase), then auto-advances to the question after `introduce_slide` —
+    /// phase), then auto-advances to the question after `introduce_slide`:
     /// immediately if zero, never if `None` (host-paced).
     fn announce_slide<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,

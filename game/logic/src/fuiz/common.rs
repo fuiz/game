@@ -104,9 +104,8 @@ pub trait HasSlideCore {
 
 /// Implements [`HasSlideCore`] for a slide whose runtime core lives in `self.core`.
 ///
-/// Every slide's implementation was the same eleven lines handing back a field;
-/// spelling that out ten times buried the one thing that varies, which is the
-/// phase enum.
+/// The body is the same eleven lines of field access for every slide type, so
+/// the macro keeps the one thing that varies, the phase enum, in plain sight.
 macro_rules! impl_slide_core {
     ($state:ty, $phase:ty) => {
         impl $crate::fuiz::common::HasSlideCore for $state {
@@ -233,7 +232,7 @@ pub trait AnswerHandler<AnswerType>: HasSlideCore {
     /// Pre-allocates answer-map buckets for an upcoming round.
     ///
     /// Call when the slide transitions into the answer-accepting state so the
-    /// map's growth from 0 → live-player-count doesn't trigger rawtable
+    /// map's growth from 0 to live-player-count doesn't trigger rawtable
     /// rehashes on the answer hot path.
     fn reserve_for_players(&mut self, live_player_count: usize) {
         self.user_answers_mut().reserve(live_player_count);
@@ -304,8 +303,8 @@ pub trait AnswerHandler<AnswerType>: HasSlideCore {
 
     /// How this slide phrases one answer for the host's response list.
     ///
-    /// Only the phrasing belongs to the slide — an index means nothing without
-    /// the option it points at — so the walk over the answers is defaulted
+    /// Only the phrasing belongs to the slide: an index means nothing without
+    /// the option it points at, so the walk over the answers is defaulted
     /// below rather than written out ten times.
     fn describe_answer(&self, answer: &AnswerType) -> String;
 
@@ -331,8 +330,8 @@ pub trait AnswerHandler<AnswerType>: HasSlideCore {
     fn time_limit(&self) -> Option<Duration>;
 
     /// Wrap `count` in this slide-type's `AnswersCount` variant of the
-    /// outer [`crate::UpdateMessage`] enum. Each impl is a one-liner —
-    /// `UpdateMessage::AnswersCount(count).into()` — the trait machinery
+    /// outer [`crate::UpdateMessage`] enum. Each impl is a one-liner,
+    /// `UpdateMessage::AnswersCount(count).into()`, and the trait machinery
     /// handles the fan-out.
     fn answers_count_message(count: usize) -> crate::UpdateMessage<'static>;
 
@@ -370,9 +369,9 @@ pub trait AnswerHandler<AnswerType>: HasSlideCore {
 ///
 /// Walks every recorded answer once and folds it into a per-leaderboard-id map
 /// keeping the earliest-instant winner per group (team, or player when there
-/// are no teams). Replaces an earlier `itertools::into_grouping_map_by` form
-/// whose internal `HashMap` used the default SipHash; the explicit `FxHashMap`
-/// here removes ~5% of full-game CPU at 4000 players.
+/// are no teams). The grouping map is an explicit `FxHashMap` rather than an
+/// `itertools::into_grouping_map_by`, whose internal `HashMap` would hash with
+/// the default SipHash and cost ~5% of full-game CPU at 4000 players.
 pub(crate) fn add_scores_to_leaderboard<F: TunnelFinder, AnswerType: Clone, A: AnswerHandler<AnswerType>>(
     slide: &A,
     leaderboard: &mut Leaderboard,
@@ -388,8 +387,8 @@ pub(crate) fn add_scores_to_leaderboard<F: TunnelFinder, AnswerType: Clone, A: A
     };
 
     // Pre-size to the answerer count: there's at most one map entry per
-    // distinct group, and the answer set bounds that. Avoids 0→N rawtable
-    // rehashes (the old default-sized map cost ~3% of full_game at 4000).
+    // distinct group, and the answer set bounds that. Avoids 0-to-N rawtable
+    // rehashes, which would cost ~3% of full_game at 4000 players.
     let mut earliest_per_group: FxHashMap<Id, (u64, Timestamp)> =
         FxHashMap::with_capacity_and_hasher(slide.user_answers().len(), FxBuildHasher);
     for (id, (answer, instant)) in slide.user_answers() {
@@ -452,7 +451,7 @@ pub fn get_answered_count<AnswerType, A: AnswerHandler<AnswerType>>(slide: &A) -
 /// True when the host should receive an `AnswersCount` tick for this `count`.
 ///
 /// Logarithmic throttle: keeps ~5 bits of precision in `count`, so the host
-/// sees every answer up to 31 and then progressively coarser updates (step ≈
+/// sees every answer up to 31 and then progressively coarser updates (step ~
 /// 3-6% of current value). For a 4000-player lobby this drops ~4000 ticks per
 /// slide to ~144 without losing perceptual smoothness on the progress bar.
 pub fn should_announce_answered_count(count: usize) -> bool {
@@ -475,7 +474,7 @@ pub(crate) trait PhasedSlide<AnswerType: Clone>: AnswerHandler<AnswerType> + Sli
     ///
     /// If the current state doesn't match the phase's expected predecessor
     /// (i.e. `change_state` would fail), implementations must short-circuit
-    /// and do nothing — this preserves idempotence under racing alarms /
+    /// and do nothing, which preserves idempotence under racing alarms /
     /// host-next clicks.
     fn enter_phase<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
@@ -518,7 +517,7 @@ pub(crate) trait PhasedSlide<AnswerType: Clone>: AnswerHandler<AnswerType> + Sli
     }
 
     /// Default alarm handler: just enters the target phase. Stays on the
-    /// slide — alarms never auto-advance past the terminal phase.
+    /// slide; alarms never auto-advance past the terminal phase.
     fn default_receive_alarm<F: TunnelFinder, S: ScheduleMessageFn>(
         &mut self,
         phase: Self::Phase,
@@ -778,17 +777,17 @@ mod tests {
 
     #[test]
     fn boundary_between_bands_sends_or_skips_as_expected() {
-        // Band 32..63 → step 2 (send on even).
+        // Band 32..63 -> step 2 (send on even).
         assert!(should_announce_answered_count(32));
         assert!(!should_announce_answered_count(33));
         assert!(should_announce_answered_count(34));
         assert!(!should_announce_answered_count(63));
-        // Band 64..127 → step 4.
+        // Band 64..127 -> step 4.
         assert!(should_announce_answered_count(64));
         assert!(!should_announce_answered_count(65));
         assert!(!should_announce_answered_count(66));
         assert!(should_announce_answered_count(68));
-        // Band 128..255 → step 8.
+        // Band 128..255 -> step 8.
         assert!(should_announce_answered_count(128));
         assert!(!should_announce_answered_count(129));
         assert!(should_announce_answered_count(136));
@@ -797,11 +796,11 @@ mod tests {
 
     #[test]
     fn larger_counts_follow_log_pattern() {
-        // Band 1024..2047 → step 64.
+        // Band 1024..2047 -> step 64.
         assert!(should_announce_answered_count(1024));
         assert!(should_announce_answered_count(1088)); // 1024 + 64
         assert!(!should_announce_answered_count(1065));
-        // Band 2048..4095 → step 128.
+        // Band 2048..4095 -> step 128.
         assert!(should_announce_answered_count(2048));
         assert!(should_announce_answered_count(2176)); // 2048 + 128
         assert!(!should_announce_answered_count(2050));
@@ -810,7 +809,7 @@ mod tests {
     #[test]
     fn send_count_matches_log_total() {
         // For values 0..4096 the predicate should fire roughly log-many times.
-        // Exact count: 32 (band 0..31) + 16 per band × 7 bands = 144.
+        // Exact count: 32 (band 0..31) + 16 per band x 7 bands = 144.
         let sent: usize = (0..4096).filter(|&n| should_announce_answered_count(n)).count();
         assert_eq!(sent, 144);
     }
@@ -835,7 +834,7 @@ mod tests {
 
     #[test]
     fn half_time_answer_earns_three_quarter_points() {
-        // formula: pts * (1 - taken/full/2) → 1 - 0.5/2 = 0.75
+        // formula: pts * (1 - taken/full/2) -> 1 - 0.5/2 = 0.75
         let limit = Some(Duration::from_secs(10));
         assert_eq!(calculate_slide_score(limit, Duration::from_secs(5), 1000), 750);
     }
@@ -1042,7 +1041,7 @@ mod tests {
         let mut slide = MockSlide::new();
         let watchers = populate_watchers(100);
 
-        // Drive the live-answered count to 32 — the first boundary above the
+        // Drive the live-answered count to 32, the first boundary above the
         // small-value shortcut, so the throttle should fire here.
         slide.core.live_answered_count = 32;
 

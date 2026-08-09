@@ -2,7 +2,7 @@
 //!
 //! A poll looks like a multiple choice question but has no right answer: every
 //! player picks one option and the room sees how the votes fell. Because
-//! nothing is correct, no points are awarded — the slide still records a zero
+//! nothing is correct, no points are awarded, but the slide still records a zero
 //! for every player so per-slide point arrays stay aligned with slide indices.
 
 use std::time::Duration;
@@ -69,7 +69,7 @@ pub struct SlideConfig {
     #[garde(dive)]
     media: Option<Media>,
     /// Duration of the slide-announcement intro shown before the question.
-    /// Absent → a default duration; `null` → host-paced.
+    /// Absent means a default duration; `null` means host-paced.
     #[garde(custom(|val, ctx: &crate::settings::Settings| ctx.question.validate_introduce_slide(val)))]
     #[serde(
         default = "crate::fuiz::common::default_introduce_slide",

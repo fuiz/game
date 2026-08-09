@@ -511,7 +511,7 @@ impl SlideState {
     }
 
     /// Every answer on file for this slide, as display text against the id that
-    /// gave it. The game turns the ids into names — it owns the name table.
+    /// gave it. The game turns the ids into names; it owns the name table.
     pub(crate) fn player_answers(&self) -> Vec<(crate::watcher::Id, String)> {
         use crate::fuiz::common::AnswerHandler;
         dispatch_slide!(self, s => s.player_answers())
@@ -959,11 +959,11 @@ mod tests {
     }
 
     /// A config paired with the predicate that recognises what it should
-    /// become — a state variant, a sync message kind, and so on.
+    /// become: a state variant, a sync message kind, and so on.
     type SlideCase<T> = (SlideConfig, fn(&T) -> bool);
 
     /// Same idea for sync messages, but the predicate has to be valid for any
-    /// borrow of the state it was built from — hence the explicit `for<'a>`.
+    /// borrow of the state it was built from, hence the explicit `for<'a>`.
     type SyncCase = (SlideConfig, for<'a> fn(&SyncMessage<'a>) -> bool);
 
     fn create_test_slider_config() -> SlideConfig {

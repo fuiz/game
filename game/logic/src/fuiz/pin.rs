@@ -3,13 +3,13 @@
 //! Players tap a point on the slide's image. Two flavours share this module
 //! because the mechanic is identical and only the scoring differs:
 //!
-//! - **Pin answer** — `correct_area` is set, and a pin inside it earns points.
-//! - **Drop pin** — `correct_area` is absent, so the slide simply collects
+//! - **Pin answer**: `correct_area` is set, and a pin inside it earns points.
+//! - **Drop pin**: `correct_area` is absent, so the slide simply collects
 //!   opinions and the room sees where everyone pinned.
 //!
 //! Coordinates are normalised to `0.0..=1.0` of the image's width and height,
 //! so they survive any rendering size. Values arriving outside that box are
-//! clamped rather than rejected — a pin dropped a pixel off the edge is still
+//! clamped rather than rejected; a pin dropped a pixel off the edge is still
 //! a pin.
 
 use std::time::Duration;
@@ -64,8 +64,6 @@ impl super::common::Phase for Phase {
     }
 }
 
-/// How many individual pins the results payload carries. Beyond this the host
-/// sees the count but not every coordinate — a 1000-player room would otherwise
 /// A point on the image, normalised to `0.0..=1.0` on both axes.
 ///
 /// The origin is the image's top-left corner, matching how the client reports
@@ -82,7 +80,7 @@ impl Point {
     /// Pulls a point back inside the image.
     ///
     /// Infinities clamp to the nearest edge like any other out-of-range value;
-    /// only NaN — which `clamp` would propagate — falls back to the centre.
+    /// only NaN, which `clamp` would propagate, falls back to the centre.
     fn clamped(self) -> Self {
         fn into_image(value: f64) -> f64 {
             if value.is_nan() { 0.5 } else { value.clamp(0.0, 1.0) }
@@ -98,7 +96,7 @@ impl Point {
 ///
 /// Every coordinate is normalised to `0.0..=1.0` of the image, so a shape means
 /// the same thing on a phone and a projector. Because widths and heights are
-/// carried independently there is no aspect ratio to reconcile — an ellipse
+/// carried independently there is no aspect ratio to reconcile: an ellipse
 /// drawn as a circle over a wide photo stays a circle when it's redrawn.
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 #[garde(context(crate::settings::Settings as ctx))]
@@ -141,7 +139,7 @@ pub enum Shape {
 impl Shape {
     /// True when `point` falls inside the region.
     ///
-    /// A degenerate shape — zero width, a collapsed outline — contains nothing,
+    /// A degenerate shape (zero width, a collapsed outline) contains nothing,
     /// which is the safe reading: nobody scores rather than everybody.
     fn contains(&self, point: Point) -> bool {
         match self {
@@ -208,7 +206,7 @@ pub struct SlideConfig {
     #[garde(dive)]
     media: Option<Media>,
     /// Duration of the slide-announcement intro shown before the question.
-    /// Absent → a default duration; `null` → host-paced.
+    /// Absent means a default duration; `null` means host-paced.
     #[garde(custom(|val, ctx: &crate::settings::Settings| ctx.question.validate_introduce_slide(val)))]
     #[serde(
         default = "crate::fuiz::common::default_introduce_slide",

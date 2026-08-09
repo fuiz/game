@@ -1,10 +1,10 @@
 # Fuiz
 
-A Rust monorepo for the Fuiz live quiz platform — real-time quiz games with multiple question types, team support, and leaderboards.
+A Rust monorepo for the Fuiz live quiz platform: real-time quiz games with multiple question types, team support, and leaderboards.
 
 ## Structure
 
-### [`game/`](game/) — Game Engine
+### [`game/`](game/): Game Engine
 
 | Crate                                | Description                                 |
 | ------------------------------------ | ------------------------------------------- |
@@ -12,7 +12,7 @@ A Rust monorepo for the Fuiz live quiz platform — real-time quiz games with mu
 | [`game/server`](game/server/)        | Self-hostable game server (actix-web)       |
 | [`game/cloudflare`](game/cloudflare/)| Serverless deployment on Cloudflare Workers |
 
-### [`corkboard/`](corkboard/) — Image Storage
+### [`corkboard/`](corkboard/): Image Storage
 
 | Crate                                            | Description                                        |
 | ------------------------------------------------ | -------------------------------------------------- |

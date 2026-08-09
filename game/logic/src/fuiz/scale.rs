@@ -4,9 +4,9 @@
 //! module because they differ only in presentation and in the summary statistic
 //! the host is shown:
 //!
-//! - [`Style::Agreement`] — a short scale (typically 1–5) between two opposing
+//! - [`Style::Agreement`]: a short scale (typically 1-5) between two opposing
 //!   labels, reported as an average.
-//! - [`Style::Nps`] — the 0–10 Net Promoter Score scale, additionally reported
+//! - [`Style::Nps`]: the 0-10 Net Promoter Score scale, additionally reported
 //!   as promoters / passives / detractors and the resulting NPS.
 //!
 //! Scales collect opinions, so no answer is "correct" and no points are
@@ -70,7 +70,7 @@ pub enum Style {
     /// A short opinion scale between two opposing labels.
     #[default]
     Agreement,
-    /// The 0–10 Net Promoter Score scale, reported with NPS statistics.
+    /// The 0-10 Net Promoter Score scale, reported with NPS statistics.
     Nps,
 }
 
@@ -100,7 +100,7 @@ pub struct SlideConfig {
     #[garde(dive)]
     media: Option<Media>,
     /// Duration of the slide-announcement intro shown before the question.
-    /// Absent → a default duration; `null` → host-paced.
+    /// Absent means a default duration; `null` means host-paced.
     #[garde(custom(|val, ctx: &crate::settings::Settings| ctx.question.validate_introduce_slide(val)))]
     #[serde(
         default = "crate::fuiz::common::default_introduce_slide",
@@ -201,7 +201,7 @@ pub struct NpsBreakdown {
     pub passives: usize,
     /// Ratings of 6 or below.
     pub detractors: usize,
-    /// `%promoters - %detractors`, in the conventional −100..100 range.
+    /// `%promoters - %detractors`, in the conventional -100..100 range.
     pub score: f64,
 }
 

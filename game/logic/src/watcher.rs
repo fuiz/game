@@ -546,7 +546,7 @@ mod tests {
     #[derive(Debug, Clone)]
     struct MockTunnel {
         // Stored as JSON so the tunnel doesn't need to thread the message
-        // lifetime through its internal state — same shape as real tunnels.
+        // lifetime through its internal state, the same shape as real tunnels.
         messages: Arc<Mutex<VecDeque<String>>>,
         states: Arc<Mutex<VecDeque<String>>>,
         closed: Arc<Mutex<bool>>,
@@ -803,7 +803,7 @@ mod tests {
             .add_watcher(player2_id, Value::Player(PlayerValue::Individual))
             .unwrap();
 
-        // Tunnel for host + player1, not for player2 — so player2 is filtered.
+        // Tunnel for host + player1, not for player2, so player2 is filtered.
         tunnels.insert(host_id, MockTunnel::new());
         tunnels.insert(player1_id, MockTunnel::new());
 

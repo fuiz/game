@@ -1,7 +1,7 @@
 //! The website's add-slide picker, played end to end.
 //!
 //! The JSON below is what the create page actually posts to `/add` for a
-//! freshly added slide of each type — captured from the website's own
+//! freshly added slide of each type, captured from the website's own
 //! `slideTemplates` after its id-stripping and milliseconds passes. If the two
 //! sides ever drift apart, this test is where it shows up rather than in a
 //! classroom.
@@ -142,7 +142,7 @@ fn host_screen(game: &Game) -> HostScreen {
     }
 }
 
-/// A fresh game plus the host id it was created with — `Game::new` registers
+/// A fresh game plus the host id it was created with. `Game::new` registers
 /// the host itself, so the caller has to keep hold of that id to drive it.
 fn new_game() -> (Game, Id, RecordingTunnel) {
     let tunnel = RecordingTunnel::default();
@@ -219,7 +219,7 @@ fn every_picker_payload_can_be_played_to_the_summary() {
 
 #[test]
 fn every_answer_shape_is_safe_on_every_slide() {
-    // A client can send any answer shape at any moment — a stale message, a
+    // A client can send any answer shape at any moment: a stale message, a
     // rejoin mid-slide, or an outright hostile one. None of it may panic, and
     // none of it may knock the game off its own phase chain.
     let (mut game, host, tunnel) = new_game();

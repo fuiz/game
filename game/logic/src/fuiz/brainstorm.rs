@@ -1,7 +1,7 @@
 //! Brainstorm (collect ideas, then vote on them) question implementation
 //!
 //! A brainstorm runs in two acts. First every player contributes ideas, which
-//! land on a shared board — the host watches them arrive live. Then the board
+//! land on a shared board and the host watches them arrive live. Then the board
 //! is opened for voting and each player spends a small budget of votes on the
 //! ideas they like best. The results rank the board by votes.
 //!
@@ -75,7 +75,7 @@ pub struct SlideConfig {
     #[garde(dive)]
     media: Option<Media>,
     /// Duration of the slide-announcement intro shown before the prompt.
-    /// Absent → a default duration; `null` → host-paced.
+    /// Absent means a default duration; `null` means host-paced.
     #[garde(custom(|val, ctx: &crate::settings::Settings| ctx.question.validate_introduce_slide(val)))]
     #[serde(
         default = "crate::fuiz::common::default_introduce_slide",
@@ -493,7 +493,7 @@ impl State {
             return;
         }
         self.start_timer();
-        // The live tally now counts contributors rather than voters.
+        // In this phase the live tally counts contributors, not voters.
         self.core.live_answered_count = 0;
 
         watchers.announce(

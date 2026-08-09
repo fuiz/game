@@ -99,7 +99,7 @@ mod instant_backing {
 
     /// Wall-clock-shaped timestamp, backed by `std::time::Instant` for the
     /// cheapest possible subtraction. Deliberately *not* `Serialize` /
-    /// `Deserialize` — game-state types that hold a `Timestamp` gate their
+    /// `Deserialize`: game-state types that hold a `Timestamp` gate their
     /// serde derives on the `serializable` feature, so any attempt to persist
     /// such a type from a non-`serializable` build is a compile error.
     #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -135,7 +135,7 @@ mod web_time_backing {
     /// Wall-clock-shaped timestamp, backed by `web_time::Instant` (which
     /// bridges to `performance.now()` on `wasm32-unknown-unknown` where
     /// `std::time::Instant::now()` would panic). Deliberately *not*
-    /// `Serialize` / `Deserialize` — same compile-time gate as the native
+    /// `Serialize` / `Deserialize`, under the same compile-time gate as the native
     /// `Instant` backing.
     #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct Timestamp(Instant);
