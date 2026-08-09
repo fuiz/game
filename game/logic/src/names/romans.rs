@@ -28,27 +28,27 @@ static NAME_PARTS: LazyLock<NameParts> = LazyLock::new(|| NameParts {
 ///
 /// Returns a vector of name parts: `[praenomen, nomen, cognomen]` if
 /// `config.praenomen` is `true`, otherwise `[nomen, cognomen]`.
-pub fn roman_name(config: &NameConfig) -> Vec<&'static str> {
-    roman_name_inner(config, false)
+pub fn roman_name(config: &NameConfig, rng: &mut fastrand::Rng) -> Vec<&'static str> {
+    roman_name_inner(config, false, rng)
 }
 
 /// Same as [`roman_name`] but draws the trailing cognomen from the
 /// pre-pluralized list (Latin plurals, e.g. "Aurelii", "Cicerones").
-pub fn roman_name_plural(config: &NameConfig) -> Vec<&'static str> {
-    roman_name_inner(config, true)
+pub fn roman_name_plural(config: &NameConfig, rng: &mut fastrand::Rng) -> Vec<&'static str> {
+    roman_name_inner(config, true, rng)
 }
 
-fn roman_name_inner(config: &NameConfig, plural_cognomen: bool) -> Vec<&'static str> {
+fn roman_name_inner(config: &NameConfig, plural_cognomen: bool, rng: &mut fastrand::Rng) -> Vec<&'static str> {
     let name_parts = &*NAME_PARTS;
-    let nomen = name_parts.nomen.random_choice();
+    let nomen = name_parts.nomen.random_choice(rng);
     let cognomen = if plural_cognomen {
-        name_parts.cognomen_plural.random_choice()
+        name_parts.cognomen_plural.random_choice(rng)
     } else {
-        name_parts.cognomen.random_choice()
+        name_parts.cognomen.random_choice(rng)
     };
 
     if config.praenomen {
-        let praenomen = name_parts.praenomen.random_choice();
+        let praenomen = name_parts.praenomen.random_choice(rng);
         vec![praenomen, nomen, cognomen]
     } else {
         vec![nomen, cognomen]

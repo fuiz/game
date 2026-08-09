@@ -16,7 +16,13 @@ pub mod leaderboard;
 mod names;
 pub mod session;
 pub mod teams;
+pub mod tick;
 pub mod time;
+// Replaying a log means reconstructing persisted state, which is exactly what
+// `serializable` gates. Without it a `Game` cannot round-trip at all, so the
+// log would have nothing to rebuild from.
+#[cfg(feature = "serializable")]
+pub mod wal;
 pub mod watcher;
 
 /// Messages sent to synchronize state between players and hosts

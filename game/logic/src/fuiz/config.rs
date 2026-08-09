@@ -13,6 +13,7 @@ use super::{
     scale, slider, type_answer,
 };
 use crate::fuiz::common::QuestionReceiveMessage;
+use crate::tick::Tick;
 use crate::{
     AlarmMessage, SyncMessage,
     leaderboard::Leaderboard,
@@ -226,6 +227,9 @@ pub enum SlideAction<S: ScheduleMessageFn> {
     Next {
         /// Function to schedule timed alarm messages, returned for further scheduling
         schedule_message: S,
+        /// The tick the triggering message was handled under, carried through so
+        /// the slide the game advances into stamps its state from the same reading.
+        tick: Tick,
     },
     /// Stay on the current slide, potentially changing its state
     Stay,
@@ -316,40 +320,49 @@ impl SlideState {
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
     ) {
         match self {
             Self::MultipleChoice(s) => {
-                s.play(team_manager, watchers, schedule_message, tunnel_finder, index, count);
+                s.play(
+                    team_manager,
+                    watchers,
+                    schedule_message,
+                    tick,
+                    tunnel_finder,
+                    index,
+                    count,
+                );
             }
             Self::TypeAnswer(s) => {
-                s.play(watchers, schedule_message, tunnel_finder, index, count);
+                s.play(watchers, schedule_message, tick, tunnel_finder, index, count);
             }
             Self::Order(s) => {
-                s.play(watchers, schedule_message, tunnel_finder, index, count);
+                s.play(watchers, schedule_message, tick, tunnel_finder, index, count);
             }
             Self::Slider(s) => {
-                s.play(watchers, schedule_message, tunnel_finder, index, count);
+                s.play(watchers, schedule_message, tick, tunnel_finder, index, count);
             }
             Self::Scale(s) => {
-                s.play(watchers, schedule_message, tunnel_finder, index, count);
+                s.play(watchers, schedule_message, tick, tunnel_finder, index, count);
             }
             Self::Poll(s) => {
-                s.play(watchers, schedule_message, tunnel_finder, index, count);
+                s.play(watchers, schedule_message, tick, tunnel_finder, index, count);
             }
             Self::Pin(s) => {
-                s.play(watchers, schedule_message, tunnel_finder, index, count);
+                s.play(watchers, schedule_message, tick, tunnel_finder, index, count);
             }
             Self::FreeText(s) => {
-                s.play(watchers, schedule_message, tunnel_finder, index, count);
+                s.play(watchers, schedule_message, tick, tunnel_finder, index, count);
             }
             Self::Brainstorm(s) => {
-                s.play(watchers, schedule_message, tunnel_finder, index, count);
+                s.play(watchers, schedule_message, tick, tunnel_finder, index, count);
             }
             Self::InfoSlide(s) => {
-                s.play(watchers, schedule_message, tunnel_finder, index, count);
+                s.play(watchers, schedule_message, tick, tunnel_finder, index, count);
             }
         }
     }
@@ -381,6 +394,7 @@ impl SlideState {
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: S,
+        tick: Tick,
         watcher_id: Id,
         tunnel_finder: F,
         message: IncomingMessage,
@@ -394,6 +408,7 @@ impl SlideState {
             watchers,
             team_manager,
             schedule_message,
+            tick,
             tunnel_finder,
             index,
             count,
@@ -474,6 +489,7 @@ impl SlideState {
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         message: &AlarmMessage,
         index: usize,
@@ -484,19 +500,26 @@ impl SlideState {
                 watchers,
                 team_manager,
                 schedule_message,
+                tick,
                 tunnel_finder,
                 message,
                 index,
                 count,
             ),
-            Self::TypeAnswer(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
-            Self::Order(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
-            Self::Slider(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
-            Self::Scale(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
-            Self::Poll(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
-            Self::Pin(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
-            Self::FreeText(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
-            Self::Brainstorm(s) => s.receive_alarm(watchers, schedule_message, tunnel_finder, message, index, count),
+            Self::TypeAnswer(s) => {
+                s.receive_alarm(watchers, schedule_message, tick, tunnel_finder, message, index, count)
+            }
+            Self::Order(s) => s.receive_alarm(watchers, schedule_message, tick, tunnel_finder, message, index, count),
+            Self::Slider(s) => s.receive_alarm(watchers, schedule_message, tick, tunnel_finder, message, index, count),
+            Self::Scale(s) => s.receive_alarm(watchers, schedule_message, tick, tunnel_finder, message, index, count),
+            Self::Poll(s) => s.receive_alarm(watchers, schedule_message, tick, tunnel_finder, message, index, count),
+            Self::Pin(s) => s.receive_alarm(watchers, schedule_message, tick, tunnel_finder, message, index, count),
+            Self::FreeText(s) => {
+                s.receive_alarm(watchers, schedule_message, tick, tunnel_finder, message, index, count)
+            }
+            Self::Brainstorm(s) => {
+                s.receive_alarm(watchers, schedule_message, tick, tunnel_finder, message, index, count)
+            }
             // The info slide's timer ends the slide rather than advancing a
             // phase, so it needs the leaderboard to record its zero scores.
             Self::InfoSlide(s) => s.receive_alarm(
@@ -504,6 +527,7 @@ impl SlideState {
                 watchers,
                 team_manager,
                 schedule_message,
+                tick,
                 tunnel_finder,
                 message,
             ),
@@ -667,7 +691,7 @@ mod tests {
             schedule_called = true;
         };
 
-        state.play(None, &watchers, schedule_message, tunnel_finder, 0, 1);
+        state.play(None, &watchers, schedule_message, Tick::default(), tunnel_finder, 0, 1);
 
         // Verify play was called successfully (schedule message was triggered)
         assert!(schedule_called);
@@ -684,7 +708,7 @@ mod tests {
             schedule_called = true;
         };
 
-        state.play(None, &watchers, schedule_message, tunnel_finder, 0, 1);
+        state.play(None, &watchers, schedule_message, Tick::default(), tunnel_finder, 0, 1);
 
         // Verify play was called successfully (schedule message was triggered)
         assert!(schedule_called);
@@ -701,7 +725,7 @@ mod tests {
             schedule_called = true;
         };
 
-        state.play(None, &watchers, schedule_message, tunnel_finder, 0, 1);
+        state.play(None, &watchers, schedule_message, Tick::default(), tunnel_finder, 0, 1);
 
         // Verify play was called successfully (schedule message was triggered)
         assert!(schedule_called);
@@ -722,6 +746,7 @@ mod tests {
             &watchers,
             None,
             schedule_message,
+            Tick::default(),
             Id::new(),
             tunnel_finder,
             message,
@@ -748,6 +773,7 @@ mod tests {
             &watchers,
             None,
             schedule_message,
+            Tick::default(),
             Id::new(),
             tunnel_finder,
             message,
@@ -774,6 +800,7 @@ mod tests {
             &watchers,
             None,
             schedule_message,
+            Tick::default(),
             Id::new(),
             tunnel_finder,
             message,
@@ -887,6 +914,7 @@ mod tests {
             &watchers,
             None,
             &mut schedule_message,
+            Tick::default(),
             tunnel_finder,
             &alarm_message,
             0,
@@ -914,6 +942,7 @@ mod tests {
             &watchers,
             None,
             &mut schedule_message,
+            Tick::default(),
             tunnel_finder,
             &alarm_message,
             0,
@@ -941,6 +970,7 @@ mod tests {
             &watchers,
             None,
             &mut schedule_message,
+            Tick::default(),
             tunnel_finder,
             &alarm_message,
             0,
@@ -1147,6 +1177,7 @@ mod tests {
                 None,
                 &watchers,
                 |_msg: AlarmMessage, _duration: std::time::Duration| scheduled += 1,
+                Tick::default(),
                 create_mock_tunnel_finder(),
                 0,
                 1,

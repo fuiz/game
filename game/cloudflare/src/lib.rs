@@ -2,6 +2,7 @@
 
 mod game;
 mod game_manager;
+mod journal;
 
 use garde::Validate;
 use serde::{Deserialize, Serialize};

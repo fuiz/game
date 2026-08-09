@@ -11,6 +11,7 @@ use garde::Validate;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
+use crate::tick::Tick;
 use crate::{
     fuiz::{
         brainstorm,
@@ -154,7 +155,7 @@ impl Debug for Game {
 /// This enum categorizes incoming messages based on the sender's role,
 /// ensuring that only appropriate messages are processed from each
 /// participant type.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum IncomingMessage {
     /// Messages from disconnected clients trying to reconnect
     Ghost(IncomingGhostMessage),
@@ -190,7 +191,7 @@ impl IncomingMessage {
 }
 
 /// Messages that can be sent by active players
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum IncomingPlayerMessage {
     /// Answer selected by index (for single-answer multiple choice questions)
     IndexAnswer(usize),
@@ -220,14 +221,14 @@ pub enum IncomingPlayerMessage {
 }
 
 /// Messages that can be sent by unassigned connections
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum IncomingUnassignedMessage {
     /// Request to set a specific name and become a player
     NameRequest(String),
 }
 
 /// Messages that can be sent by disconnected clients trying to reconnect
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum IncomingGhostMessage {
     /// Request a new ID assignment
     DemandId,
@@ -337,7 +338,7 @@ pub enum SlidePosition {
 }
 
 /// Messages that can be sent by the game host
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum IncomingHostMessage {
     /// Advance the screen identified by `HostScreen` to the next phase/slide.
     /// Carries the host's current screen so a stale duplicate is ignored.
@@ -739,7 +740,7 @@ impl Game {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    pub fn play<F: TunnelFinder, S: ScheduleMessageFn>(&mut self, schedule_message: S, tunnel_finder: F) {
+    pub fn play<F: TunnelFinder, S: ScheduleMessageFn>(&mut self, schedule_message: S, tick: Tick, tunnel_finder: F) {
         if let Some(slide) = self.fuiz_config.slides.first() {
             if let Some(team_manager) = &mut self.team_manager
                 && matches!(self.state, State::WaitingScreen)
@@ -747,6 +748,7 @@ impl Game {
                 team_manager.finalize(
                     &mut self.watchers,
                     &mut self.names,
+                    tick,
                     &tunnel_finder,
                     self.options.profanity,
                 );
@@ -779,6 +781,7 @@ impl Game {
                 self.team_manager.as_ref(),
                 &self.watchers,
                 schedule_message,
+                tick,
                 tunnel_finder,
                 0,
                 self.fuiz_config.len(),
@@ -806,7 +809,12 @@ impl Game {
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
     /// * `S` - Function type for scheduling alarm messages
-    pub fn finish_slide<F: TunnelFinder, S: ScheduleMessageFn>(&mut self, schedule_message: S, tunnel_finder: F) {
+    pub fn finish_slide<F: TunnelFinder, S: ScheduleMessageFn>(
+        &mut self,
+        schedule_message: S,
+        tick: Tick,
+        tunnel_finder: F,
+    ) {
         if let State::Slide(current_slide) = &self.state {
             // Opinion and info slides score nothing, so a standings screen after
             // them would just repeat the previous one, so skip straight ahead.
@@ -819,6 +827,7 @@ impl Game {
                         self.team_manager.as_ref(),
                         &self.watchers,
                         schedule_message,
+                        tick,
                         &tunnel_finder,
                         next_index,
                         self.fuiz_config.len(),
@@ -989,10 +998,13 @@ impl Game {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    fn handle_unassigned<F: TunnelFinder>(&mut self, watcher: Id, tunnel_finder: F) {
+    fn handle_unassigned<F: TunnelFinder>(&mut self, watcher: Id, tick: Tick, tunnel_finder: F) {
         if let Some(name_style) = self.options.random_names {
+            // One generator for the whole loop: a replay redrawing from a fresh
+            // one per attempt would diverge the moment a name collides.
+            let mut rng = tick.rng();
             loop {
-                let name = name_style.get_name();
+                let name = name_style.get_name(&mut rng);
 
                 if self.assign_player_name(watcher, &name, &tunnel_finder).is_ok() {
                     break;
@@ -1173,13 +1185,18 @@ impl Game {
     /// Returns [`watcher::Error::Locked`] if the game is locked or
     /// [`watcher::Error::MaximumPlayers`] if it is full. In either case the
     /// watcher is not added, so the caller should refuse the connection.
-    pub fn add_unassigned<F: TunnelFinder>(&mut self, watcher: Id, tunnel_finder: F) -> Result<(), watcher::Error> {
+    pub fn add_unassigned<F: TunnelFinder>(
+        &mut self,
+        watcher: Id,
+        tick: Tick,
+        tunnel_finder: F,
+    ) -> Result<(), watcher::Error> {
         if self.locked {
             return Err(watcher::Error::Locked);
         }
 
         self.watchers.add_watcher(watcher, Value::Unassigned)?;
-        self.handle_unassigned(watcher, tunnel_finder);
+        self.handle_unassigned(watcher, tick, tunnel_finder);
 
         Ok(())
     }
@@ -1218,6 +1235,7 @@ impl Game {
         watcher_id: Id,
         message: IncomingMessage,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
     ) {
         let Some(watcher_kind) = self.watchers.get_watcher_value_ref(watcher_id).map(Value::kind) else {
@@ -1266,22 +1284,23 @@ impl Game {
             message => match &mut self.state {
                 State::WaitingScreen | State::TeamDisplay => {
                     if let IncomingMessage::Host(IncomingHostMessage::Next(_)) = message {
-                        self.play(schedule_message, &tunnel_finder);
+                        self.play(schedule_message, tick, &tunnel_finder);
                     }
                 }
                 State::Slide(current_slide) => {
-                    if let SlideAction::Next { schedule_message } = current_slide.state.receive_message(
+                    if let SlideAction::Next { schedule_message, tick } = current_slide.state.receive_message(
                         &mut self.leaderboard,
                         &self.watchers,
                         self.team_manager.as_ref(),
                         schedule_message,
+                        tick,
                         watcher_id,
                         &tunnel_finder,
                         message,
                         current_slide.index,
                         self.fuiz_config.len(),
                     ) {
-                        self.finish_slide(schedule_message, tunnel_finder);
+                        self.finish_slide(schedule_message, tick, tunnel_finder);
                     }
                 }
                 State::Leaderboard(index) => {
@@ -1294,6 +1313,7 @@ impl Game {
                                 self.team_manager.as_ref(),
                                 &self.watchers,
                                 schedule_message,
+                                tick,
                                 &tunnel_finder,
                                 next_index,
                                 self.fuiz_config.len(),
@@ -1338,6 +1358,7 @@ impl Game {
         &mut self,
         message: &AlarmMessage,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
     ) {
         let slide_index = match message {
@@ -1355,17 +1376,18 @@ impl Game {
 
         match &mut self.state {
             State::Slide(current_slide) if current_slide.index == slide_index => {
-                if let SlideAction::Next { schedule_message } = current_slide.state.receive_alarm(
+                if let SlideAction::Next { schedule_message, tick } = current_slide.state.receive_alarm(
                     &mut self.leaderboard,
                     &self.watchers,
                     self.team_manager.as_ref(),
                     schedule_message,
+                    tick,
                     &tunnel_finder,
                     message,
                     current_slide.index,
                     self.fuiz_config.len(),
                 ) {
-                    self.finish_slide(schedule_message, tunnel_finder);
+                    self.finish_slide(schedule_message, tick, tunnel_finder);
                 }
             }
             _ => (),
@@ -1574,7 +1596,7 @@ impl Game {
     ///
     /// * `T` - Type implementing the Tunnel trait for participant communication
     /// * `F` - Function type for finding tunnels by participant ID
-    pub fn update_session<F: TunnelFinder>(&mut self, watcher_id: Id, tunnel_finder: F) -> Reconnect {
+    pub fn update_session<F: TunnelFinder>(&mut self, watcher_id: Id, tick: Tick, tunnel_finder: F) -> Reconnect {
         // Cheap kind probe: Copy value, borrow ends on this line.
         let Some(kind) = self.watchers.get_watcher_value_ref(watcher_id).map(Value::kind) else {
             return Reconnect::NotFound;
@@ -1633,7 +1655,7 @@ impl Game {
             }
             Value::Unassigned if self.locked => {}
             Value::Unassigned => {
-                self.handle_unassigned(watcher_id, &tunnel_finder);
+                self.handle_unassigned(watcher_id, tick, &tunnel_finder);
             }
         }
 
@@ -1655,9 +1677,17 @@ impl Game {
     /// Returns the fresh-admission error (the game is locked or at maximum
     /// players) so callers can close the connection, matching how a brand-new
     /// join is handled. Reclaiming an existing watcher never errors.
-    pub fn rejoin<F: TunnelFinder>(&mut self, watcher_id: Id, tunnel_finder: F) -> Result<(), watcher::Error> {
-        if matches!(self.update_session(watcher_id, &tunnel_finder), Reconnect::NotFound) {
-            self.add_unassigned(watcher_id, tunnel_finder)
+    pub fn rejoin<F: TunnelFinder>(
+        &mut self,
+        watcher_id: Id,
+        tick: Tick,
+        tunnel_finder: F,
+    ) -> Result<(), watcher::Error> {
+        if matches!(
+            self.update_session(watcher_id, tick, &tunnel_finder),
+            Reconnect::NotFound
+        ) {
+            self.add_unassigned(watcher_id, tick, tunnel_finder)
         } else {
             Ok(())
         }
@@ -1980,7 +2010,10 @@ mod tests {
             }
         };
 
-        assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
+        assert!(
+            game.add_unassigned(unassigned_id, Tick::default(), tunnel_finder)
+                .is_ok()
+        );
 
         // Should have added unassigned watcher
         assert!(game.watchers.has_watcher(unassigned_id));
@@ -2000,7 +2033,7 @@ mod tests {
         };
 
         // Add as unassigned first
-        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player_id, Tick::default(), tunnel_finder).is_ok());
 
         // Update to player with name
         game.update_player_with_name(player_id, "TestPlayer", tunnel_finder);
@@ -2069,7 +2102,7 @@ mod tests {
             schedule_called = true;
         };
 
-        game.play(&mut schedule_message, tunnel_finder);
+        game.play(&mut schedule_message, Tick::default(), tunnel_finder);
 
         // Should have transitioned to first slide
         assert!(matches!(game.state, State::Slide(_)));
@@ -2087,10 +2120,10 @@ mod tests {
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game to get to first slide
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
 
         // Finish the slide
-        game.finish_slide(schedule_message, tunnel_finder);
+        game.finish_slide(schedule_message, Tick::default(), tunnel_finder);
 
         // Should show leaderboard or be done (depending on options)
         assert!(matches!(game.state, State::Done) || matches!(game.state, State::Leaderboard(_)));
@@ -2166,8 +2199,8 @@ mod tests {
         };
 
         // Add two players
-        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
-        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player1, Tick::default(), tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, Tick::default(), tunnel_finder).is_ok());
 
         // Assign names to make them players
         assert!(game.assign_player_name(player1, "Player1", tunnel_finder).is_ok());
@@ -2175,7 +2208,7 @@ mod tests {
 
         // Start the game - should move to team display
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
 
         assert!(matches!(game.state, State::TeamDisplay));
     }
@@ -2202,7 +2235,7 @@ mod tests {
 
         // A locked game refuses new participants, just like a full one.
         assert_eq!(
-            game.add_unassigned(unassigned_id, tunnel_finder),
+            game.add_unassigned(unassigned_id, Tick::default(), tunnel_finder),
             Err(crate::watcher::Error::Locked)
         );
         assert!(!game.watchers.has_watcher(unassigned_id));
@@ -2211,7 +2244,7 @@ mod tests {
         let lock_msg = IncomingMessage::Host(IncomingHostMessage::Lock(false));
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
-        game.receive_message(host_id, lock_msg, schedule_message, tunnel_finder);
+        game.receive_message(host_id, lock_msg, schedule_message, Tick::default(), tunnel_finder);
         assert!(!game.locked);
     }
 
@@ -2229,14 +2262,14 @@ mod tests {
         };
 
         // Add player
-        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player_id, Tick::default(), tunnel_finder).is_ok());
         assert!(game.assign_player_name(player_id, "TestPlayer", tunnel_finder).is_ok());
 
         // Try to send host message from player (should be ignored)
         let invalid_msg = IncomingMessage::Host(IncomingHostMessage::Next(HostScreen::Lobby));
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
-        game.receive_message(player_id, invalid_msg, schedule_message, tunnel_finder);
+        game.receive_message(player_id, invalid_msg, schedule_message, Tick::default(), tunnel_finder);
 
         // State should not change since message doesn't follow sender type
         assert!(matches!(game.state, State::WaitingScreen));
@@ -2262,7 +2295,7 @@ mod tests {
             }
         };
 
-        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player_id, Tick::default(), tunnel_finder).is_ok());
         assert!(game.assign_player_name(player_id, "Victim", tunnel_finder).is_ok());
 
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
@@ -2270,6 +2303,7 @@ mod tests {
             host_id,
             IncomingMessage::Host(IncomingHostMessage::Kick("Victim".to_owned())),
             schedule_message,
+            Tick::default(),
             tunnel_finder,
         );
 
@@ -2277,7 +2311,7 @@ mod tests {
         assert!(!game.watchers.has_watcher(player_id));
         // Name freed so someone else can claim it.
         let new_id = crate::watcher::Id::new();
-        assert!(game.add_unassigned(new_id, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(new_id, Tick::default(), tunnel_finder).is_ok());
         assert!(game.assign_player_name(new_id, "Victim", tunnel_finder).is_ok());
 
         let player_msgs = player_tunnel.messages.lock().unwrap();
@@ -2303,14 +2337,14 @@ mod tests {
             }
         };
 
-        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player_id, Tick::default(), tunnel_finder).is_ok());
         assert!(game.assign_player_name(player_id, "Victim", tunnel_finder).is_ok());
         game.kick_watcher(player_id, tunnel_finder);
         assert!(!game.watchers.has_watcher(player_id));
 
         // The client still holds its old id and reconnects with it. Rather than
         // a silent no-op, rejoin re-admits it as a fresh unnamed participant.
-        assert!(game.rejoin(player_id, tunnel_finder).is_ok());
+        assert!(game.rejoin(player_id, Tick::default(), tunnel_finder).is_ok());
         assert!(game.watchers.has_watcher(player_id));
         assert_eq!(
             game.watchers.get_watcher_value(player_id).map(|v| v.kind()),
@@ -2337,7 +2371,7 @@ mod tests {
         // A kicked/new client reconnecting to a locked game is refused, just
         // like one hitting the player cap, so the transport closes it.
         assert_eq!(
-            game.rejoin(player_id, tunnel_finder),
+            game.rejoin(player_id, Tick::default(), tunnel_finder),
             Err(crate::watcher::Error::Locked)
         );
         assert!(!game.watchers.has_watcher(player_id));
@@ -2377,18 +2411,20 @@ mod tests {
 
         // Start the question and answer it.
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
         let screen = game.current_host_screen();
         game.receive_message(
             host_id,
             IncomingMessage::Host(IncomingHostMessage::Next(screen)),
             schedule_message,
+            Tick::default(),
             tunnel_finder,
         );
         game.receive_message(
             player_id,
             IncomingMessage::Player(IncomingPlayerMessage::IndexAnswer(0)),
             schedule_message,
+            Tick::default(),
             tunnel_finder,
         );
 
@@ -2396,6 +2432,7 @@ mod tests {
             host_id,
             IncomingMessage::Host(IncomingHostMessage::RequestResponses),
             schedule_message,
+            Tick::default(),
             tunnel_finder,
         );
 
@@ -2444,10 +2481,10 @@ mod tests {
         };
 
         // Players cannot kick anyone; `follows` rejects the Host message.
-        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player_id, Tick::default(), tunnel_finder).is_ok());
         let other = crate::watcher::Id::new();
         let other_finder = |_: crate::watcher::Id| Some(player_tunnel.clone());
-        assert!(game.add_unassigned(other, other_finder).is_ok());
+        assert!(game.add_unassigned(other, Tick::default(), other_finder).is_ok());
         assert!(game.assign_player_name(other, "Target", other_finder).is_ok());
 
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
@@ -2455,6 +2492,7 @@ mod tests {
             player_id,
             IncomingMessage::Host(IncomingHostMessage::Kick("Target".to_owned())),
             schedule_message,
+            Tick::default(),
             tunnel_finder,
         );
         assert!(game.watchers.has_watcher(other));
@@ -2475,7 +2513,7 @@ mod tests {
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Should not panic and should do nothing
-        game.receive_message(nonexistent_id, msg, schedule_message, tunnel_finder);
+        game.receive_message(nonexistent_id, msg, schedule_message, Tick::default(), tunnel_finder);
     }
 
     #[test]
@@ -2499,7 +2537,10 @@ mod tests {
         };
 
         // Add unassigned player - should automatically get a random name
-        assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
+        assert!(
+            game.add_unassigned(unassigned_id, Tick::default(), tunnel_finder)
+                .is_ok()
+        );
 
         // Should now be a player
         let watcher_value = game.watchers.get_watcher_value(unassigned_id);
@@ -2525,8 +2566,8 @@ mod tests {
         };
 
         // Add two players
-        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
-        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player1, Tick::default(), tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, Tick::default(), tunnel_finder).is_ok());
 
         // Assign same name to first player
         assert!(game.assign_player_name(player1, "SameName", tunnel_finder).is_ok());
@@ -2561,8 +2602,8 @@ mod tests {
         };
 
         // Add and name players
-        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
-        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player1, Tick::default(), tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, Tick::default(), tunnel_finder).is_ok());
         assert!(game.assign_player_name(player1, "Player1", tunnel_finder).is_ok());
         assert!(game.assign_player_name(player2, "Player2", tunnel_finder).is_ok());
 
@@ -2570,7 +2611,7 @@ mod tests {
         let teammate_msg = IncomingMessage::Player(IncomingPlayerMessage::SearchTeammate("Player2".to_string()));
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
-        game.receive_message(player1, teammate_msg, schedule_message, tunnel_finder);
+        game.receive_message(player1, teammate_msg, schedule_message, Tick::default(), tunnel_finder);
 
         // Verify preferences were set (implementation detail - would need team_manager access)
     }
@@ -2586,16 +2627,16 @@ mod tests {
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(game.state, State::Slide(_)));
 
         // Finish the slide - should show leaderboard
-        game.finish_slide(schedule_message, tunnel_finder);
+        game.finish_slide(schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(game.state, State::Leaderboard(_)));
 
         // Send next from host while in leaderboard state
         let next_msg = IncomingMessage::Host(IncomingHostMessage::Next(game.current_host_screen()));
-        game.receive_message(host_id, next_msg, schedule_message, tunnel_finder);
+        game.receive_message(host_id, next_msg, schedule_message, Tick::default(), tunnel_finder);
 
         // Should be done (since only one slide in test fuiz)
         assert!(matches!(game.state, State::Done));
@@ -2615,11 +2656,11 @@ mod tests {
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(game.state, State::Slide(_)));
 
         // Finish the slide - should skip leaderboard and go to done
-        game.finish_slide(schedule_message, tunnel_finder);
+        game.finish_slide(schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(game.state, State::Done));
     }
 
@@ -2634,11 +2675,11 @@ mod tests {
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
 
         // Send index message from host (should be handled by slide state)
         let index_msg = IncomingMessage::Host(IncomingHostMessage::Index(0));
-        game.receive_message(host_id, index_msg, schedule_message, tunnel_finder);
+        game.receive_message(host_id, index_msg, schedule_message, Tick::default(), tunnel_finder);
     }
 
     #[test]
@@ -2654,7 +2695,10 @@ mod tests {
         };
 
         // Update host session
-        assert_eq!(game.update_session(host_id, tunnel_finder), Reconnect::Reclaimed);
+        assert_eq!(
+            game.update_session(host_id, Tick::default(), tunnel_finder),
+            Reconnect::Reclaimed
+        );
 
         // Verify messages were sent (would check tunnel.messages in real test)
     }
@@ -2681,11 +2725,14 @@ mod tests {
         };
 
         // Add player and assign name
-        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player_id, Tick::default(), tunnel_finder).is_ok());
         assert!(game.assign_player_name(player_id, "TestPlayer", tunnel_finder).is_ok());
 
         // Update player session - should work with team manager
-        assert_eq!(game.update_session(player_id, tunnel_finder), Reconnect::Reclaimed);
+        assert_eq!(
+            game.update_session(player_id, Tick::default(), tunnel_finder),
+            Reconnect::Reclaimed
+        );
     }
 
     #[test]
@@ -2706,12 +2753,18 @@ mod tests {
         };
 
         // Join while open, then the host locks the game.
-        assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
+        assert!(
+            game.add_unassigned(unassigned_id, Tick::default(), tunnel_finder)
+                .is_ok()
+        );
         game.locked = true;
 
         // Reconnecting reclaims the existing watcher but sends nothing, since it
         // is still unnamed and the game is now locked.
-        assert_eq!(game.update_session(unassigned_id, tunnel_finder), Reconnect::Reclaimed);
+        assert_eq!(
+            game.update_session(unassigned_id, Tick::default(), tunnel_finder),
+            Reconnect::Reclaimed
+        );
     }
 
     #[test]
@@ -2781,7 +2834,7 @@ mod tests {
 
         // Send Next message in Done state - should call mark_as_done
         let next_msg = IncomingMessage::Host(IncomingHostMessage::Next(game.current_host_screen()));
-        game.receive_message(host_id, next_msg, schedule_message, tunnel_finder);
+        game.receive_message(host_id, next_msg, schedule_message, Tick::default(), tunnel_finder);
 
         // State should still be Done but mark_as_done was called
         assert!(matches!(game.state, State::Done));
@@ -2797,7 +2850,7 @@ mod tests {
         // Start game to get to a slide
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
 
         // Send alarm for wrong slide index - should be ignored
         let alarm = crate::AlarmMessage::MultipleChoice(crate::fuiz::multiple_choice::AlarmMessage {
@@ -2805,7 +2858,7 @@ mod tests {
             to: crate::fuiz::multiple_choice::Phase::Question,
         });
 
-        game.receive_alarm(&alarm, schedule_message, tunnel_finder);
+        game.receive_alarm(&alarm, schedule_message, Tick::default(), tunnel_finder);
 
         // State should not change (still in slide 0, not 999)
         assert!(matches!(game.state, State::Slide(_)));
@@ -2823,7 +2876,7 @@ mod tests {
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
         let stale_screen = game.current_host_screen();
 
         // First Next (matching the live screen) advances the phase.
@@ -2831,6 +2884,7 @@ mod tests {
             host_id,
             IncomingMessage::Host(IncomingHostMessage::Next(stale_screen)),
             schedule_message,
+            Tick::default(),
             tunnel_finder,
         );
         let advanced_screen = game.current_host_screen();
@@ -2841,6 +2895,7 @@ mod tests {
             host_id,
             IncomingMessage::Host(IncomingHostMessage::Next(stale_screen)),
             schedule_message,
+            Tick::default(),
             tunnel_finder,
         );
         assert_eq!(game.current_host_screen(), advanced_screen);
@@ -2859,7 +2914,7 @@ mod tests {
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Playing a slide starts on the announcement (`Unstarted`), not the question.
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(
             game.current_host_screen(),
             HostScreen::Slide(SlidePosition::MultipleChoice {
@@ -2874,6 +2929,7 @@ mod tests {
             host_id,
             IncomingMessage::Host(IncomingHostMessage::Next(screen)),
             schedule_message,
+            Tick::default(),
             tunnel_finder,
         );
         assert!(matches!(
@@ -2902,7 +2958,7 @@ mod tests {
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Play should immediately go to Done state since no slides
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(game.state, State::Done));
     }
 
@@ -3033,19 +3089,19 @@ mod tests {
         };
 
         // Add players and assign names
-        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
-        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player1, Tick::default(), tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, Tick::default(), tunnel_finder).is_ok());
         assert!(game.assign_player_name(player1, "Player1", tunnel_finder).is_ok());
         assert!(game.assign_player_name(player2, "Player2", tunnel_finder).is_ok());
 
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // First play call should transition to TeamDisplay
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(game.state, State::TeamDisplay));
 
         // Second play call should start the actual game
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(game.state, State::Slide(_)));
     }
 
@@ -3067,7 +3123,7 @@ mod tests {
         };
 
         // Add a player
-        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player_id, Tick::default(), tunnel_finder).is_ok());
         assert!(game.assign_player_name(player_id, "TestPlayer", tunnel_finder).is_ok());
 
         // Call announce_summary directly
@@ -3097,7 +3153,7 @@ mod tests {
         };
 
         // Add a player
-        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player_id, Tick::default(), tunnel_finder).is_ok());
         assert!(game.assign_player_name(player_id, "TestPlayer", tunnel_finder).is_ok());
 
         // Call announce_summary with no_leaderboard option
@@ -3161,15 +3217,15 @@ mod tests {
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(game.state, State::Slide(_)));
 
         // Finish first slide - should go to second slide
-        game.finish_slide(schedule_message, tunnel_finder);
+        game.finish_slide(schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(game.state, State::Slide(_)));
 
         // Finish second slide - should be done
-        game.finish_slide(schedule_message, tunnel_finder);
+        game.finish_slide(schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(game.state, State::Done));
     }
 
@@ -3225,25 +3281,25 @@ mod tests {
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(game.state, State::Slide(_)));
 
         // Finish first slide - should show leaderboard
-        game.finish_slide(schedule_message, tunnel_finder);
+        game.finish_slide(schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(game.state, State::Leaderboard(0)));
 
         // Send next from host - should advance to slide 1
         let next_msg = IncomingMessage::Host(IncomingHostMessage::Next(game.current_host_screen()));
-        game.receive_message(host_id, next_msg, schedule_message, tunnel_finder);
+        game.receive_message(host_id, next_msg, schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(game.state, State::Slide(_)));
 
         // Finish second slide - should show leaderboard again
-        game.finish_slide(schedule_message, tunnel_finder);
+        game.finish_slide(schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(game.state, State::Leaderboard(1)));
 
         // Send next from host - should be done (no more slides)
         let next_msg = IncomingMessage::Host(IncomingHostMessage::Next(game.current_host_screen()));
-        game.receive_message(host_id, next_msg, schedule_message, tunnel_finder);
+        game.receive_message(host_id, next_msg, schedule_message, Tick::default(), tunnel_finder);
         assert!(matches!(game.state, State::Done));
     }
 
@@ -3265,14 +3321,23 @@ mod tests {
         };
 
         // Add unassigned player and lock the game
-        assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
+        assert!(
+            game.add_unassigned(unassigned_id, Tick::default(), tunnel_finder)
+                .is_ok()
+        );
         game.locked = true;
 
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Try to send name request - should be ignored due to lock
         let name_msg = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest("TestName".to_string()));
-        game.receive_message(unassigned_id, name_msg, schedule_message, tunnel_finder);
+        game.receive_message(
+            unassigned_id,
+            name_msg,
+            schedule_message,
+            Tick::default(),
+            tunnel_finder,
+        );
 
         // Should still be unassigned
         let watcher_value = game.watchers.get_watcher_value(unassigned_id);
@@ -3300,13 +3365,22 @@ mod tests {
         };
 
         // Add unassigned player
-        assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
+        assert!(
+            game.add_unassigned(unassigned_id, Tick::default(), tunnel_finder)
+                .is_ok()
+        );
 
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Try to send name request when random names are enabled - should be ignored
         let name_msg = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest("TestName".to_string()));
-        game.receive_message(unassigned_id, name_msg, schedule_message, tunnel_finder);
+        game.receive_message(
+            unassigned_id,
+            name_msg,
+            schedule_message,
+            Tick::default(),
+            tunnel_finder,
+        );
 
         // Should already be a player due to random name assignment in add_unassigned
         let watcher_value = game.watchers.get_watcher_value(unassigned_id);
@@ -3332,18 +3406,18 @@ mod tests {
         };
 
         // Add two unassigned players
-        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
-        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player1, Tick::default(), tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, Tick::default(), tunnel_finder).is_ok());
 
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // First player takes a name
         let name_msg1 = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest("SameName".to_string()));
-        game.receive_message(player1, name_msg1, schedule_message, tunnel_finder);
+        game.receive_message(player1, name_msg1, schedule_message, Tick::default(), tunnel_finder);
 
         // Second player tries to take the same name - should get error message
         let name_msg2 = IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest("SameName".to_string()));
-        game.receive_message(player2, name_msg2, schedule_message, tunnel_finder);
+        game.receive_message(player2, name_msg2, schedule_message, Tick::default(), tunnel_finder);
 
         // Second player should still be unassigned
         let watcher_value = game.watchers.get_watcher_value(player2);
@@ -3376,8 +3450,8 @@ mod tests {
         };
 
         // Add players
-        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
-        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player1, Tick::default(), tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, Tick::default(), tunnel_finder).is_ok());
         assert!(game.assign_player_name(player1, "Player1", tunnel_finder).is_ok());
         assert!(game.assign_player_name(player2, "Player2", tunnel_finder).is_ok());
 
@@ -3483,7 +3557,10 @@ mod tests {
         let tunnel_finder = |_: crate::watcher::Id| None::<MockTunnel>;
 
         // A nonexistent watcher reports NotFound rather than silently no-opping.
-        assert_eq!(game.update_session(nonexistent_id, tunnel_finder), Reconnect::NotFound);
+        assert_eq!(
+            game.update_session(nonexistent_id, Tick::default(), tunnel_finder),
+            Reconnect::NotFound
+        );
     }
 
     #[test]
@@ -3500,7 +3577,7 @@ mod tests {
         };
 
         // Add as unassigned first
-        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player_id, Tick::default(), tunnel_finder).is_ok());
 
         // Update with empty name - should not announce to others
         game.update_player_with_name(player_id, "", tunnel_finder);
@@ -3527,7 +3604,7 @@ mod tests {
         };
 
         // Add as unassigned first
-        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player_id, Tick::default(), tunnel_finder).is_ok());
 
         // Update with name - should not announce teammate selection messages for random assignment
         game.update_player_with_name(player_id, "TestPlayer", tunnel_finder);
@@ -3570,8 +3647,8 @@ mod tests {
         };
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
-        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
-        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player1, Tick::default(), tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, Tick::default(), tunnel_finder).is_ok());
         assert!(game.assign_player_name(player1, "Player1", tunnel_finder).is_ok());
         assert!(game.assign_player_name(player2, "Player2", tunnel_finder).is_ok());
 
@@ -3579,6 +3656,7 @@ mod tests {
             player1,
             IncomingMessage::Player(IncomingPlayerMessage::SearchTeammate("Player2".to_string())),
             schedule_message,
+            Tick::default(),
             tunnel_finder,
         );
 
@@ -3673,8 +3751,8 @@ mod tests {
         };
 
         // Add players with names to test the actual filtering logic
-        assert!(game.add_unassigned(player1, tunnel_finder).is_ok());
-        assert!(game.add_unassigned(player2, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player1, Tick::default(), tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player2, Tick::default(), tunnel_finder).is_ok());
         assert!(game.assign_player_name(player1, "Player1", tunnel_finder).is_ok());
         assert!(game.assign_player_name(player2, "Player2", tunnel_finder).is_ok());
 
@@ -3698,7 +3776,7 @@ mod tests {
         };
 
         // Add a player
-        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player_id, Tick::default(), tunnel_finder).is_ok());
         assert!(game.assign_player_name(player_id, "TestPlayer", tunnel_finder).is_ok());
 
         // Test leaderboard_message function
@@ -3718,7 +3796,7 @@ mod tests {
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game to get to slide 0
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
 
         // Send alarm for correct slide index
         let alarm = crate::AlarmMessage::MultipleChoice(crate::fuiz::multiple_choice::AlarmMessage {
@@ -3727,7 +3805,7 @@ mod tests {
         });
 
         // Should handle the alarm for the current slide
-        game.receive_alarm(&alarm, schedule_message, tunnel_finder);
+        game.receive_alarm(&alarm, schedule_message, Tick::default(), tunnel_finder);
     }
 
     #[test]
@@ -3747,7 +3825,7 @@ mod tests {
             to: crate::fuiz::multiple_choice::Phase::Question,
         });
 
-        game.receive_alarm(&alarm, schedule_message, tunnel_finder);
+        game.receive_alarm(&alarm, schedule_message, Tick::default(), tunnel_finder);
         // Should remain in WaitingScreen
         assert!(matches!(game.state, State::WaitingScreen));
     }
@@ -3764,7 +3842,7 @@ mod tests {
         let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
 
         // Start the game to get to slide state
-        game.play(schedule_message, tunnel_finder);
+        game.play(schedule_message, Tick::default(), tunnel_finder);
 
         // Test state message for slide state
         let state_msg = game.state_message(player_id, crate::watcher::ValueKind::Player, tunnel_finder);
@@ -3789,11 +3867,14 @@ mod tests {
         };
 
         // Add player
-        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player_id, Tick::default(), tunnel_finder).is_ok());
         assert!(game.assign_player_name(player_id, "TestPlayer", tunnel_finder).is_ok());
 
         // Update session for individual player (no teams)
-        assert_eq!(game.update_session(player_id, tunnel_finder), Reconnect::Reclaimed);
+        assert_eq!(
+            game.update_session(player_id, Tick::default(), tunnel_finder),
+            Reconnect::Reclaimed
+        );
     }
 
     #[test]
@@ -3814,7 +3895,7 @@ mod tests {
         };
 
         // Add a player
-        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player_id, Tick::default(), tunnel_finder).is_ok());
         assert!(game.assign_player_name(player_id, "TestPlayer", tunnel_finder).is_ok());
 
         // Mark as done - should remove all watchers
@@ -3844,7 +3925,10 @@ mod tests {
         };
 
         // Add unassigned - should prompt for name choice
-        assert!(game.add_unassigned(unassigned_id, tunnel_finder).is_ok());
+        assert!(
+            game.add_unassigned(unassigned_id, Tick::default(), tunnel_finder)
+                .is_ok()
+        );
 
         // Should still be unassigned waiting for name choice
         let watcher_value = game.watchers.get_watcher_value(unassigned_id);
@@ -3865,7 +3949,7 @@ mod tests {
         };
 
         // Add unassigned player
-        assert!(game.add_unassigned(player_id, tunnel_finder).is_ok());
+        assert!(game.add_unassigned(player_id, Tick::default(), tunnel_finder).is_ok());
 
         // Try to assign an invalid name (empty string might be invalid depending on validation)
         let result = game.assign_player_name(player_id, "", tunnel_finder);

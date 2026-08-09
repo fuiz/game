@@ -44,29 +44,29 @@ impl Default for NameStyle {
 /// based on their scheme.
 pub trait NamingScheme {
     /// Generates and returns a name according to the naming scheme.
-    fn get_name(&self) -> String;
+    fn get_name(&self, rng: &mut fastrand::Rng) -> String;
 
     /// Generates and returns the plural form of a name according to the naming scheme.
     ///
     /// # Returns
     ///
     /// A pluralized version of the generated name as a String.
-    fn get_plural_name(&self) -> String;
+    fn get_plural_name(&self, rng: &mut fastrand::Rng) -> String;
 }
 
 impl NamingScheme for NameStyle {
-    fn get_name(&self) -> String {
+    fn get_name(&self, rng: &mut fastrand::Rng) -> String {
         match self {
-            Self::Roman(count) => romans::roman_name(&romans::NameConfig { praenomen: *count > 2 }),
-            Self::Petname(count) => pets::pet_name(&pets::NameConfig { parts: *count as u8 }),
+            Self::Roman(count) => romans::roman_name(&romans::NameConfig { praenomen: *count > 2 }, rng),
+            Self::Petname(count) => pets::pet_name(&pets::NameConfig { parts: *count as u8 }, rng),
         }
         .join(" ")
     }
 
-    fn get_plural_name(&self) -> String {
+    fn get_plural_name(&self, rng: &mut fastrand::Rng) -> String {
         match self {
-            Self::Roman(count) => romans::roman_name_plural(&romans::NameConfig { praenomen: *count > 2 }),
-            Self::Petname(count) => pets::pet_name_plural(&pets::NameConfig { parts: *count as u8 }),
+            Self::Roman(count) => romans::roman_name_plural(&romans::NameConfig { praenomen: *count > 2 }, rng),
+            Self::Petname(count) => pets::pet_name_plural(&pets::NameConfig { parts: *count as u8 }, rng),
         }
         .join(" ")
     }
@@ -497,13 +497,13 @@ mod tests {
     fn test_name_style_roman_name_generation() {
         // Test Roman style with 2 words (no praenomen)
         let style_2 = NameStyle::Roman(2);
-        let name_2 = style_2.get_name();
+        let name_2 = style_2.get_name(&mut fastrand::Rng::new());
         assert!(!name_2.is_empty());
         assert!(name_2.chars().next().unwrap().is_uppercase());
 
         // Test Roman style with 3 words (with praenomen)
         let style_3 = NameStyle::Roman(3);
-        let name_3 = style_3.get_name();
+        let name_3 = style_3.get_name(&mut fastrand::Rng::new());
         assert!(!name_3.is_empty());
         assert!(name_3.chars().next().unwrap().is_uppercase());
     }
@@ -512,14 +512,14 @@ mod tests {
     fn test_name_style_petname_generation() {
         // Test Petname style with 2 words
         let style_2 = NameStyle::Petname(2);
-        let name_2 = style_2.get_name();
+        let name_2 = style_2.get_name(&mut fastrand::Rng::new());
         assert!(!name_2.is_empty());
         // Should be title case after processing
         assert!(name_2.contains(' ')); // Should have multiple words
 
         // Test Petname style with 3 words
         let style_3 = NameStyle::Petname(3);
-        let name_3 = style_3.get_name();
+        let name_3 = style_3.get_name(&mut fastrand::Rng::new());
         assert!(!name_3.is_empty());
         // Count spaces to verify word count (3 words = 2 spaces)
         assert_eq!(name_3.matches(' ').count(), 2);
@@ -531,15 +531,15 @@ mod tests {
         let petname_style = NameStyle::Petname(2);
 
         // Test that NamingScheme trait works
-        let roman_name = NamingScheme::get_name(&roman_style);
-        let petname_name = NamingScheme::get_name(&petname_style);
+        let roman_name = NamingScheme::get_name(&roman_style, &mut fastrand::Rng::new());
+        let petname_name = NamingScheme::get_name(&petname_style, &mut fastrand::Rng::new());
 
         assert!(!roman_name.is_empty());
         assert!(!petname_name.is_empty());
 
         // Test plural name generation
-        let roman_plural = roman_style.get_plural_name();
-        let petname_plural = petname_style.get_plural_name();
+        let roman_plural = roman_style.get_plural_name(&mut fastrand::Rng::new());
+        let petname_plural = petname_style.get_plural_name(&mut fastrand::Rng::new());
 
         assert!(!roman_plural.is_empty());
         assert!(!petname_plural.is_empty());

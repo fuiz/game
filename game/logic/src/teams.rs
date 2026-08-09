@@ -6,6 +6,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::tick::Tick;
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
 #[cfg(feature = "serializable")]
@@ -111,14 +112,18 @@ impl<N: names::NamingScheme> TeamManager<N> {
         &mut self,
         watchers: &mut Watchers,
         names: &mut names::Names,
+        tick: Tick,
         tunnel_finder: F,
         profanity: Profanity,
     ) {
         if self.teams.is_none() {
+            // One generator for the whole call: the shuffle and the team ids
+            // must draw from the same sequence for a replay to land here again.
+            let mut rng = tick.rng();
             let players = Self::get_players(watchers, tunnel_finder);
-            let preference_groups = self.create_preference_groups(&players);
+            let preference_groups = self.create_preference_groups_with(&players, &mut rng);
             let balanced_teams = self.balance_teams(&preference_groups, players.len());
-            let team_id_names = self.create_team_id_names(balanced_teams, names, profanity);
+            let team_id_names = self.create_team_id_names_with(balanced_teams, names, profanity, &mut rng);
             let result = self.assign_all_players_to_teams(&team_id_names, watchers);
             self.teams = Some(result);
         }
@@ -138,7 +143,14 @@ impl<N: names::NamingScheme> TeamManager<N> {
             .map(std::borrow::ToOwned::to_owned)
     }
 
+    /// Grouping drawn from the global generator. Tests and other callers with
+    /// no tick to hand; message paths use [`Self::create_preference_groups_with`].
+    #[cfg(test)]
     fn create_preference_groups(&self, players: &[Id]) -> Vec<Vec<Id>> {
+        self.create_preference_groups_with(players, &mut fastrand::Rng::new())
+    }
+
+    fn create_preference_groups_with(&self, players: &[Id], rng: &mut fastrand::Rng) -> Vec<Vec<Id>> {
         // Random mode has no preferences; every player is trivially their own group.
         if self.assign_random {
             let mut groups: Vec<Vec<Id>> = players.iter().map(|&id| vec![id]).collect();
@@ -166,7 +178,7 @@ impl<N: names::NamingScheme> TeamManager<N> {
             .into_iter()
             .map(|(_, group)| {
                 let mut players: Vec<Id> = group.map(|(_, player_id)| player_id).collect();
-                fastrand::shuffle(&mut players);
+                rng.shuffle(&mut players);
                 players
             })
             .sorted_by_key(Vec::len)
@@ -249,17 +261,30 @@ impl<N: names::NamingScheme> TeamManager<N> {
         teams.into_iter().map(|group| group.1).collect()
     }
 
+    /// Team ids drawn from the global generator. Tests and other callers with
+    /// no tick to hand; message paths use [`Self::create_team_id_names_with`].
+    #[cfg(test)]
     fn create_team_id_names(
         &self,
         teams: Vec<Vec<Id>>,
         names: &mut names::Names,
         profanity: Profanity,
     ) -> Vec<(Id, String, Vec<Id>)> {
+        self.create_team_id_names_with(teams, names, profanity, &mut fastrand::Rng::new())
+    }
+
+    fn create_team_id_names_with(
+        &self,
+        teams: Vec<Vec<Id>>,
+        names: &mut names::Names,
+        profanity: Profanity,
+        rng: &mut fastrand::Rng,
+    ) -> Vec<(Id, String, Vec<Id>)> {
         teams
             .into_iter()
             .map(|players| {
-                let team_id = Id::new();
-                let team_name = self.generate_unique_team_name(team_id, names, profanity);
+                let team_id = Id::from_rng(rng);
+                let team_name = self.generate_unique_team_name(team_id, names, profanity, rng);
                 (team_id, team_name, players)
             })
             .collect()
@@ -279,9 +304,15 @@ impl<N: names::NamingScheme> TeamManager<N> {
             .collect()
     }
 
-    fn generate_unique_team_name(&self, team_id: Id, names: &mut names::Names, profanity: Profanity) -> String {
+    fn generate_unique_team_name(
+        &self,
+        team_id: Id,
+        names: &mut names::Names,
+        profanity: Profanity,
+        rng: &mut fastrand::Rng,
+    ) -> String {
         loop {
-            let name = self.name_style.get_plural_name();
+            let name = self.name_style.get_plural_name(rng);
 
             if let Ok(unique_name) = names.set_name(team_id, &name, profanity) {
                 return unique_name.to_string();
@@ -644,7 +675,7 @@ mod tests {
         }
 
         // Finalize team assignment
-        manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
 
         // Sort players (to match original test's behavior)
         players.sort();
@@ -788,7 +819,7 @@ mod tests {
                 .unwrap();
         }
 
-        manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
 
         let team_names = manager.team_names().unwrap();
         assert_eq!(team_names.len(), 1);
@@ -813,7 +844,7 @@ mod tests {
                 .unwrap();
         }
 
-        manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
 
         watchers
             .add_watcher(player3, watcher::Value::Player(watcher::PlayerValue::Individual))
@@ -838,7 +869,7 @@ mod tests {
             .add_watcher(player1, watcher::Value::Player(watcher::PlayerValue::Individual))
             .unwrap();
 
-        manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
 
         let first_assignment = manager.add_player(player1, &mut watchers);
         let second_assignment = manager.add_player(player1, &mut watchers);
@@ -864,7 +895,7 @@ mod tests {
                 .unwrap();
         }
 
-        manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
 
         let index = manager.team_index(player1, |_| true);
         assert!(index.is_some());
@@ -896,7 +927,7 @@ mod tests {
                 .unwrap();
         }
 
-        manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
 
         // Create a filter that allows some players but not player1
         // This ensures that find_map iterates and hits the None branch for non-matching players
@@ -923,7 +954,7 @@ mod tests {
                 .unwrap();
         }
 
-        manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
 
         let team_ids = manager.all_ids();
         assert_eq!(team_ids.len(), 1);
@@ -951,7 +982,7 @@ mod tests {
         manager.set_preferences(player1, vec![player2]);
         manager.set_preferences(player2, vec![player1]);
 
-        manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
 
         let team1 = manager.get_team(player1);
         let team2 = manager.get_team(player2);
@@ -983,7 +1014,7 @@ mod tests {
         manager.set_preferences(player3, vec![player1]);
         manager.set_preferences(player4, vec![player5]);
 
-        manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
 
         assert!(manager.get_team(player1).is_some());
         assert!(manager.get_team(player2).is_some());
@@ -1010,7 +1041,7 @@ mod tests {
                 .unwrap();
         }
 
-        manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
 
         let team_ids = manager.all_ids();
         assert!(!team_ids.is_empty());
@@ -1031,7 +1062,7 @@ mod tests {
         let mut names = names::Names::default();
         let tunnel = |_id| Some(MockTunnel {});
 
-        manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
 
         let team_ids = manager.all_ids();
         assert_eq!(team_ids.len(), 1);
@@ -1075,7 +1106,7 @@ mod tests {
         manager.set_preferences(player3, vec![player4]);
         manager.set_preferences(player4, vec![player3]);
 
-        manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
 
         let team_ids = manager.all_ids();
         assert!(!team_ids.is_empty());
@@ -1109,7 +1140,7 @@ mod tests {
         manager.set_preferences(player2, vec![player3]);
         manager.set_preferences(player3, vec![player2]);
 
-        manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
 
         let team_ids = manager.all_ids();
         assert!(!team_ids.is_empty());
@@ -1151,11 +1182,11 @@ mod tests {
         }
 
         // First finalization
-        manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
         let initial_teams = manager.teams.clone();
 
         // Second finalization should not change anything and hit line 119
-        manager.finalize(&mut watchers, &mut names, tunnel, Profanity::Censor);
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
 
         // Verify teams haven't changed
         assert_eq!(manager.teams, initial_teams);
@@ -1823,7 +1854,7 @@ mod tests {
         }
 
         impl names::NamingScheme for MockCollidingNameStyle {
-            fn get_name(&self) -> String {
+            fn get_name(&self, _rng: &mut fastrand::Rng) -> String {
                 let mut count = self.call_count.borrow_mut();
                 *count += 1;
 
@@ -1835,9 +1866,9 @@ mod tests {
                 }
             }
 
-            fn get_plural_name(&self) -> String {
+            fn get_plural_name(&self, rng: &mut fastrand::Rng) -> String {
                 // Override to avoid pluralization for our test
-                self.get_name()
+                self.get_name(rng)
             }
         }
 
@@ -1853,7 +1884,8 @@ mod tests {
             names.set_name(existing_id, "Cats", Profanity::Censor).unwrap();
 
             let team_id = Id::new();
-            let unique_name = manager.generate_unique_team_name(team_id, &mut names, Profanity::Censor);
+            let unique_name =
+                manager.generate_unique_team_name(team_id, &mut names, Profanity::Censor, &mut fastrand::Rng::new());
 
             // Should have generated a different name due to collision
             assert_ne!(unique_name, "Cats");
@@ -1873,7 +1905,8 @@ mod tests {
             let mut names = names::Names::default();
 
             let team_id = Id::new();
-            let unique_name = manager.generate_unique_team_name(team_id, &mut names, Profanity::Censor);
+            let unique_name =
+                manager.generate_unique_team_name(team_id, &mut names, Profanity::Censor, &mut fastrand::Rng::new());
 
             // Should use the first generated name since no collision
             assert_eq!(unique_name, "Dogs");
@@ -1898,7 +1931,8 @@ mod tests {
             names.set_name(id2, "Birds 2", Profanity::Censor).unwrap();
 
             let team_id = Id::new();
-            let unique_name = manager.generate_unique_team_name(team_id, &mut names, Profanity::Censor);
+            let unique_name =
+                manager.generate_unique_team_name(team_id, &mut names, Profanity::Censor, &mut fastrand::Rng::new());
 
             // Should eventually find a unique name
             assert_eq!(unique_name, "Birds 3");

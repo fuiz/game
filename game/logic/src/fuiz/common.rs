@@ -14,6 +14,7 @@ use itertools::Itertools;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use serde::{Deserialize, Serialize};
 
+use crate::tick::Tick;
 use crate::{
     fuiz::config::{ScheduleMessageFn, SlideAction},
     leaderboard::Leaderboard,
@@ -158,14 +159,26 @@ pub trait SlideTimer {
     /// Set the answer start time, or None if not started
     fn set_answer_start(&mut self, time: Option<Timestamp>);
 
-    /// Start the timer by setting the current time
+    /// Start the timer at the tick's instant. State-mutating, so the caller
+    /// supplies the reading rather than the clock being read here.
+    fn start_timer_at(&mut self, now: Timestamp) {
+        self.set_answer_start(Some(now));
+    }
+
+    /// Start the timer from the live clock. Tests and other callers with no
+    /// tick to hand; the message paths use [`Self::start_timer_at`].
     fn start_timer(&mut self) {
-        self.set_answer_start(Some(Timestamp::now()));
+        self.start_timer_at(Timestamp::now());
+    }
+
+    /// Get the timer start time, falling back to `now` if it never started.
+    fn timer_at(&self, now: Timestamp) -> Timestamp {
+        self.answer_start().unwrap_or(now)
     }
 
     /// Get the timer start time, or current time if not set
     fn timer(&self) -> Timestamp {
-        self.answer_start().unwrap_or(Timestamp::now())
+        self.timer_at(Timestamp::now())
     }
 
     /// Get the elapsed time since the timer started
@@ -238,19 +251,26 @@ pub trait AnswerHandler<AnswerType>: HasSlideCore {
         self.user_answers_mut().reserve(live_player_count);
     }
 
-    /// Records a player's answer with the current timestamp.
+    /// Records a player's answer stamped at `now`.
+    ///
+    /// The stamp is what the slide is scored on, so it comes from the caller's
+    /// tick rather than the clock: a replay has to reproduce the same score.
     ///
     /// Updates the live-answered counter when this is the first answer from
     /// `id` (so a player overwriting their own answer doesn't double-count).
-    fn record_answer(&mut self, id: Id, answer: AnswerType) {
+    fn record_answer_at(&mut self, id: Id, answer: AnswerType, now: Timestamp) {
         let transformed_answer = self.transform_answer(answer);
-        let was_new = self
-            .user_answers_mut()
-            .insert(id, (transformed_answer, Timestamp::now()))
-            .is_none();
+        let was_new = self.user_answers_mut().insert(id, (transformed_answer, now)).is_none();
         if was_new {
             *self.live_answered_count_mut() += 1;
         }
+    }
+
+    /// Records a player's answer with the current timestamp. Tests and other
+    /// callers with no tick to hand; message paths use
+    /// [`Self::record_answer_at`].
+    fn record_answer(&mut self, id: Id, answer: AnswerType) {
+        self.record_answer_at(id, answer, Timestamp::now());
     }
 
     /// Notify the slide that a watcher has gone offline.
@@ -377,9 +397,10 @@ pub(crate) fn add_scores_to_leaderboard<F: TunnelFinder, AnswerType: Clone, A: A
     leaderboard: &mut Leaderboard,
     watchers: &Watchers,
     team_manager: Option<&TeamManager<crate::names::NameStyle>>,
+    now: Timestamp,
     tunnel_finder: F,
 ) {
-    let starting_instant = slide.timer();
+    let starting_instant = slide.timer_at(now);
 
     let leaderboard_id = |player_id: Id| match &team_manager {
         Some(tm) => tm.get_team(player_id).unwrap_or(player_id),
@@ -482,6 +503,7 @@ pub(crate) trait PhasedSlide<AnswerType: Clone>: AnswerHandler<AnswerType> + Sli
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -495,6 +517,7 @@ pub(crate) trait PhasedSlide<AnswerType: Clone>: AnswerHandler<AnswerType> + Sli
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -505,14 +528,15 @@ pub(crate) trait PhasedSlide<AnswerType: Clone>: AnswerHandler<AnswerType> + Sli
                 team_manager,
                 watchers,
                 schedule_message,
+                tick,
                 tunnel_finder,
                 index,
                 count,
             );
             SlideAction::Stay
         } else {
-            add_scores_to_leaderboard(self, leaderboard, watchers, team_manager, &tunnel_finder);
-            SlideAction::Next { schedule_message }
+            add_scores_to_leaderboard(self, leaderboard, watchers, team_manager, tick.now(), &tunnel_finder);
+            SlideAction::Next { schedule_message, tick }
         }
     }
 
@@ -524,6 +548,7 @@ pub(crate) trait PhasedSlide<AnswerType: Clone>: AnswerHandler<AnswerType> + Sli
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -533,6 +558,7 @@ pub(crate) trait PhasedSlide<AnswerType: Clone>: AnswerHandler<AnswerType> + Sli
             team_manager,
             watchers,
             schedule_message,
+            tick,
             tunnel_finder,
             index,
             count,
@@ -576,6 +602,7 @@ pub(crate) trait QuestionReceiveMessage {
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -602,6 +629,7 @@ pub(crate) trait QuestionReceiveMessage {
         watcher_id: Id,
         message: crate::game::IncomingPlayerMessage,
         watchers: &Watchers,
+        tick: Tick,
         tunnel_finder: F,
     );
 
@@ -639,6 +667,7 @@ pub(crate) trait QuestionReceiveMessage {
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -649,12 +678,13 @@ pub(crate) trait QuestionReceiveMessage {
                 watchers,
                 team_manager,
                 schedule_message,
+                tick,
                 tunnel_finder,
                 index,
                 count,
             ),
             crate::game::IncomingMessage::Player(player_message) => {
-                self.receive_player_message(watcher_id, player_message, watchers, tunnel_finder);
+                self.receive_player_message(watcher_id, player_message, watchers, tick, tunnel_finder);
                 SlideAction::Stay
             }
             crate::game::IncomingMessage::Host(

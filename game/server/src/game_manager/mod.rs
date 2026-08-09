@@ -5,6 +5,7 @@ use thiserror::Error;
 
 use crate::{Session, clashmap::ClashMap};
 
+use fuiz::tick::Tick;
 use fuiz::{
     AlarmMessage,
     fuiz::config::Fuiz,
@@ -100,7 +101,7 @@ impl GameManager {
 
     pub fn add_unassigned(&self, game_id: GameId, watcher_id: Id) -> Result<Result<(), watcher::Error>, GameVanish> {
         self.with_game_mut(game_id, |game| {
-            game.add_unassigned(watcher_id, |id| self.tunnel_finder(id))
+            game.add_unassigned(watcher_id, Tick::default(), |id| self.tunnel_finder(id))
         })
     }
 
@@ -118,7 +119,9 @@ impl GameManager {
         schedule_message: F,
     ) -> Result<(), GameVanish> {
         self.with_game_mut(game_id, |game| {
-            game.receive_message(watcher_id, message, schedule_message, |id| self.tunnel_finder(id));
+            game.receive_message(watcher_id, message, schedule_message, Tick::default(), |id| {
+                self.tunnel_finder(id)
+            });
         })
     }
 
@@ -129,7 +132,9 @@ impl GameManager {
         schedule_message: F,
     ) -> Result<(), GameVanish> {
         self.with_game_mut(game_id, |game| {
-            game.receive_alarm(alarm_message, schedule_message, |id| self.tunnel_finder(id));
+            game.receive_alarm(alarm_message, schedule_message, Tick::default(), |id| {
+                self.tunnel_finder(id)
+            });
         })
     }
 
@@ -144,7 +149,9 @@ impl GameManager {
     }
 
     pub fn rejoin(&self, game_id: GameId, watcher_id: Id) -> Result<Result<(), watcher::Error>, GameVanish> {
-        self.with_game_mut(game_id, |game| game.rejoin(watcher_id, |id| self.tunnel_finder(id)))
+        self.with_game_mut(game_id, |game| {
+            game.rejoin(watcher_id, Tick::default(), |id| self.tunnel_finder(id))
+        })
     }
 
     pub fn remove_game(&self, game_id: GameId) {

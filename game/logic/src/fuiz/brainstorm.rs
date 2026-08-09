@@ -17,6 +17,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use serde_with::DurationMilliSeconds;
 
+use crate::tick::Tick;
 use crate::time::Timestamp;
 use crate::{
     fuiz::config::{ScheduleMessageFn, SlideAction},
@@ -421,15 +422,16 @@ impl PhasedSlide<Vec<usize>> for State {
         _team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
     ) {
         match phase {
-            Phase::Unstarted => self.announce_slide(watchers, schedule_message, tunnel_finder, index, count),
-            Phase::Question => self.enter_question(watchers, schedule_message, tunnel_finder, index, count),
-            Phase::Ideas => self.enter_ideas(watchers, schedule_message, tunnel_finder, index),
-            Phase::Voting => self.enter_voting(watchers, schedule_message, tunnel_finder, index),
+            Phase::Unstarted => self.announce_slide(watchers, schedule_message, tick, tunnel_finder, index, count),
+            Phase::Question => self.enter_question(watchers, schedule_message, tick, tunnel_finder, index, count),
+            Phase::Ideas => self.enter_ideas(watchers, schedule_message, tick, tunnel_finder, index),
+            Phase::Voting => self.enter_voting(watchers, schedule_message, tick, tunnel_finder, index),
             Phase::AnswersResults => self.send_answers_results(watchers, tunnel_finder),
         }
     }
@@ -441,6 +443,7 @@ impl State {
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -451,11 +454,11 @@ impl State {
         if let Some(duration) = self.config.introduce_question
             && duration.is_zero()
         {
-            self.enter_ideas(watchers, schedule_message, tunnel_finder, index);
+            self.enter_ideas(watchers, schedule_message, tick, tunnel_finder, index);
             return;
         }
 
-        self.start_timer();
+        self.start_timer_at(tick.now());
 
         watchers.announce(
             &UpdateMessage::QuestionAnnouncement {
@@ -486,13 +489,14 @@ impl State {
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
     ) {
         if !self.change_state(Phase::Question, Phase::Ideas) {
             return;
         }
-        self.start_timer();
+        self.start_timer_at(tick.now());
         // In this phase the live tally counts contributors, not voters.
         self.core.live_answered_count = 0;
 
@@ -524,6 +528,7 @@ impl State {
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
     ) {
@@ -535,7 +540,7 @@ impl State {
             return;
         }
 
-        self.start_timer();
+        self.start_timer_at(tick.now());
         // Back to counting voters.
         self.core.live_answered_count = 0;
         self.reserve_for_players(watchers.specific_count(ValueKind::Player));
@@ -570,6 +575,7 @@ impl State {
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -590,6 +596,7 @@ impl State {
                 None,
                 watchers,
                 schedule_message,
+                tick,
                 tunnel_finder,
                 index,
                 count,
@@ -663,6 +670,7 @@ impl State {
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -672,6 +680,7 @@ impl State {
             None,
             watchers,
             schedule_message,
+            tick,
             tunnel_finder,
             index,
             count,
@@ -739,13 +748,23 @@ impl State {
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         message: &crate::AlarmMessage,
         index: usize,
         count: usize,
     ) -> SlideAction<S> {
         if let crate::AlarmMessage::Brainstorm(inner) = message {
-            self.default_receive_alarm(inner.to, None, watchers, schedule_message, tunnel_finder, index, count)
+            self.default_receive_alarm(
+                inner.to,
+                None,
+                watchers,
+                schedule_message,
+                tick,
+                tunnel_finder,
+                index,
+                count,
+            )
         } else {
             SlideAction::Stay
         }
@@ -799,6 +818,7 @@ impl QuestionReceiveMessage for State {
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -808,6 +828,7 @@ impl QuestionReceiveMessage for State {
             watchers,
             team_manager,
             schedule_message,
+            tick,
             tunnel_finder,
             index,
             count,
@@ -819,11 +840,12 @@ impl QuestionReceiveMessage for State {
         watcher_id: Id,
         message: IncomingPlayerMessage,
         watchers: &Watchers,
+        tick: Tick,
         tunnel_finder: F,
     ) {
         // The caller here has no scheduler, so an early close of the idea phase
         // is left to `receive_message` (which does) or to the idea timer.
-        let _ = self.handle_player_message(watcher_id, message, watchers, tunnel_finder);
+        let _ = self.handle_player_message(watcher_id, message, watchers, tick, tunnel_finder);
     }
 
     /// Overridden so a player message can close the idea phase early: moving
@@ -837,6 +859,7 @@ impl QuestionReceiveMessage for State {
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -847,17 +870,19 @@ impl QuestionReceiveMessage for State {
                 watchers,
                 team_manager,
                 schedule_message,
+                tick,
                 tunnel_finder,
                 index,
                 count,
             ),
             crate::game::IncomingMessage::Player(player_message) => {
-                if self.handle_player_message(watcher_id, player_message, watchers, &tunnel_finder) {
+                if self.handle_player_message(watcher_id, player_message, watchers, tick, &tunnel_finder) {
                     self.enter_phase(
                         Phase::Voting,
                         team_manager,
                         watchers,
                         schedule_message,
+                        tick,
                         tunnel_finder,
                         index,
                         count,
@@ -880,6 +905,7 @@ impl State {
         watcher_id: Id,
         message: IncomingPlayerMessage,
         watchers: &Watchers,
+        tick: Tick,
         tunnel_finder: F,
     ) -> bool {
         match (self.state(), message) {
@@ -897,14 +923,14 @@ impl State {
                     .take(self.config.max_votes_per_player)
                     .collect_vec();
                 if !choices.is_empty() {
-                    self.record_answer(watcher_id, choices);
+                    self.record_answer_at(watcher_id, choices, tick.now());
                     self.handle_post_answer(watchers, &tunnel_finder);
                 }
                 false
             }
             (Phase::Voting, IncomingPlayerMessage::IndexAnswer(choice)) => {
                 if choice < self.ideas.len() {
-                    self.record_answer(watcher_id, vec![choice]);
+                    self.record_answer_at(watcher_id, vec![choice], tick.now());
                     self.handle_post_answer(watchers, &tunnel_finder);
                 }
                 false

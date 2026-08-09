@@ -27,17 +27,17 @@ static NAME_PARTS: LazyLock<NameParts> = LazyLock::new(|| NameParts {
 /// Generates a random pet-style name with the configured number of parts.
 ///
 /// Returns the name as a vector of word parts, ordered from modifier to noun.
-pub fn pet_name(config: &NameConfig) -> Vec<&'static str> {
-    pet_name_inner(config, false)
+pub fn pet_name(config: &NameConfig, rng: &mut fastrand::Rng) -> Vec<&'static str> {
+    pet_name_inner(config, false, rng)
 }
 
 /// Same as [`pet_name`] but draws the trailing noun from the pre-pluralized
 /// word list.
-pub fn pet_name_plural(config: &NameConfig) -> Vec<&'static str> {
-    pet_name_inner(config, true)
+pub fn pet_name_plural(config: &NameConfig, rng: &mut fastrand::Rng) -> Vec<&'static str> {
+    pet_name_inner(config, true, rng)
 }
 
-fn pet_name_inner(config: &NameConfig, plural_noun: bool) -> Vec<&'static str> {
+fn pet_name_inner(config: &NameConfig, plural_noun: bool, rng: &mut fastrand::Rng) -> Vec<&'static str> {
     let name_parts = &*NAME_PARTS;
     let nouns = if plural_noun {
         &name_parts.nouns_plural
@@ -48,9 +48,9 @@ fn pet_name_inner(config: &NameConfig, plural_noun: bool) -> Vec<&'static str> {
     (0..config.parts)
         .rev()
         .map(|i| match i {
-            0 => nouns.random_choice(),
-            1 => name_parts.adjectives.random_choice(),
-            _ => name_parts.adverbs.random_choice(),
+            0 => nouns.random_choice(rng),
+            1 => name_parts.adjectives.random_choice(rng),
+            _ => name_parts.adverbs.random_choice(rng),
         })
         .collect()
 }

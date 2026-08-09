@@ -1,5 +1,5 @@
 use std::{
-    cell::{RefCell, RefMut},
+    cell::{Cell, RefCell, RefMut},
     str::FromStr,
     time::Duration,
 };
@@ -7,11 +7,16 @@ use std::{
 use serde::{Deserialize, Serialize};
 use worker::*;
 
+use fuiz::tick::Tick;
+use fuiz::wal::Event;
 use fuiz::{
     game,
     session::Tunnel,
     watcher::{self},
 };
+use rustc_hash::FxHashSet;
+
+use crate::journal::Journal;
 
 #[derive(Debug, serde::Deserialize, garde::Validate, Serialize)]
 #[garde(context(fuiz::settings::Settings))]
@@ -24,9 +29,18 @@ pub struct GameRequest {
 
 struct WebSocketTunnel(WebSocket);
 
+impl WebSocketTunnel {
+    /// Closes without consuming the tunnel, for callers holding it by
+    /// reference. [`Tunnel::close`] takes ownership, which the admission path
+    /// cannot give up while it still needs the socket to report the refusal.
+    fn close_tunnel(&self) {
+        let _ = self.0.close::<String>(None, None);
+    }
+}
+
 impl Tunnel for WebSocketTunnel {
     fn close(self) {
-        let _ = self.0.close::<String>(None, None);
+        self.close_tunnel();
     }
 
     fn send_message(&self, message: &fuiz::UpdateMessage) {
@@ -46,6 +60,12 @@ impl Tunnel for WebSocketTunnel {
 pub struct Game {
     game: RefCell<Option<fuiz::game::Game>>,
     alarm_message: RefCell<Option<AlarmMessage>>,
+    /// Where this game's history has got to in storage.
+    journal: Journal,
+    /// Whether storage has been read since this instance was constructed. A
+    /// game that legitimately does not exist yet reads as `None`, so the
+    /// absence of a game is not on its own a reason to read again.
+    loaded: Cell<bool>,
     state: State,
     env: Env,
 }
@@ -56,88 +76,121 @@ enum AlarmMessage {
     Game(fuiz::AlarmMessage),
 }
 
-impl Game {
-    async fn load_state(&self) {
-        if self.game.borrow().is_none() {
-            if let Some(game) = load_game(&self.state.storage()).await {
-                self.game.replace(Some(game));
-            } else {
-                self.game.replace(None);
-            }
-            self.alarm_message
-                .replace(self.state.storage().get("alarm").await.ok().flatten());
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(transparent)]
-struct GameBytes {
-    #[serde(with = "serde_bytes")]
-    bytes: Vec<u8>,
-}
-
-async fn load_game(storage: &worker::durable::Storage) -> Option<fuiz::game::Game> {
-    let count = storage.get("count").await.ok()??;
-
-    let mut game_bytes = Vec::new();
-
-    for i in 0..count {
-        let array_buffer: Result<Option<GameBytes>> = storage.get(&format!("chunk_{i}")).await;
-        match array_buffer {
-            Err(e) => {
-                console_error!("Error loading chunk: {:?}", e);
-                return None;
-            }
-            Ok(None) => {
-                console_error!("Chunk {} not found", i);
-                return None;
-            }
-            Ok(Some(string_chunk)) => {
-                game_bytes.extend_from_slice(&string_chunk.bytes);
-            }
-        }
-    }
-
-    let game = ciborium::from_reader(game_bytes.as_slice());
-
-    match game {
-        Ok(game) => Some(game),
-        Err(e) => {
-            console_error!("Error deserializing game: {:?}", e);
-            None
-        }
-    }
-}
-
-fn get_serialized_game(game: &fuiz::game::Game) -> Result<Vec<u8>> {
-    let mut game_bytes = Vec::new();
-
-    ciborium::into_writer(game, &mut game_bytes).map_err(|e| {
-        console_error!("Error serializing game: {:?}", e);
-        worker::Error::RustError(e.to_string())
-    })?;
-
-    Ok(game_bytes)
-}
-
-async fn store_game(storage: &mut worker::durable::Storage, game_bytes: &[u8]) -> Result<()> {
-    let chunks_of_64kb = game_bytes
-        .chunks(64 * 1024)
-        .map(|chunk| GameBytes { bytes: chunk.to_vec() })
-        .collect::<Vec<_>>();
-
-    storage.put("count", &chunks_of_64kb.len()).await?;
-
-    for (i, chunk) in chunks_of_64kb.into_iter().enumerate() {
-        if let Err(e) = storage.put(&format!("chunk_{i}"), &chunk).await {
-            console_error!("Error storing chunk: {:?}", e);
-        }
-    }
-    Ok(())
-}
-
+/// How long a game with nothing scheduled is kept before it is swept away.
 const GAME_EXPIRY: Duration = Duration::from_hours(1);
+
+impl Game {
+    /// Loads the game the object is responsible for.
+    async fn load_state(&self) {
+        if self.loaded.get() {
+            return;
+        }
+        self.loaded.set(true);
+
+        let storage = self.state.storage();
+
+        // Read before the game: an alarm can fire against storage that no
+        // longer holds one, and the expiry sweep still has to run.
+        self.alarm_message.replace(storage.get("alarm").await.ok().flatten());
+
+        self.game.replace(self.journal.load(&storage).await);
+    }
+
+    /// Runs an event against the game and appends it to the log.
+    ///
+    /// This is the only path that mutates a live game, so every change the
+    /// object makes is one a replay can make again. Returns `None` when there
+    /// is no game to apply it to, otherwise whether the watcher was admitted.
+    async fn record(&self, event: Event) -> Result<Option<std::result::Result<(), watcher::Error>>> {
+        let tick = Tick::sample();
+        let mut scheduled = None;
+
+        let Some(admission) = self.with_mut_game(|game| {
+            fuiz::wal::apply(
+                game,
+                &event,
+                tick,
+                |message: fuiz::AlarmMessage, duration: Duration| scheduled = Some((message, duration)),
+                self.tunnel_finder(),
+            )
+        }) else {
+            return Ok(None);
+        };
+
+        // The event is already in the live game and already on its way to
+        // clients. If it could not be appended, fold it into a snapshot rather
+        // than leave it in memory alone: the next scheduled snapshot could be
+        // a hundred messages away, and an eviction before then would lose a
+        // change players have already seen.
+        if let Err(error) = self.journal.append(&self.state.storage(), tick, event).await {
+            console_error!("Error appending log entry, snapshotting instead: {:?}", error);
+            self.snapshot().await?;
+        }
+
+        self.update_alarm(scheduled).await?;
+
+        if self.journal.snapshot_due() {
+            self.snapshot().await?;
+        }
+
+        Ok(Some(admission))
+    }
+
+    /// Rewrites the alarm bookkeeping the way the pre-log object did: a
+    /// scheduled transition when the game asked for one, otherwise the expiry
+    /// sweep, so an abandoned game still cleans itself up.
+    async fn update_alarm(&self, scheduled: Option<(fuiz::AlarmMessage, Duration)>) -> Result<()> {
+        let storage = self.state.storage();
+
+        if let Some((message, duration)) = scheduled {
+            self.alarm_message.replace(Some(AlarmMessage::Game(message)));
+            storage.set_alarm(duration).await?;
+        } else if storage.get_alarm().await.unwrap_or(None).is_none() {
+            self.alarm_message.replace(Some(AlarmMessage::DeleteGame));
+            storage.set_alarm(GAME_EXPIRY).await?;
+        } else {
+            return Ok(());
+        }
+
+        storage.put("alarm", &self.alarm_message).await?;
+        Ok(())
+    }
+
+    /// Hands the live game to the journal to be written out whole.
+    ///
+    /// Encoded first so the borrow is released before the write awaits.
+    async fn snapshot(&self) -> Result<()> {
+        let Some(snapshot) = self.borrow_game().map(|game| Journal::encode(&game)).transpose()? else {
+            return Ok(());
+        };
+
+        self.journal
+            .write_snapshot(&self.state.storage(), snapshot, &self.connected())
+            .await
+    }
+
+    /// Records a join or rejoin, telling the client and dropping the socket if
+    /// the game turned them away.
+    async fn admit(&self, event: Event, session: &WebSocketTunnel) -> Result<()> {
+        if let Some(Err(error)) = self.record(event).await? {
+            session.send_message(&game::UpdateMessage::CannotJoin(error).into());
+            session.close_tunnel();
+        }
+
+        Ok(())
+    }
+
+    /// The watchers currently holding a socket, which is what the game's
+    /// tunnel finder answers from and therefore what a replay has to start
+    /// from.
+    fn connected(&self) -> FxHashSet<watcher::Id> {
+        self.state
+            .get_websockets()
+            .into_iter()
+            .filter_map(|socket| socket.deserialize_attachment::<watcher::Id>().ok().flatten())
+            .collect()
+    }
+}
 
 impl Game {
     fn borrow_game_mut(&self) -> Option<RefMut<'_, fuiz::game::Game>> {
@@ -157,49 +210,6 @@ impl Game {
         F: FnOnce(&mut fuiz::game::Game) -> R,
     {
         self.borrow_game_mut().map(|mut game| f(&mut game))
-    }
-
-    async fn with_mut_game_update_storage<F, R>(&self, f: F) -> Result<Option<R>>
-    where
-        F: FnOnce(&mut fuiz::game::Game) -> R,
-    {
-        let Some((ret, game_bytes)) = self.with_mut_game(|game| {
-            let ret = f(game);
-            (ret, get_serialized_game(game))
-        }) else {
-            return Ok(None);
-        };
-
-        store_game(&mut self.state.storage(), &game_bytes?).await?;
-
-        Ok(Some(ret))
-    }
-
-    async fn with_mut_game_alarm_message_update_storage<F>(&self, f: F) -> Result<()>
-    where
-        F: FnOnce(&mut fuiz::game::Game) -> Option<(fuiz::AlarmMessage, Duration)>,
-    {
-        let Some((alarm_message_duration, game_bytes)) = self.with_mut_game(|game| {
-            let alarm_message_duration = f(game);
-
-            (alarm_message_duration, get_serialized_game(game))
-        }) else {
-            return Ok(());
-        };
-
-        store_game(&mut self.state.storage(), &game_bytes?).await?;
-
-        if let Some((message, duration)) = alarm_message_duration {
-            self.alarm_message.replace(Some(AlarmMessage::Game(message)));
-            self.state.storage().set_alarm(duration).await?;
-        } else if self.state.storage().get_alarm().await.unwrap().is_none() {
-            self.alarm_message.replace(Some(AlarmMessage::DeleteGame));
-            self.state.storage().set_alarm(GAME_EXPIRY).await?;
-        }
-
-        self.state.storage().put("alarm", &self.alarm_message).await?;
-
-        Ok(())
     }
 
     fn tunnel_finder(&self) -> impl Fn(watcher::Id) -> Option<WebSocketTunnel> + '_ {
@@ -231,6 +241,8 @@ impl DurableObject for Game {
         Self {
             game: None.into(),
             alarm_message: None.into(),
+            journal: Journal::new(),
+            loaded: Cell::new(false),
             state,
             env,
         }
@@ -244,21 +256,16 @@ impl DurableObject for Game {
         match alarm_message_to_be_announced {
             Some(AlarmMessage::DeleteGame) => {
                 self.state.storage().delete_all().await?;
+
+                // The snapshot and the log went with it, so a straggling
+                // message must not append against the sequence they were under.
+                self.game.replace(None);
+                self.journal.reset();
+
                 return Response::ok("");
             }
             Some(AlarmMessage::Game(message)) => {
-                self.with_mut_game_alarm_message_update_storage(|game| {
-                    let mut alarm_message_duration = None;
-
-                    let schedule_message = |message: fuiz::AlarmMessage, duration: Duration| {
-                        alarm_message_duration = Some((message, duration));
-                    };
-
-                    game.receive_alarm(&message, schedule_message, self.tunnel_finder());
-
-                    alarm_message_duration
-                })
-                .await?;
+                self.record(Event::Alarm(message)).await?;
             }
             _ => {}
         }
@@ -281,6 +288,18 @@ impl DurableObject for Game {
                 host_id,
                 &settings,
             )));
+            self.loaded.set(true);
+
+            // The starting state has to reach storage before any entry does:
+            // replay rebuilds from a snapshot, and there is no other way to
+            // recover the config and the host's id.
+            self.snapshot().await?;
+
+            // Arm the sweep straight away. A game whose host never opens the
+            // websocket records no message, so nothing else would ever set an
+            // alarm and the snapshot just written would sit there for good.
+            self.update_alarm(None).await?;
+
             return Response::ok(host_id.to_string());
         }
 
@@ -335,13 +354,7 @@ impl DurableObject for Game {
 
                         session.send_message(&game::UpdateMessage::IdAssign(watcher_id).into());
 
-                        self.with_mut_game_update_storage(|game| {
-                            if let Err(error) = game.add_unassigned(watcher_id, self.tunnel_finder()) {
-                                session.send_message(&game::UpdateMessage::CannotJoin(error).into());
-                                session.close();
-                            }
-                        })
-                        .await?;
+                        self.admit(Event::Joined(watcher_id), &session).await?;
 
                         if let Err(e) = self.increment_player_count().await {
                             console_error!("Error incrementing player count: {:?}", e);
@@ -354,27 +367,10 @@ impl DurableObject for Game {
 
                         session.send_message(&game::UpdateMessage::IdAssign(watcher_id).into());
 
-                        self.with_mut_game_update_storage(|game| {
-                            if let Err(error) = game.rejoin(watcher_id, self.tunnel_finder()) {
-                                session.send_message(&game::UpdateMessage::CannotJoin(error).into());
-                                session.close();
-                            }
-                        })
-                        .await?;
+                        self.admit(Event::Rejoined(watcher_id), &session).await?;
                     }
                     message => {
-                        self.with_mut_game_alarm_message_update_storage(|game| {
-                            let mut alarm_message_duration = None;
-
-                            let schedule_message = |message: fuiz::AlarmMessage, duration: Duration| {
-                                alarm_message_duration = Some((message, duration));
-                            };
-
-                            game.receive_message(watcher_id, message, schedule_message, self.tunnel_finder());
-
-                            alarm_message_duration
-                        })
-                        .await?;
+                        self.record(Event::Received(watcher_id, message)).await?;
                     }
                 }
             } else {
@@ -382,38 +378,31 @@ impl DurableObject for Game {
                     return Ok(());
                 };
 
-                self.with_mut_game_update_storage(|game| {
-                    if let game::IncomingGhostMessage::ClaimId(id) = ghost_message
-                        && game.watchers.has_watcher(id)
-                    {
-                        close_connections_with_tag(&self.state, &id);
-                        ws.serialize_attachment(id)?;
+                // Whether the id is one the game already knows decides between
+                // reclaiming it and handing out a fresh one. That lookup reads
+                // game state the log does not carry, so the branch is resolved
+                // here and only the resulting event is recorded.
+                let known = matches!(ghost_message, game::IncomingGhostMessage::ClaimId(id)
+                    if self.borrow_game().is_some_and(|game| game.watchers.has_watcher(id)));
 
-                        let session = WebSocketTunnel(ws);
+                if let game::IncomingGhostMessage::ClaimId(id) = ghost_message
+                    && known
+                {
+                    close_connections_with_tag(&self.state, &id);
+                    ws.serialize_attachment(id)?;
 
-                        if let Err(error) = game.rejoin(id, self.tunnel_finder()) {
-                            session.send_message(&game::UpdateMessage::CannotJoin(error).into());
-                            session.close();
-                        }
-                    } else {
-                        let new_id = watcher::Id::new();
+                    let session = WebSocketTunnel(ws);
+                    self.admit(Event::Rejoined(id), &session).await?;
+                } else {
+                    let new_id = watcher::Id::new();
 
-                        ws.serialize_attachment(new_id)?;
+                    ws.serialize_attachment(new_id)?;
 
-                        let session = WebSocketTunnel(ws);
+                    let session = WebSocketTunnel(ws);
+                    session.send_message(&game::UpdateMessage::IdAssign(new_id).into());
 
-                        session.send_message(&game::UpdateMessage::IdAssign(new_id).into());
-
-                        if let Err(error) = game.add_unassigned(new_id, self.tunnel_finder()) {
-                            session.send_message(&game::UpdateMessage::CannotJoin(error).into());
-                            session.close();
-                        }
-                    }
-
-                    Ok::<(), worker::Error>(())
-                })
-                .await?
-                .transpose()?;
+                    self.admit(Event::Joined(new_id), &session).await?;
+                }
             }
         }
 
@@ -427,10 +416,7 @@ impl DurableObject for Game {
 
         self.load_state().await;
 
-        self.with_mut_game_update_storage(|game| {
-            game.watcher_left(watcher_id, self.tunnel_finder());
-        })
-        .await?;
+        self.record(Event::Left(watcher_id)).await?;
 
         Ok(())
     }

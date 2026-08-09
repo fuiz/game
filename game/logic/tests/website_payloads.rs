@@ -6,6 +6,7 @@
 //! sides ever drift apart, this test is where it shows up rather than in a
 //! classroom.
 
+use fuiz::tick::Tick;
 use fuiz::{
     AlarmMessage, SyncMessage, UpdateMessage,
     fuiz::{
@@ -158,11 +159,13 @@ where
     F: fuiz::session::TunnelFinder,
 {
     let player = Id::new();
-    game.add_unassigned(player, &finder).expect("under capacity");
+    game.add_unassigned(player, Tick::default(), &finder)
+        .expect("under capacity");
     game.receive_message(
         player,
         IncomingMessage::Unassigned(fuiz::game::IncomingUnassignedMessage::NameRequest(name.to_string())),
         |_: AlarmMessage, _: std::time::Duration| {},
+        Tick::default(),
         &finder,
     );
     player
@@ -190,7 +193,7 @@ fn every_picker_payload_can_be_played_to_the_summary() {
     };
 
     let mut schedule = |_: AlarmMessage, _: std::time::Duration| {};
-    game.play(&mut schedule, &finder);
+    game.play(&mut schedule, Tick::default(), &finder);
 
     // Advancing repeatedly must eventually finish rather than stall on a slide.
     // Every phase of every slide gets its own press, so the bound is generous.
@@ -203,6 +206,7 @@ fn every_picker_payload_can_be_played_to_the_summary() {
             host,
             IncomingMessage::Host(IncomingHostMessage::Next(screen)),
             &mut schedule,
+            Tick::default(),
             &finder,
         );
     }
@@ -231,7 +235,7 @@ fn every_answer_shape_is_safe_on_every_slide() {
     let player = join_player(&mut game, "Tester", &finder);
 
     let mut schedule = |_: AlarmMessage, _: std::time::Duration| {};
-    game.play(&mut schedule, &finder);
+    game.play(&mut schedule, Tick::default(), &finder);
 
     for _ in 0..(PICKER_ENTRIES * 10) {
         if matches!(game.state, State::Done) {
@@ -251,7 +255,13 @@ fn every_answer_shape_is_safe_on_every_slide() {
                 y: -3.0,
             },
         ] {
-            game.receive_message(player, IncomingMessage::Player(message), &mut schedule, &finder);
+            game.receive_message(
+                player,
+                IncomingMessage::Player(message),
+                &mut schedule,
+                Tick::default(),
+                &finder,
+            );
         }
 
         let screen = host_screen(&game);
@@ -259,6 +269,7 @@ fn every_answer_shape_is_safe_on_every_slide() {
             host,
             IncomingMessage::Host(IncomingHostMessage::Next(screen)),
             &mut schedule,
+            Tick::default(),
             &finder,
         );
     }
@@ -280,13 +291,14 @@ fn a_stale_next_is_ignored() {
     };
 
     let mut schedule = |_: AlarmMessage, _: std::time::Duration| {};
-    game.play(&mut schedule, &finder);
+    game.play(&mut schedule, Tick::default(), &finder);
 
     let first = host_screen(&game);
     game.receive_message(
         host,
         IncomingMessage::Host(IncomingHostMessage::Next(first)),
         &mut schedule,
+        Tick::default(),
         &finder,
     );
     let after_one = host_screen(&game);
@@ -296,6 +308,7 @@ fn a_stale_next_is_ignored() {
         host,
         IncomingMessage::Host(IncomingHostMessage::Next(first)),
         &mut schedule,
+        Tick::default(),
         &finder,
     );
     assert_eq!(
@@ -316,7 +329,7 @@ fn opinion_and_info_slides_skip_the_leaderboard() {
     };
 
     let mut schedule = |_: AlarmMessage, _: std::time::Duration| {};
-    game.play(&mut schedule, &finder);
+    game.play(&mut schedule, Tick::default(), &finder);
 
     // Which slide each leaderboard screen followed.
     let mut leaderboards_after = Vec::new();
@@ -332,6 +345,7 @@ fn opinion_and_info_slides_skip_the_leaderboard() {
             host,
             IncomingMessage::Host(IncomingHostMessage::Next(screen)),
             &mut schedule,
+            Tick::default(),
             &finder,
         );
     }
@@ -358,7 +372,7 @@ fn a_rejoining_player_gets_a_sync_message_for_every_slide() {
     let player = join_player(&mut game, "Tester", &finder);
 
     let mut schedule = |_: AlarmMessage, _: std::time::Duration| {};
-    game.play(&mut schedule, &finder);
+    game.play(&mut schedule, Tick::default(), &finder);
 
     let mut visited = Vec::new();
     for _ in 0..(PICKER_ENTRIES * 10) {
@@ -377,6 +391,7 @@ fn a_rejoining_player_gets_a_sync_message_for_every_slide() {
             host,
             IncomingMessage::Host(IncomingHostMessage::Next(screen)),
             &mut schedule,
+            Tick::default(),
             &finder,
         );
     }

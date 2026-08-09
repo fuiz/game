@@ -64,3 +64,4 @@ workspace = true
 
 [dev-dependencies]
 serde_json = "1.0" # JSON support for serde
+ciborium = "0.2"   # CBOR, to compare persisted state the way the worker stores it

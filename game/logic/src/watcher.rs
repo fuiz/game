@@ -37,6 +37,17 @@ impl Id {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
+
+    /// Creates a participant ID from a seeded generator, so ids minted while
+    /// handling a logged message come out the same on replay. Shaped like a
+    /// v4 UUID; drawn from `rng` rather than the global generator.
+    pub fn from_rng(rng: &mut fastrand::Rng) -> Self {
+        let mut bytes = [0u8; 16];
+        rng.fill(&mut bytes);
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        Self(Uuid::from_bytes(bytes))
+    }
 }
 
 impl Default for Id {

@@ -18,6 +18,7 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use serde_with::DurationMilliSeconds;
 
+use crate::tick::Tick;
 use crate::time::Timestamp;
 use crate::{
     fuiz::config::{ScheduleMessageFn, SlideAction},
@@ -385,13 +386,14 @@ impl PhasedSlide<Vec<String>> for State {
         _team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
     ) {
         match phase {
             Phase::Unstarted => {
-                self.announce_slide(watchers, schedule_message, tunnel_finder, index, count);
+                self.announce_slide(watchers, schedule_message, tick, tunnel_finder, index, count);
             }
             Phase::Question => {
                 if !self.change_state(Phase::Unstarted, Phase::Question) {
@@ -405,6 +407,7 @@ impl PhasedSlide<Vec<String>> for State {
                         None,
                         watchers,
                         schedule_message,
+                        tick,
                         tunnel_finder,
                         index,
                         count,
@@ -412,7 +415,7 @@ impl PhasedSlide<Vec<String>> for State {
                     return;
                 }
 
-                self.start_timer();
+                self.start_timer_at(tick.now());
 
                 watchers.announce(
                     &UpdateMessage::QuestionAnnouncement {
@@ -441,7 +444,7 @@ impl PhasedSlide<Vec<String>> for State {
                 if !self.change_state(Phase::Question, Phase::Answers) {
                     return;
                 }
-                self.start_timer();
+                self.start_timer_at(tick.now());
                 self.reserve_for_players(watchers.specific_count(ValueKind::Player));
 
                 watchers.announce(
@@ -480,6 +483,7 @@ impl State {
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -501,6 +505,7 @@ impl State {
                 None,
                 watchers,
                 schedule_message,
+                tick,
                 tunnel_finder,
                 index,
                 count,
@@ -550,6 +555,7 @@ impl State {
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -559,6 +565,7 @@ impl State {
             None,
             watchers,
             schedule_message,
+            tick,
             tunnel_finder,
             index,
             count,
@@ -615,13 +622,23 @@ impl State {
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         message: &crate::AlarmMessage,
         index: usize,
         count: usize,
     ) -> SlideAction<S> {
         if let crate::AlarmMessage::FreeText(inner) = message {
-            self.default_receive_alarm(inner.to, None, watchers, schedule_message, tunnel_finder, index, count)
+            self.default_receive_alarm(
+                inner.to,
+                None,
+                watchers,
+                schedule_message,
+                tick,
+                tunnel_finder,
+                index,
+                count,
+            )
         } else {
             SlideAction::Stay
         }
@@ -635,6 +652,7 @@ impl QuestionReceiveMessage for State {
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -644,6 +662,7 @@ impl QuestionReceiveMessage for State {
             watchers,
             team_manager,
             schedule_message,
+            tick,
             tunnel_finder,
             index,
             count,
@@ -655,6 +674,7 @@ impl QuestionReceiveMessage for State {
         watcher_id: Id,
         message: IncomingPlayerMessage,
         watchers: &Watchers,
+        tick: Tick,
         tunnel_finder: F,
     ) {
         if self.state() != Phase::Answers {
@@ -671,7 +691,7 @@ impl QuestionReceiveMessage for State {
         if self.transform_answer(entries.clone()).is_empty() {
             return;
         }
-        self.record_answer(watcher_id, entries);
+        self.record_answer_at(watcher_id, entries, tick.now());
         self.handle_post_answer(watchers, &tunnel_finder);
     }
 }

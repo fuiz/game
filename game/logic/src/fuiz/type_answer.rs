@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 
+use crate::tick::Tick;
 use crate::time::Timestamp;
 use garde::Validate;
 use itertools::Itertools;
@@ -331,13 +332,14 @@ impl PhasedSlide<String> for State {
         _team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
     ) {
         match phase {
             Phase::Unstarted => {
-                self.announce_slide(watchers, schedule_message, tunnel_finder, index, count);
+                self.announce_slide(watchers, schedule_message, tick, tunnel_finder, index, count);
             }
             Phase::Question => {
                 if !self.change_state(Phase::Unstarted, Phase::Question) {
@@ -351,6 +353,7 @@ impl PhasedSlide<String> for State {
                         None,
                         watchers,
                         schedule_message,
+                        tick,
                         tunnel_finder,
                         index,
                         count,
@@ -358,7 +361,7 @@ impl PhasedSlide<String> for State {
                     return;
                 }
 
-                self.start_timer();
+                self.start_timer_at(tick.now());
 
                 watchers.announce(
                     &UpdateMessage::QuestionAnnouncement {
@@ -389,7 +392,7 @@ impl PhasedSlide<String> for State {
                 if !self.change_state(Phase::Question, Phase::Answers) {
                     return;
                 }
-                self.start_timer();
+                self.start_timer_at(tick.now());
                 self.reserve_for_players(watchers.specific_count(ValueKind::Player));
 
                 watchers.announce(
@@ -431,6 +434,7 @@ impl State {
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -451,6 +455,7 @@ impl State {
                 None,
                 watchers,
                 schedule_message,
+                tick,
                 tunnel_finder,
                 index,
                 count,
@@ -472,6 +477,7 @@ impl State {
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -481,6 +487,7 @@ impl State {
             None,
             watchers,
             schedule_message,
+            tick,
             tunnel_finder,
             index,
             count,
@@ -542,13 +549,23 @@ impl State {
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         message: &crate::AlarmMessage,
         index: usize,
         count: usize,
     ) -> SlideAction<S> {
         if let crate::AlarmMessage::TypeAnswer(inner) = message {
-            self.default_receive_alarm(inner.to, None, watchers, schedule_message, tunnel_finder, index, count)
+            self.default_receive_alarm(
+                inner.to,
+                None,
+                watchers,
+                schedule_message,
+                tick,
+                tunnel_finder,
+                index,
+                count,
+            )
         } else {
             SlideAction::Stay
         }
@@ -562,6 +579,7 @@ impl QuestionReceiveMessage for State {
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -571,6 +589,7 @@ impl QuestionReceiveMessage for State {
             watchers,
             team_manager,
             schedule_message,
+            tick,
             tunnel_finder,
             index,
             count,
@@ -582,10 +601,11 @@ impl QuestionReceiveMessage for State {
         watcher_id: Id,
         message: IncomingPlayerMessage,
         watchers: &Watchers,
+        tick: Tick,
         tunnel_finder: F,
     ) {
         if let IncomingPlayerMessage::StringAnswer(v) = message {
-            self.record_answer(watcher_id, v);
+            self.record_answer_at(watcher_id, v, tick.now());
             self.handle_post_answer(watchers, &tunnel_finder);
         }
     }

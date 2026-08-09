@@ -15,6 +15,7 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use serde_with::DurationMilliSeconds;
 
+use crate::tick::Tick;
 use crate::time::Timestamp;
 use crate::{
     fuiz::config::{ScheduleMessageFn, SlideAction},
@@ -202,6 +203,7 @@ impl PhasedSlide<()> for State {
         _team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -212,7 +214,7 @@ impl PhasedSlide<()> for State {
                 if !self.change_state(Phase::Unstarted, Phase::Content) {
                     return;
                 }
-                self.start_timer();
+                self.start_timer_at(tick.now());
 
                 watchers.announce(
                     &UpdateMessage::ContentAnnouncement {
@@ -248,6 +250,7 @@ impl State {
         &mut self,
         watchers: &Watchers,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -257,6 +260,7 @@ impl State {
             None,
             watchers,
             schedule_message,
+            tick,
             tunnel_finder,
             index,
             count,
@@ -287,14 +291,15 @@ impl State {
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         message: &crate::AlarmMessage,
     ) -> SlideAction<S> {
         if !matches!(message, crate::AlarmMessage::InfoSlide(_)) || self.state() != Phase::Content {
             return SlideAction::Stay;
         }
-        add_scores_to_leaderboard(self, leaderboard, watchers, team_manager, &tunnel_finder);
-        SlideAction::Next { schedule_message }
+        add_scores_to_leaderboard(self, leaderboard, watchers, team_manager, tick.now(), &tunnel_finder);
+        SlideAction::Next { schedule_message, tick }
     }
 }
 
@@ -305,6 +310,7 @@ impl QuestionReceiveMessage for State {
         watchers: &Watchers,
         team_manager: Option<&TeamManager<crate::names::NameStyle>>,
         schedule_message: S,
+        tick: Tick,
         tunnel_finder: F,
         index: usize,
         count: usize,
@@ -314,6 +320,7 @@ impl QuestionReceiveMessage for State {
             watchers,
             team_manager,
             schedule_message,
+            tick,
             tunnel_finder,
             index,
             count,
@@ -326,6 +333,7 @@ impl QuestionReceiveMessage for State {
         _watcher_id: Id,
         _message: IncomingPlayerMessage,
         _watchers: &Watchers,
+        _tick: Tick,
         _tunnel_finder: F,
     ) {
     }

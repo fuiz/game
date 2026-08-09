@@ -16,7 +16,7 @@ impl WordList {
     /// # Panics
     ///
     /// Panics if the word list is empty.
-    pub fn random_choice(&self) -> &'static str {
-        fastrand::choice(&self.words).expect("Word list was empty")
+    pub fn random_choice(&self, rng: &mut fastrand::Rng) -> &'static str {
+        rng.choice(&self.words).expect("Word list was empty")
     }
 }
