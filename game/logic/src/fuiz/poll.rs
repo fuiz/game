@@ -315,24 +315,13 @@ impl PhasedSlide<usize> for State {
                 if !self.change_state(Phase::Unstarted, Phase::Question) {
                     return;
                 }
-                if let Some(duration) = self.config.introduce_question
-                    && duration.is_zero()
-                {
-                    self.enter_phase(
-                        Phase::Answers,
-                        None,
-                        watchers,
-                        schedule_message,
-                        tick,
-                        tunnel_finder,
-                        index,
-                        count,
-                    );
-                    return;
-                }
 
                 self.start_timer_at(tick.now());
 
+                // Announced before any skip ahead. This is the only live
+                // message carrying the question and its media, and the one
+                // that opens the input carries neither, so a zero-length
+                // intro must not be allowed to swallow it.
                 watchers.announce(
                     &UpdateMessage::QuestionAnnouncement {
                         index,
@@ -342,18 +331,31 @@ impl PhasedSlide<usize> for State {
                         duration: self.config.introduce_question,
                     }
                     .into(),
-                    tunnel_finder,
+                    &tunnel_finder,
                 );
 
                 if let Some(duration) = self.config.introduce_question {
-                    schedule_message(
-                        AlarmMessage {
+                    if duration.is_zero() {
+                        self.enter_phase(
+                            Phase::Answers,
+                            None,
+                            watchers,
+                            schedule_message,
+                            tick,
+                            tunnel_finder,
                             index,
-                            to: Phase::Answers,
-                        }
-                        .into(),
-                        duration,
-                    );
+                            count,
+                        );
+                    } else {
+                        schedule_message(
+                            AlarmMessage {
+                                index,
+                                to: Phase::Answers,
+                            }
+                            .into(),
+                            duration,
+                        );
+                    }
                 }
             }
             Phase::Answers => {
