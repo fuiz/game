@@ -369,6 +369,16 @@ impl DurableObject for Game {
 
                         self.admit(Event::Rejoined(watcher_id), &session).await?;
                     }
+                    game::IncomingMessage::Host(game::IncomingHostMessage::RequestTeamRosters) => {
+                        // A query, not an event: it only reads, so it has no
+                        // place in a log whose entries are the game's history.
+                        // Answered off the log because the host's roster screen
+                        // polls it, and logging a poll would grow the replay
+                        // for as long as someone leaves the list open.
+                        if let Some(game) = self.borrow_game() {
+                            game.send_team_rosters(watcher_id, self.tunnel_finder());
+                        }
+                    }
                     message => {
                         self.record(Event::Received(watcher_id, message)).await?;
                     }

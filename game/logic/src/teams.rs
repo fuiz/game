@@ -376,6 +376,28 @@ impl<N: names::NamingScheme> TeamManager<N> {
             .map(|v| v.iter().map(|(_, team_name)| team_name.as_str()).collect())
     }
 
+    /// Every team in formation order, each with its member ids.
+    ///
+    /// [`Self::team_assignments`] answers the same question for the end-of-game
+    /// summary, with names already resolved and in whatever order the map
+    /// iterates. This one keeps the formation order players see and hands back
+    /// the ids, which is what a caller needs to ask who is still connected.
+    ///
+    /// # Returns
+    ///
+    /// `Some` iterator of `(team_name, member_ids)` if teams have been
+    /// finalized, or `None` if team formation hasn't completed yet
+    pub fn rosters(&self) -> Option<impl Iterator<Item = (&str, &[Id])>> {
+        self.teams.as_ref().map(|teams| {
+            teams.iter().map(|(team_id, team_name)| {
+                // A team whose members all left is still a team; it lists empty
+                // rather than disappearing.
+                let members = self.team_to_players.get(team_id).map_or(&[][..], Vec::as_slice);
+                (team_name.as_str(), members)
+            })
+        })
+    }
+
     /// Gets the team ID for a specific player
     ///
     /// Looks up which team a player has been assigned to during the team
@@ -824,6 +846,64 @@ mod tests {
         let team_names = manager.team_names().unwrap();
         assert_eq!(team_names.len(), 1);
         assert!(!team_names[0].is_empty(), "the team should have been given a name");
+    }
+
+    #[test]
+    fn test_rosters_lists_every_member_in_formation_order() {
+        let mut manager = TeamManager::new(2, true, NameStyle::default());
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
+        let mut names = names::Names::default();
+        let tunnel = |_id| Some(MockTunnel {});
+
+        assert!(manager.rosters().is_none(), "no teams before finalization");
+
+        let players: Vec<Id> = (0..5).map(|_| Id::new()).collect();
+        for player in &players {
+            watchers
+                .add_watcher(*player, watcher::Value::Player(watcher::PlayerValue::Individual))
+                .unwrap();
+        }
+
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
+
+        let rosters: Vec<(&str, &[Id])> = manager.rosters().unwrap().collect();
+
+        // Same teams, same order, as the display the host is already shown.
+        let names_from_rosters: Vec<&str> = rosters.iter().map(|(name, _)| *name).collect();
+        assert_eq!(names_from_rosters, manager.team_names().unwrap());
+
+        let mut listed: Vec<Id> = rosters
+            .iter()
+            .flat_map(|(_, members)| members.iter().copied())
+            .collect();
+        listed.sort_unstable();
+        let mut expected = players.clone();
+        expected.sort_unstable();
+        assert_eq!(listed, expected, "every player appears on exactly one roster");
+    }
+
+    #[test]
+    fn test_rosters_keeps_a_team_whose_members_all_left() {
+        let mut manager = TeamManager::new(1, true, NameStyle::default());
+        let host_id = Id::new();
+        let mut watchers = Watchers::with_host_id(host_id, 1000);
+        let mut names = names::Names::default();
+        let tunnel = |_id| Some(MockTunnel {});
+
+        let player = Id::new();
+        watchers
+            .add_watcher(player, watcher::Value::Player(watcher::PlayerValue::Individual))
+            .unwrap();
+
+        manager.finalize(&mut watchers, &mut names, Tick::default(), tunnel, Profanity::Censor);
+        let team_count = manager.rosters().unwrap().count();
+
+        manager.remove_player(player);
+
+        let rosters: Vec<(&str, &[Id])> = manager.rosters().unwrap().collect();
+        assert_eq!(rosters.len(), team_count, "the team stays listed once emptied");
+        assert!(rosters.iter().all(|(_, members)| members.is_empty()));
     }
 
     #[test]

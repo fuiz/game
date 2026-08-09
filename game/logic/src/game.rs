@@ -358,6 +358,12 @@ pub enum IncomingHostMessage {
     /// the join between names and answers is only available while the slide is
     /// still up, and the end-of-game response log needs every slide's answers.
     RequestResponses,
+    /// Ask who is on each team.
+    ///
+    /// Pulled for the same reason as [`Self::RequestResponses`], and pulled
+    /// repeatedly rather than sent once: teams keep changing after they form,
+    /// as late joiners are dealt onto them and kicked players drop off.
+    RequestTeamRosters,
 }
 
 /// One player's answer to the current slide, for the host's response list.
@@ -367,6 +373,26 @@ pub struct PlayerResponse<'a> {
     pub name: &'a str,
     /// What they answered, phrased by the slide that asked.
     pub answer: String,
+}
+
+/// One team's membership, for the host's roster view.
+#[derive(Debug, Serialize, Clone)]
+pub struct TeamRoster<'a> {
+    /// The team's name.
+    pub name: &'a str,
+    /// Its members, in the order they take turns.
+    pub members: Vec<TeamMember<'a>>,
+}
+
+/// One member of a team, for [`TeamRoster`].
+#[derive(Debug, Serialize, Clone)]
+pub struct TeamMember<'a> {
+    /// The player's name.
+    pub name: &'a str,
+    /// Whether they currently hold a socket. A member who drops stays on the
+    /// roster, so the host sees a team playing short rather than a team that
+    /// silently shrank.
+    pub connected: bool,
 }
 
 /// Outcome of a reconnection attempt via [`Game::update_session`].
@@ -411,6 +437,9 @@ pub enum UpdateMessage<'a> {
     /// export, where a dropped row is a missing answer rather than a longer
     /// screen. One entry per player bounds it.
     PlayerResponses(Vec<PlayerResponse<'a>>),
+    /// (HOST ONLY): who is on each team, and which of them are still connected.
+    /// Sent in reply to [`IncomingHostMessage::RequestTeamRosters`].
+    TeamRosters(Vec<TeamRoster<'a>>),
     /// Prompt the participant to choose a name
     NameChoose,
     /// Confirm a name assignment
@@ -546,6 +575,10 @@ pub enum MetainfoMessage {
     Host {
         /// Whether the game is locked to new participants
         locked: bool,
+        /// Whether this is a team game. Sent on every host sync because
+        /// `TeamDisplay` only reaches the host while that screen is up, which
+        /// leaves a host who reloaded mid-game with no other way to tell.
+        teams: bool,
     },
     /// Information for players
     Player {
@@ -673,6 +706,46 @@ impl Game {
             host_id,
             tunnel_finder,
         );
+    }
+
+    /// Answers [`IncomingHostMessage::RequestTeamRosters`] with every team and
+    /// who is on it. Empty for a game that is not in team mode, or whose teams
+    /// have not formed yet — an empty list is something the host's screen can
+    /// render, where silence is indistinguishable from a lost message.
+    ///
+    /// Takes `&self`: this is a query and changes nothing, which is what lets
+    /// the socket layer answer it without writing an entry to the log.
+    /// Callers reaching this directly skip the kind check in
+    /// [`Self::receive_message`], so it is repeated here.
+    pub fn send_team_rosters<F: TunnelFinder>(&self, host_id: Id, tunnel_finder: F) {
+        if !matches!(
+            self.watchers.get_watcher_value_ref(host_id).map(Value::kind),
+            Some(ValueKind::Host)
+        ) {
+            return;
+        }
+
+        let rosters = self
+            .team_manager
+            .as_ref()
+            .and_then(teams::TeamManager::rosters)
+            .map(|teams| {
+                teams
+                    .map(|(name, members)| TeamRoster {
+                        name,
+                        members: members
+                            .iter()
+                            .map(|&id| TeamMember {
+                                name: self.names.get_name_or_unknown(&id),
+                                connected: Watchers::is_alive(id, &tunnel_finder),
+                            })
+                            .collect(),
+                    })
+                    .collect_vec()
+            })
+            .unwrap_or_default();
+
+        Watchers::send_message(&UpdateMessage::TeamRosters(rosters).into(), host_id, tunnel_finder);
     }
 
     /// Creates a new game instance with the provided configuration
@@ -1268,6 +1341,9 @@ impl Game {
             IncomingMessage::Host(IncomingHostMessage::RequestResponses) => {
                 self.send_player_responses(watcher_id, &tunnel_finder);
             }
+            IncomingMessage::Host(IncomingHostMessage::RequestTeamRosters) => {
+                self.send_team_rosters(watcher_id, &tunnel_finder);
+            }
             IncomingMessage::Unassigned(IncomingUnassignedMessage::NameRequest(s))
                 if self.options.random_names.is_none() =>
             {
@@ -1624,7 +1700,11 @@ impl Game {
                     &tunnel_finder,
                 );
                 Watchers::send_state(
-                    &SyncMessage::Metainfo(MetainfoMessage::Host { locked: self.locked }).into(),
+                    &SyncMessage::Metainfo(MetainfoMessage::Host {
+                        locked: self.locked,
+                        teams: self.team_manager.is_some(),
+                    })
+                    .into(),
                     watcher_id,
                     tunnel_finder,
                 );
@@ -2447,6 +2527,154 @@ mod tests {
         assert!(!responses.contains("Unknown"), "only real names: {responses}");
     }
 
+    /// Team options carry private fields, so build them the way a request does.
+    fn team_options(size: usize) -> Options {
+        serde_json::from_str(&format!(
+            r#"{{ "random_names": null, "show_answers": true, "no_leaderboard": false,
+                  "teams": {{ "size": {size}, "assign_random": true }}, "profanity": "Allow" }}"#
+        ))
+        .expect("team options deserialize")
+    }
+
+    /// The roster list is the only thing that tells the host who is on which
+    /// team while the game is running: the team display carries names alone,
+    /// and the summary's mapping does not arrive until the game is over. It is
+    /// also the only report of who has dropped, since a player leaving
+    /// mid-game raises no host-facing event.
+    #[test]
+    fn requested_rosters_name_members_and_flag_the_disconnected() {
+        let fuiz = create_test_fuiz();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, team_options(2), host_id, &test_settings());
+
+        let host_tunnel = MockTunnel::new();
+        let stayed = crate::watcher::Id::new();
+        let dropped = crate::watcher::Id::new();
+
+        // Everyone is present while the teams form.
+        let all_present = |id: crate::watcher::Id| {
+            if id == host_id {
+                Some(host_tunnel.clone())
+            } else if id == stayed || id == dropped {
+                Some(MockTunnel::new())
+            } else {
+                None
+            }
+        };
+
+        game.watchers
+            .add_watcher(host_id, crate::watcher::Value::Host)
+            .expect("host joins");
+        for (id, name) in [(stayed, "Ada"), (dropped, "Grace")] {
+            game.watchers
+                .add_watcher(id, crate::watcher::Value::Unassigned)
+                .expect("player joins");
+            game.assign_player_name(id, name, all_present).expect("name is free");
+        }
+
+        let schedule_message = |_: crate::AlarmMessage, _: std::time::Duration| {};
+        game.play(schedule_message, Tick::default(), all_present);
+
+        // One socket goes away. The roster keeps the player and reports it.
+        let one_dropped = |id: crate::watcher::Id| {
+            if id == dropped { None } else { all_present(id) }
+        };
+
+        game.receive_message(
+            host_id,
+            IncomingMessage::Host(IncomingHostMessage::RequestTeamRosters),
+            schedule_message,
+            Tick::default(),
+            one_dropped,
+        );
+
+        let sent = host_tunnel.messages.lock().unwrap().clone();
+        let rosters = sent
+            .iter()
+            .find(|message| message.contains("TeamRosters"))
+            .expect("the host is told who is on each team");
+
+        assert!(rosters.contains("Ada"), "members are named: {rosters}");
+        assert!(rosters.contains("Grace"), "a dropped member stays listed: {rosters}");
+        assert!(
+            rosters.contains(r#"{"name":"Grace","connected":false}"#),
+            "the dropped member reads as disconnected: {rosters}"
+        );
+        assert!(
+            rosters.contains(r#"{"name":"Ada","connected":true}"#),
+            "the present member reads as connected: {rosters}"
+        );
+    }
+
+    /// A game without teams still answers, so the host's screen renders an
+    /// empty list rather than waiting on a reply that never comes.
+    #[test]
+    fn requested_rosters_are_empty_without_teams() {
+        let fuiz = create_test_fuiz();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, Options::default(), host_id, &test_settings());
+
+        let host_tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| (id == host_id).then(|| host_tunnel.clone());
+
+        game.watchers
+            .add_watcher(host_id, crate::watcher::Value::Host)
+            .expect("host joins");
+
+        game.receive_message(
+            host_id,
+            IncomingMessage::Host(IncomingHostMessage::RequestTeamRosters),
+            |_: crate::AlarmMessage, _: std::time::Duration| {},
+            Tick::default(),
+            tunnel_finder,
+        );
+
+        let sent = host_tunnel.messages.lock().unwrap().clone();
+        assert!(
+            sent.iter().any(|message| message.contains(r#"{"TeamRosters":[]}"#)),
+            "an empty list, not silence: {sent:?}"
+        );
+    }
+
+    /// Rosters are host-only. A player asking gets nothing, including on the
+    /// socket path that answers the query without going through the log.
+    #[test]
+    fn players_cannot_request_rosters() {
+        let fuiz = create_test_fuiz();
+        let host_id = crate::watcher::Id::new();
+        let mut game = Game::new(fuiz, team_options(2), host_id, &test_settings());
+
+        let player_id = crate::watcher::Id::new();
+        let player_tunnel = MockTunnel::new();
+        let tunnel_finder = |id: crate::watcher::Id| (id == player_id).then(|| player_tunnel.clone());
+
+        game.watchers
+            .add_watcher(host_id, crate::watcher::Value::Host)
+            .expect("host joins");
+        game.watchers
+            .add_watcher(player_id, crate::watcher::Value::Unassigned)
+            .expect("player joins");
+        game.assign_player_name(player_id, "Ada", tunnel_finder)
+            .expect("name is free");
+
+        game.receive_message(
+            player_id,
+            IncomingMessage::Host(IncomingHostMessage::RequestTeamRosters),
+            |_: crate::AlarmMessage, _: std::time::Duration| {},
+            Tick::default(),
+            tunnel_finder,
+        );
+        // The direct call the Durable Object makes, which skips the kind check
+        // that `receive_message` performs.
+        game.send_team_rosters(player_id, tunnel_finder);
+
+        let sent = player_tunnel.messages.lock().unwrap().clone();
+        assert!(
+            !sent.iter().any(|message| message.contains("TeamRosters")),
+            "a player never sees the rosters: {sent:?}"
+        );
+    }
+
     #[test]
     fn test_game_kick_host_is_noop() {
         let fuiz = create_test_fuiz();
@@ -2985,7 +3213,10 @@ mod tests {
     #[test]
     fn test_sync_message_serialization() {
         // Test various SyncMessage variants
-        let metainfo_host = SyncMessage::Metainfo(MetainfoMessage::Host { locked: true });
+        let metainfo_host = SyncMessage::Metainfo(MetainfoMessage::Host {
+            locked: true,
+            teams: false,
+        });
         let json = serde_json::to_string(&metainfo_host).unwrap();
         assert!(json.contains("locked"));
         assert!(json.contains("true"));
